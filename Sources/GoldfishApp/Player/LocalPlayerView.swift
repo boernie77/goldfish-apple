@@ -51,6 +51,8 @@ struct LocalPlayerView: View {
     @State private var isConverting = false
     @State private var isFullScreen = false
     @State private var hostWindow: NSWindow?
+    /// Gleicher Fix wie `PlayerView.hasSizedWindowToVideo` (User-Anfrage 2026-08-19).
+    @State private var hasSizedWindowToVideo = false
     #endif
 
     init(item: LocalItem, queue: [LocalItem] = [], randomPool: [LocalItem]? = nil) {
@@ -211,11 +213,44 @@ struct LocalPlayerView: View {
             isFullScreen = false
         }
     }
+
+    /// Gleicher Key wie `PlayerView` — Server-Streaming und lokale Wiedergabe teilen sich
+    /// bewusst eine gemeinsame "zuletzt verwendete Fensterbreite", eine pro Player-Art zu
+    /// pflegen wäre nur verwirrend (User erwartet EIN konsistentes Player-Fenster-Verhalten).
+    private static let lastWindowWidthKey = "goldfish.player.lastWindowWidth"
+
+    /// Siehe `PlayerView.sizeWindowToVideo` für die volle Begründung (User-Anfrage
+    /// 2026-08-19: kein Balken + etwas größer als zuletzt).
+    private func sizeWindowToVideo(_ videoSize: CGSize) {
+        guard let window = hostWindow, isFullScreen == false else { return }
+        let aspect = videoSize.width / videoSize.height
+        guard aspect.isFinite, aspect > 0 else { return }
+
+        let lastWidth = UserDefaults.standard.double(forKey: Self.lastWindowWidthKey)
+        var width: CGFloat = lastWidth > 0 ? CGFloat(lastWidth) * 1.12 : 1100
+        var height = width / aspect
+
+        if let screenFrame = window.screen?.visibleFrame {
+            let maxWidth = screenFrame.width * 0.92
+            let maxHeight = screenFrame.height * 0.92
+            if width > maxWidth { width = maxWidth; height = width / aspect }
+            if height > maxHeight { height = maxHeight; width = height * aspect }
+        }
+
+        window.setContentSize(NSSize(width: width, height: height))
+        window.center()
+    }
+
+    private func saveWindowSizeForNextTime() {
+        guard let window = hostWindow, let contentSize = window.contentView?.frame.size, contentSize.width > 0 else { return }
+        UserDefaults.standard.set(Double(contentSize.width), forKey: Self.lastWindowWidthKey)
+    }
     #endif
 
     private func closePlayer() {
         #if os(macOS)
         // Same fix as PlayerView.closePlayer() — see its doc comment (2026-08-19).
+        saveWindowSizeForNextTime()
         PlayerLaunchCoordinator.shared.pendingLocalPlayer = nil
         hostWindow?.close()
         #else
@@ -332,6 +367,12 @@ struct LocalPlayerView: View {
             isPlaying = p.timeControlStatus == .playing
             if let size = p.currentItem?.presentationSize, size.width > 0, size.height > 0 {
                 currentResolutionLabel = Self.resolutionLabel(for: size)
+                #if os(macOS)
+                if !hasSizedWindowToVideo {
+                    hasSizedWindowToVideo = true
+                    sizeWindowToVideo(size)
+                }
+                #endif
             }
         }
 

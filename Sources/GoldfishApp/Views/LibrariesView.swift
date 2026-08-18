@@ -38,7 +38,7 @@ struct LibrariesView: View {
     @State private var randomError: String?
     @State private var showingScopeSheet = false
 
-    private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 220), spacing: 20)]
 
     private var mergedLocalLibraries: [LocalLibrary] {
         localLibrary.libraries.filter { localLibrary.mergedLibraryIds.contains($0.id) }
@@ -386,28 +386,23 @@ private struct SpecialLibraryCard: View {
     let colors: [Color]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: systemImage)
-                    .font(.system(size: 46))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
-            .frame(height: 110)
-
+        ZStack {
+            Circle()
+                .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image(systemName: systemImage)
+                .font(.system(size: 40))
+                .foregroundStyle(.white.opacity(0.25))
             Text(name)
                 .font(.headline)
-                .lineLimit(1)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 3)
+                .padding(.horizontal, 16)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        .frame(width: 190, height: 190)
+        .clipShape(Circle())
+        .shadow(color: .black.opacity(0.2), radius: 5, y: 3)
     }
 }
 
@@ -421,64 +416,66 @@ private struct LibraryCard: View {
     /// hart zu fehlern, nur verblasst + mit Hinweis (User-Anfrage 2026-08-19).
     var isUnavailable: Bool = false
 
+    /// Experiment 2026-08-19 (User: "Vorschaubilder passen da nicht richtig rein,
+    /// versuchen wir es mit Rund... wenn es nicht schön ist, dann können wir es ja wieder
+    /// ändern") — runde Kachel statt Rechteck mit separater Titel-Leiste, Beschriftung
+    /// mittig im Kreis statt unten als eigener Balken. Etwas größer als die vorherige
+    /// ~170-220×150-Rechteck-Kachel.
+    private let diameter: CGFloat = 190
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                if let previewURL {
-                    // `Color.clear` (no intrinsic size) resolved against the ZStack's own
-                    // frame first, THEN the image overlaid into that already-fixed size —
-                    // same fix as `PosterImage` (see its doc comment): letting AsyncImage
-                    // negotiate its own frame directly is what caused some library tiles to
-                    // render un-rounded/oddly-sized while others looked fine (real bug hit
-                    // 2026-08-18 — only showed up for tiles whose preview came from a 16:9
-                    // thumbnail instead of a 2:3 poster, i.e. a source/target aspect mismatch).
-                    Color.clear
-                        .overlay {
-                            AsyncImage(url: previewURL) { phase in
-                                switch phase {
-                                case .success(let image): image.resizable().scaledToFill()
-                                default: LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                                }
+        ZStack {
+            if let previewURL {
+                // `Color.clear` zuerst auf die feste Kreisgröße gebracht, DANN das Bild
+                // reingelegt — gleicher Fix wie vorher beim Rechteck (siehe `PosterImage`-
+                // Kommentar): AsyncImage direkt seine eigene Größe verhandeln zu lassen
+                // führte zu falsch beschnittenen Kacheln.
+                Color.clear
+                    .overlay {
+                        AsyncImage(url: previewURL) { phase in
+                            switch phase {
+                            case .success(let image): image.resizable().scaledToFill()
+                            default: LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
                             }
                         }
-                        .clipped()
-                    LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
-                } else {
-                    LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: icon)
-                        .font(.system(size: 46))
-                        .foregroundStyle(.white.opacity(0.25))
-                        .padding(16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                }
+                    }
+                    .clipShape(Circle())
+                // Radialer Verlauf zur Mitte hin abgedunkelt, damit der zentrierte Titel
+                // auf JEDEM Vorschaubild lesbar bleibt, nicht nur auf dunklen.
+                Circle()
+                    .fill(RadialGradient(colors: [.clear, .black.opacity(0.65)], center: .center, startRadius: diameter * 0.15, endRadius: diameter * 0.55))
+            } else {
+                Circle()
+                    .fill(LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: icon)
+                    .font(.system(size: 40))
+                    .foregroundStyle(.white.opacity(0.2))
+            }
 
+            VStack(spacing: 4) {
+                Text(name)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.7), radius: 3)
                 HStack(spacing: 4) {
-                    Text(isUnavailable ? "nicht verbunden" : kindLabel)
                     if isUnavailable {
                         Image(systemName: "externaldrive.badge.xmark")
                     } else if isLocal {
                         Image(systemName: "externaldrive")
                     }
+                    Text(isUnavailable ? "nicht verbunden" : kindLabel)
                 }
                 .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(.black.opacity(0.25), in: Capsule())
-                .foregroundStyle(.white)
-                .padding(10)
+                .foregroundStyle(.white.opacity(0.85))
+                .shadow(color: .black.opacity(0.7), radius: 2)
             }
-            .frame(height: 110)
-
-            Text(name)
-                .font(.headline)
-                .lineLimit(1)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
+            .padding(.horizontal, 16)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        .frame(width: diameter, height: diameter)
+        .clipShape(Circle())
+        .shadow(color: .black.opacity(0.2), radius: 5, y: 3)
         .opacity(isUnavailable ? 0.5 : 1)
     }
 
