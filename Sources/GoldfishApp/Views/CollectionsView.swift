@@ -12,7 +12,10 @@ struct CollectionsView: View {
     // nötig, matcht einfach gegen die schon geladene Liste).
     @State private var search = ""
 
-    private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 16)]
+    // Fixed (min == max) column width — gleicher Fix wie CollectionDetailView/ItemGridView
+    // (echtes Adaptive-Grid kann die Kachelbreite beim ersten Renderpass falsch berechnen).
+    private let cardWidth: CGFloat = 190
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16)] }
 
     private var filteredCollections: [Collection] {
         guard !search.isEmpty else { return collections }
@@ -35,6 +38,7 @@ struct CollectionsView: View {
                         ForEach(filteredCollections) { collection in
                             NavigationLink(destination: CollectionDetailView(collection: collection)) {
                                 CollectionCard(collection: collection)
+                                    .frame(width: cardWidth)
                             }
                             .buttonStyle(.plain)
                             .focusableCompat(false)
@@ -155,7 +159,16 @@ struct CollectionDetailView: View {
     @State private var errorMessage: String?
     @State private var showHidden = false
 
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 16)]
+    // Fixed (min == max) column width statt eines echten Adaptive-Grids — gleicher Fix wie
+    // `ItemGridView.cardWidth` (User-Bericht 2026-08-19: erste Kachel einer Sammlung zeigte
+    // ein zugeschnitten/gezoomt wirkendes Poster, andere Kacheln daneben normal). Adaptive
+    // Grids können auf macOS ihre Breite direkt nach einem NavigationStack-Push falsch
+    // berechnen — der erste Renderpass proposed eine falsche/ambige Breite, bevor die echte
+    // Grid-Spaltenbreite feststeht, wodurch `PosterImage`s `.aspectRatio(2/3, contentMode:
+    // .fit)` sie in eine zu kurze Box zwingt (symmetrischer Crop oben+unten). Eine feste
+    // Breite umgeht das komplett, siehe `ItemGridView`s Kommentar zum selben Bug.
+    private let cardWidth: CGFloat = 150
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16)] }
 
     private var visibleParts: [CollectionPart] {
         showHidden ? parts : parts.filter { !$0.hidden }
@@ -183,6 +196,7 @@ struct CollectionDetailView: View {
                                 CollectionPartCard(part: part, collectionId: collection.id) {
                                     await load()
                                 }
+                                .frame(width: cardWidth)
                             }
                         }
                         .padding(.horizontal)
