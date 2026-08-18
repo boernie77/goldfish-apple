@@ -56,6 +56,26 @@ struct SettingsView: View {
     private var ownedDownloadFailedItemIds: [Int64] {
         Array(transcode.downloadFailedItems.keys.filter { ownedDownloadItemIds.contains($0) })
     }
+    // Sicherheits-Fix 2026-08-19 (User: "Benutzer müssen streng getrennt sein!!!!"):
+    // `LocalTranscodeService` ist EIN Hintergrund-Worker für den ganzen App-Prozess, der
+    // Jobs unabhängig davon abarbeitet, welcher Goldfish-User gerade eingeloggt ist — die
+    // Warteschlange/`currentItem`/`currentDownloadTitle` sind also KEINE per-User-Zustände.
+    // Ohne Filter sah Börnie live den Dateinamen von Christians laufender Konvertierung.
+    // `ownedLocalItemIds`/`ownedDownloadItemIds` sind bereits pro User gefiltert (siehe
+    // oben) — hier zusätzlich für `currentItem`/`currentDownload*`/`queuedItems` genutzt,
+    // damit nichts von einem fremden User sichtbar wird, weder Titel noch Fortschritt noch
+    // reine Zählung.
+    private var ownCurrentLocalItem: LocalItem? {
+        guard let current = transcode.currentItem, ownedLocalItemIds.contains(current.id) else { return nil }
+        return current
+    }
+    private var ownQueuedLocalCount: Int {
+        transcode.queuedItems.filter { ownedLocalItemIds.contains($0.id) }.count
+    }
+    private var ownCurrentDownloadItemId: Int64? {
+        guard let itemId = transcode.currentDownloadItemId, ownedDownloadItemIds.contains(itemId) else { return nil }
+        return itemId
+    }
     private var scopedCompletedCount: Int {
         transcode.scopedCompletedCount(ownedLocalItemIds: ownedLocalItemIds, ownedDownloadItemIds: ownedDownloadItemIds)
     }
@@ -230,15 +250,15 @@ struct SettingsView: View {
                 // nie, obwohl er für seine Downloads durchaus relevant ist.
                 if !localLibrary.libraries.isEmpty || !downloads.records.isEmpty {
                     Section {
-                        if let current = transcode.currentItem {
+                        if let current = ownCurrentLocalItem {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Wird angepasst: \(current.displayTitle)")
                                     .font(.caption)
                                 ProgressView(value: transcode.progress["local-\(current.id.uuidString)"] ?? 0)
                             }
                         }
-                        if !transcode.queuedItems.isEmpty {
-                            Text("\(transcode.queuedItems.count) weitere in der Warteschlange")
+                        if ownQueuedLocalCount > 0 {
+                            Text("\(ownQueuedLocalCount) weitere in der Warteschlange")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -260,24 +280,21 @@ struct SettingsView: View {
                         // Button für beides statt zwei getrennter — `isConverted`/
                         // `isDownloadConverted` sorgen dafür, dass bereits fertige Dateien
                         // ohnehin übersprungen werden, hier also kein unnötiges Neu-Konvertieren.
-                        if !ownedDownloadFailedItemIds.isEmpty || transcode.currentDownloadTitle != nil {
+                        if !ownedDownloadFailedItemIds.isEmpty || ownCurrentDownloadItemId != nil {
                             ForEach(Array(ownedDownloadFailedItemIds), id: \.self) { id in
                                 Text("⚠ Download fehlgeschlagen: \(transcode.downloadFailedItems[id] ?? "")")
                                     .font(.caption2)
                                     .foregroundStyle(.red)
                             }
-                            if let title = transcode.currentDownloadTitle {
-                                // User-Anfrage 2026-08-19: "bei der Formatanpassung fehlt der
-                                // Fortschrittsbalken" — der Download-Pfad zeigte bisher nur
-                                // Text, nie den `ProgressView`, den der lokale Pfad oben schon
-                                // hatte (`transcode.progress["local-<uuid>"]`). Gleiches Muster
-                                // jetzt auch für Downloads via `currentDownloadItemId`.
+                            // Nur anzeigen, wenn die AKTUELL konvertierte Download-Datei auch
+                            // dem eingeloggten User gehört (ownCurrentDownloadItemId) — sonst
+                            // liefe hier `transcode.currentDownloadTitle` ungefiltert mit, egal
+                            // wessen Konvertierung gerade läuft.
+                            if let itemId = ownCurrentDownloadItemId, let title = transcode.currentDownloadTitle {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Wird angepasst: \(title)")
                                         .font(.caption)
-                                    if let itemId = transcode.currentDownloadItemId {
-                                        ProgressView(value: transcode.progress["dl-\(itemId)"] ?? 0)
-                                    }
+                                    ProgressView(value: transcode.progress["dl-\(itemId)"] ?? 0)
                                 }
                             }
                         }
