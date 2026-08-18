@@ -69,6 +69,14 @@ struct WatchLinkSettingsView: View {
                 Text("Der andere Benutzer muss die Anfrage in seinen eigenen Einstellungen bestätigen, bevor die Synchronisierung startet.")
             }
         }
+        .formStyle(.grouped)
+        // Fix 2026-08-19 (User: "Textsprung nach Auswahl des Benutzers... das habe ich
+        // oft!"): ohne explizites Frame bricht das Layout bei jedem Re-Render durch
+        // async State-Updates (hier: `reload()` setzt watchLinks/otherUsers) — der Form
+        // rendert erst zentriert/schmal, springt dann auf einen linksbündigen, teils
+        // abgeschnittenen Layout-Zustand um. `SettingsView`s eigenes Form hat dasselbe
+        // Frame (Zeile ~412) und zeigt den Bug dort nicht — hier fehlte es einfach.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Gesehen-Sync")
         .task { await reload() }
     }

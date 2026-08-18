@@ -313,6 +313,11 @@ struct ShuffleScopeSettingsList: View {
                 }
             }
         }
+        // Gleicher Fix wie `WatchLinkSettingsView` (User-Anfrage 2026-08-19: "Textsprung
+        // nach Auswahl... das habe ich oft!") — jede als NavigationLink-Ziel gepushte
+        // List/Form ohne explizites Frame kann beim ersten Re-Render (hier: lazy
+        // Folder-Expansion) von zentriert/schmal auf linksbündig/abgeschnitten springen.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
