@@ -1,4 +1,9 @@
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 public enum GoldfishError: Error, LocalizedError {
     case invalidURL
@@ -302,6 +307,31 @@ public final class GoldfishClient: ObservableObject {
     public func setFavorite(itemId: Int64, favorite: Bool) async throws {
         let body = try JSONEncoder().encode(["favorite": favorite])
         try await performVoid("/api/items/\(itemId)/favorite", method: "PUT", jsonBody: body)
+    }
+
+    // MARK: - Trickplay (Hover-Vorschau im Player)
+
+    /// Lädt + parst das VTT-Manifest. Wirft nicht bei fehlenden Trickplay-Daten (404 vom
+    /// Server, z.B. `trickplayStatus != "done"`) — liefert einfach ein leeres Array, damit
+    /// der Player die Vorschau still weglässt statt einen Fehler zu zeigen.
+    public func fetchTrickplayCues(itemId: Int64) async -> [TrickplayCue] {
+        guard let data = try? await performRaw("/api/trickplay/\(itemId)/thumbs.vtt"),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+        return TrickplayVTTParser.parse(text)
+    }
+
+    /// Lädt das komplette Sprite-Sheet als `CGImage` (nicht als `URL`, damit der Aufrufer
+    /// nicht selbst eine zweite, unauthentifizierte `URLSession` bräuchte — die Session-Cookie-
+    /// Auth läuft hier über dieselbe `session`-Instanz wie jeder andere Request).
+    public func fetchTrickplaySprite(itemId: Int64) async -> CGImage? {
+        guard let data = try? await performRaw("/api/trickplay/\(itemId)/sprite.jpg") else { return nil }
+        #if os(macOS)
+        guard let nsImage = NSImage(data: data) else { return nil }
+        var rect = CGRect(origin: .zero, size: nsImage.size)
+        return nsImage.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        #else
+        return UIImage(data: data)?.cgImage
+        #endif
     }
 
     // MARK: - Watch-Link (Gesehen-Sync zwischen zwei Usern)

@@ -95,6 +95,12 @@ struct PlayerView: View {
     /// (CLAUDE.md: "Auflösung aus video.videoWidth/Height — tatsächliche Render-Auflösung").
     /// User-Anfrage 2026-08-19: sichtbar solange die Steuerleiste eingeblendet ist.
     @State private var currentResolutionLabel: String?
+    // User-Anfrage 2026-08-19: "Trickbilder" (Hover-Vorschau in der Scrub-Leiste) — nutzt
+    // dieselben Endpoints wie der Browser (`/api/trickplay/{id}/thumbs.vtt`+`sprite.jpg`),
+    // siehe CLAUDE.md "Trickplay (Hover-Vorschau)". Leer bleiben (kein Fehler), wenn der
+    // Server noch keine Daten hat (`item.trickplayStatus != "done"`) oder der Fetch fehlschlägt.
+    @State private var trickplayCues: [TrickplayCue] = []
+    @State private var trickplaySprite: CGImage?
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
     @State private var isConverting = false
@@ -217,6 +223,8 @@ struct PlayerView: View {
                             duration: duration,
                             isScrubbing: $isScrubbing,
                             volume: $volume,
+                            trickplayCues: trickplayCues,
+                            trickplaySprite: trickplaySprite,
                             hasPrev: hasPrev,
                             hasNext: hasNext,
                             onTogglePlay: { togglePlay(); resetAutoHide() },
@@ -432,6 +440,11 @@ struct PlayerView: View {
         currentResolutionLabel = nil
         isFavorite = item.favorite
         hasMarkedWatchedThisSession = false
+        trickplayCues = []
+        trickplaySprite = nil
+        if item.trickplayStatus == "done" {
+            Task { await loadTrickplay() }
+        }
 
         // Offline-first: if this item was downloaded, play the local file — works with no
         // network at all. The server's `/api/download` endpoint serves the ORIGINAL,
@@ -685,6 +698,13 @@ struct PlayerView: View {
         }
     }
 
+    private func loadTrickplay() async {
+        let cues = await client.fetchTrickplayCues(itemId: item.id)
+        guard !cues.isEmpty else { return }
+        trickplayCues = cues
+        trickplaySprite = await client.fetchTrickplaySprite(itemId: item.id)
+    }
+
     private func toggleFavorite() {
         let newValue = !isFavorite
         isFavorite = newValue
@@ -698,6 +718,8 @@ private struct PlayerControlsBar: View {
     let duration: Double
     @Binding var isScrubbing: Bool
     @Binding var volume: Float
+    var trickplayCues: [TrickplayCue] = []
+    var trickplaySprite: CGImage? = nil
     let hasPrev: Bool
     let hasNext: Bool
     let onTogglePlay: () -> Void
@@ -724,21 +746,14 @@ private struct PlayerControlsBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Text(formatTime(isScrubbing ? scrubValue : currentTime))
-                Slider(
-                    value: Binding(
-                        get: { isScrubbing ? scrubValue : currentTime },
-                        set: { scrubValue = $0 }
-                    ),
-                    in: 0...max(duration, 1),
-                    onEditingChanged: { editing in
-                        if editing {
-                            isScrubbing = true
-                            scrubValue = currentTime
-                        } else {
-                            onScrubEnd(scrubValue)
-                            isScrubbing = false
-                        }
-                    }
+                ScrubberWithPreview(
+                    isScrubbing: $isScrubbing,
+                    scrubValue: $scrubValue,
+                    currentTime: currentTime,
+                    duration: duration,
+                    trickplayCues: trickplayCues,
+                    trickplaySprite: trickplaySprite,
+                    onScrubEnd: onScrubEnd
                 )
                 Text(formatTime(duration))
             }
@@ -829,6 +844,122 @@ private struct PlayerControlsBar: View {
     }
 
     private func formatTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+/// Scrub-Slider + Trickplay-Hover-Vorschau. Ein normaler SwiftUI-`Slider` allein verrät
+/// keine Mauszeiger-Position — deshalb sitzt hier zusätzlich ein `.onContinuousHover`
+/// (macOS) auf demselben `GeometryReader`, der die Slider-Breite kennt, um Fraktion→Zeit
+/// umzurechnen. Auf iOS gibt es kein Hover; dort zeigt die Vorschau nur während des aktiven
+/// Ziehens (`isScrubbing`) — mirrors, was die Plattform überhaupt hergibt.
+private struct ScrubberWithPreview: View {
+    @Binding var isScrubbing: Bool
+    @Binding var scrubValue: Double
+    let currentTime: Double
+    let duration: Double
+    let trickplayCues: [TrickplayCue]
+    let trickplaySprite: CGImage?
+    let onScrubEnd: (Double) -> Void
+
+    #if os(macOS)
+    @State private var hoverFraction: CGFloat?
+    #endif
+
+    private var previewTime: Double? {
+        if isScrubbing { return scrubValue }
+        #if os(macOS)
+        if let hoverFraction { return Double(hoverFraction) * max(duration, 1) }
+        #endif
+        return nil
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Slider(
+                    value: Binding(
+                        get: { isScrubbing ? scrubValue : currentTime },
+                        set: { scrubValue = $0 }
+                    ),
+                    in: 0...max(duration, 1),
+                    onEditingChanged: { editing in
+                        if editing {
+                            isScrubbing = true
+                            scrubValue = currentTime
+                        } else {
+                            onScrubEnd(scrubValue)
+                            isScrubbing = false
+                        }
+                    }
+                )
+                .frame(width: geo.size.width)
+
+                if let previewTime, !trickplayCues.isEmpty, let sprite = trickplaySprite,
+                   let cue = TrickplayVTTParser.cue(for: previewTime, in: trickplayCues) {
+                    let fraction = duration > 0 ? CGFloat(previewTime / duration) : 0
+                    let previewWidth: CGFloat = 160
+                    let centerX = fraction * geo.size.width
+                    let clampedX = min(max(centerX - previewWidth / 2, 0), max(geo.size.width - previewWidth, 0))
+                    TrickplaySpriteView(sprite: sprite, cue: cue, time: previewTime)
+                        .offset(x: clampedX, y: -104)
+                        .allowsHitTesting(false)
+                }
+            }
+            #if os(macOS)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    hoverFraction = min(max(location.x / geo.size.width, 0), 1)
+                case .ended:
+                    hoverFraction = nil
+                }
+            }
+            #endif
+        }
+        .frame(height: 20)
+    }
+}
+
+/// Ein einzelnes Sprite-Kachel-Crop aus dem Trickplay-Sheet, gerendert als kleine
+/// Vorschau-Karte mit Zeitstempel — mirrors den Browser-Hover (CLAUDE.md "Trickplay
+/// (Hover-Vorschau)": Sprite-Ausschnitt via Zeit-zu-Kachel-Zuordnung).
+private struct TrickplaySpriteView: View {
+    let sprite: CGImage
+    let cue: TrickplayCue
+    let time: Double
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Group {
+                if let cropped = sprite.cropping(to: CGRect(x: cue.x, y: cue.y, width: cue.width, height: cue.height)) {
+                    Image(decorative: cropped, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Color.black
+                }
+            }
+            .frame(width: 160, height: 90)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.5), lineWidth: 1))
+
+            Text(previewFormatTime(time))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.black.opacity(0.75), in: Capsule())
+        }
+        .shadow(color: .black.opacity(0.5), radius: 6, y: 3)
+    }
+
+    private func previewFormatTime(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let total = Int(seconds)
         let h = total / 3600

@@ -84,9 +84,23 @@ struct PersonItemsView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text("🎭 \(personName)")
-                            .font(.title2.bold())
-                            .padding(.horizontal)
+                        // User-Anfrage 2026-08-19: "wird auch bei einer Schauspielerfilterung
+                        // die Trefferanzahl angezeigt" — vorher fehlte hier jede Gesamtzahl,
+                        // nur die Serien-Sammelkacheln zeigten ihre Folgenanzahl. Filme +
+                        // Episoden zusammengezählt, analog zur "N Treffer"-Anzeige in
+                        // `ItemGridView`.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("🎭 \(personName)")
+                                .font(.title2.bold())
+                            // Zählt wie im Browser Kacheln, nicht rohe Items: Filme einzeln,
+                            // Serien als EINE Sammelkachel — sonst würde eine Serie mit 40
+                            // Gastauftritten allein die Zahl dominieren, obwohl nur eine
+                            // Kachel dafür zu sehen ist.
+                            Text("(\(movies.count + showGroups.count) Treffer)")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal)
                         if !movies.isEmpty {
                             Text("🎬 Filme")
                                 .font(.headline)

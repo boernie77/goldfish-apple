@@ -48,6 +48,10 @@ struct ItemGridView: View {
         _ascending = State(initialValue: true)
     }
 
+    private var isFilterActive: Bool {
+        !search.isEmpty || watchedFilter != .all || favoritesOnly || !selectedBuckets.isEmpty
+    }
+
     // Fixed (min == max) column width instead of a fully adaptive grid: adaptive grids
     // on macOS can miscompute their initial width right after a NavigationStack push,
     // which visually collapses the grid into one smeared column. A fixed cell size sidesteps that.
@@ -74,7 +78,12 @@ struct ItemGridView: View {
                         }
                         .padding(.horizontal)
 
-                        if !search.isEmpty {
+                        // User-Anfrage 2026-08-19: "bei Such- oder Filterergebnissen will ich
+                        // immer die Anzahl der Treffer sehen" — vorher nur bei Textsuche
+                        // sichtbar, jetzt auch bei jedem aktiven Filter (Gesehen/Favorit/
+                        // Auflösung) ohne Suchtext, analog zum Browser (`filterActive` in
+                        // grid.js).
+                        if isFilterActive {
                             Text("\(items.count) Treffer")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)

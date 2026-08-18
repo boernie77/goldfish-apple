@@ -393,11 +393,15 @@ private struct SpecialLibraryCard: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.white.opacity(0.25))
             Text(name)
-                .font(.headline)
+                // User-Feedback 2026-08-19: "Beschriftung könnte etwas kräftiger sein" —
+                // .headline war schon semibold, jetzt explizit .bold + etwas größer plus
+                // stärkerer/doppelter Schatten für mehr Kontrast auf hellen Vorschaubildern.
+                .font(.title3.weight(.bold))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.7), radius: 3)
+                .shadow(color: .black.opacity(0.8), radius: 4)
+                .shadow(color: .black.opacity(0.6), radius: 1)
                 .padding(.horizontal, 16)
         }
         .frame(width: 190, height: 190)
@@ -454,11 +458,13 @@ private struct LibraryCard: View {
 
             VStack(spacing: 4) {
                 Text(name)
-                    .font(.headline)
+                    // Gleiche Verstärkung wie SpecialLibraryCard (User-Feedback 2026-08-19).
+                    .font(.title3.weight(.bold))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.7), radius: 3)
+                    .shadow(color: .black.opacity(0.8), radius: 4)
+                    .shadow(color: .black.opacity(0.6), radius: 1)
                 HStack(spacing: 4) {
                     if isUnavailable {
                         Image(systemName: "externaldrive.badge.xmark")
