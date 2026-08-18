@@ -22,6 +22,16 @@ struct PosterImage: View {
     let url: URL?
     var aspect: CGFloat = 2.0 / 3.0
     var placeholderSystemImage: String = "film"
+    /// Wenn gesetzt: Breite/Höhe werden als reine Arithmetik (`width`, `width/aspect`)
+    /// berechnet, KEINE SwiftUI-Layout-Verhandlung über GeometryReader/aspectRatio mehr.
+    /// User-Bericht 2026-08-19: selbst der GeometryReader-Ansatz unten blieb für eine
+    /// bestimmte Kachel in einem `LazyVGrid` dauerhaft falsch — unabhängig vom Bildinhalt,
+    /// unabhängig von der Position, aber NUR in Grids (die Detail-Ansicht, ein normales
+    /// VStack ohne LazyVGrid, zeigte dasselbe Bild korrekt). Deutet auf einen echten
+    /// SwiftUI/AppKit-Bug bei LazyVGrid-Zell-Wiederverwendung + Geometrie-Neuverhandlung
+    /// hin. Fester Wert umgeht das Problem komplett, weil nichts mehr neu verhandelt
+    /// werden muss. Von `ItemCard` (fester 150pt-Grid-Kontext) genutzt.
+    var fixedWidth: CGFloat? = nil
 
     // User-Bericht 2026-08-19: EIN bestimmtes Poster ("American Fighter" 1985) zeigte
     // in JEDER Ansicht (normales Grid, Sammlung) dasselbe zugeschnitten/gezoomt wirkende
@@ -47,22 +57,31 @@ struct PosterImage: View {
         // Verhandlungsschritt. `.id(url)` erzwingt zusätzlich einen kompletten View-Neuaufbau
         // bei jeder URL-Änderung (nicht nur einen Reload des Bild-State), falls doch
         // irgendein internes Layout-/Geometrie-Caching an der View-Identität hängt.
-        GeometryReader { geo in
-            Group {
-                if let loadedImage, !loadFailed {
-                    Image(platformImage: loadedImage)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    placeholder
+        Group {
+            if let fixedWidth {
+                content.frame(width: fixedWidth, height: fixedWidth / aspect)
+            } else {
+                GeometryReader { geo in
+                    content.frame(width: geo.size.width, height: geo.size.height)
                 }
+                .aspectRatio(aspect, contentMode: .fit)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
         }
-        .aspectRatio(aspect, contentMode: .fit)
+        .clipped()
         .id(url)
         .task(id: url) { await load() }
+    }
+
+    private var content: some View {
+        Group {
+            if let loadedImage, !loadFailed {
+                Image(platformImage: loadedImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                placeholder
+            }
+        }
     }
 
     private func load() async {

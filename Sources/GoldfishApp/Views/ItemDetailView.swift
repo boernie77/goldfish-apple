@@ -72,6 +72,15 @@ struct ItemDetailView: View {
                         .font(.subheadline)
                 }
 
+                // User-Anfrage 2026-08-19: "kannst du in der Detailansicht das Genre noch
+                // ergänzen?" — genreList gibt's im Model schon (JSON-String vom Server
+                // dekodiert), fehlte hier bisher komplett in der UI.
+                if let genres = item.metadata?.genreList, !genres.isEmpty {
+                    Text(genres.joined(separator: " · "))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let overview = item.metadata?.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.body)

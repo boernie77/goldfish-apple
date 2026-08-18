@@ -409,7 +409,11 @@ struct ItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            PosterImage(url: posterURL)
+            // fixedWidth: 150 matcht den festen `cardWidth`, den JEDER Aufrufer dieser Karte
+            // von außen per `.frame(width:)` vorgibt (ItemGridView/PersonItemsView/
+            // CollectionsView/LocalLibraryItemsView) — siehe PosterImage.fixedWidth-Kommentar
+            // für den Bug, den das umgeht.
+            PosterImage(url: posterURL, fixedWidth: 150)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
                     VStack(spacing: 3) {
