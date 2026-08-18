@@ -297,6 +297,14 @@ struct SettingsView: View {
                                     ProgressView(value: transcode.progress["dl-\(itemId)"] ?? 0)
                                 }
                             }
+                            // `transcode.queuedDownloads` kommt bereits aus den per-User
+                            // gefilterten `downloads.records` (Aufrufer übergibt nur die
+                            // eigenen), keine zusätzliche Ownership-Prüfung nötig.
+                            if !transcode.queuedDownloads.isEmpty {
+                                Text("\(transcode.queuedDownloads.count) Download(s) in der Warteschlange")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         // Manuell erneut anstoßen, ohne die Bibliothek zu löschen/neu
                         // anzulegen (User-Anfrage 2026-08-19) — ein normaler Scan prüft

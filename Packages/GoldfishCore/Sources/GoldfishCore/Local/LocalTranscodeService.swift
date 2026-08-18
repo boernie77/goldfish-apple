@@ -101,6 +101,9 @@ public final class LocalTranscodeService: ObservableObject {
     /// only ever exposed the title, nothing to key `progress["dl-<itemId>"]` off. Added so
     /// Settings can show the exact same `ProgressView` for downloads too.
     @Published public private(set) var currentDownloadItemId: Int64?
+    /// Downloads waiting their turn — analog zu `queuedItems` für lokale Bibliotheken.
+    /// User-Anfrage 2026-08-19: "kannst du die Warteschlange für Downloads mit einbauen?".
+    @Published public private(set) var queuedDownloads: [DownloadRecord] = []
     private static let failedItemsKey = "goldfish.transcode.failedItems"
     private static let downloadFailedItemsKey = "goldfish.transcode.downloadFailedItems"
     private var isProcessingQueue = false
@@ -298,11 +301,22 @@ public final class LocalTranscodeService: ObservableObject {
         guard !isProcessingDownloads else { return }
         isProcessingDownloads = true
         Task {
+            // Zwei Phasen wie `enqueueCompatibilityCheck`/`processQueue` für lokale
+            // Bibliotheken: erst alle wirklich inkompatiblen Downloads ermitteln (async
+            // Playability-Probe) und als sichtbare Warteschlange publishen, DANN abarbeiten
+            // — vorher gab es hier gar keine Zwischen-Liste, nur das aktuell laufende Item.
+            var pending: [DownloadRecord] = []
             for rec in records where rec.state == .done {
                 guard !isDownloadConverted(itemId: rec.itemId) else { continue }
                 guard let url = fileURLProvider(rec.itemId) else { continue }
                 let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? true
                 guard !playable else { continue }
+                pending.append(rec)
+            }
+            queuedDownloads = pending
+            while !queuedDownloads.isEmpty {
+                let rec = queuedDownloads.removeFirst()
+                guard let url = fileURLProvider(rec.itemId) else { continue }
                 currentDownloadTitle = rec.title
                 currentDownloadItemId = rec.itemId
                 do {
