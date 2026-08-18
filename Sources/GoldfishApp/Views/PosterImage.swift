@@ -37,9 +37,18 @@ struct PosterImage: View {
     @State private var loadFailed = false
 
     var body: some View {
-        Color.clear
-            .aspectRatio(aspect, contentMode: .fit)
-            .overlay {
+        // GeometryReader statt `Color.clear.aspectRatio(_, contentMode: .fit)` als Größen-
+        // Anker: User-Bericht 2026-08-19 zeigte, dass EINE bestimmte Kachel-Position (nicht
+        // an ein bestimmtes Bild gebunden — trat auch nach Neuzuordnung auf einen komplett
+        // ANDEREN Film hin weiter auf) dauerhaft falsch/verschoben blieb, über mehrere App-
+        // Neubauten hinweg. `.aspectRatio(_, contentMode: .fit)` auf `Color.clear` verlangt
+        // eine SwiftUI-interne Größen-VERHANDLUNG mit dem Elternview — GeometryReader meldet
+        // stattdessen die tatsächlich vom Elternview zugewiesene Größe direkt, ohne
+        // Verhandlungsschritt. `.id(url)` erzwingt zusätzlich einen kompletten View-Neuaufbau
+        // bei jeder URL-Änderung (nicht nur einen Reload des Bild-State), falls doch
+        // irgendein internes Layout-/Geometrie-Caching an der View-Identität hängt.
+        GeometryReader { geo in
+            Group {
                 if let loadedImage, !loadFailed {
                     Image(platformImage: loadedImage)
                         .resizable()
@@ -48,8 +57,12 @@ struct PosterImage: View {
                     placeholder
                 }
             }
+            .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
-            .task(id: url) { await load() }
+        }
+        .aspectRatio(aspect, contentMode: .fit)
+        .id(url)
+        .task(id: url) { await load() }
     }
 
     private func load() async {
