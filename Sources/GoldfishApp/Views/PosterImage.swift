@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// A poster/thumbnail image guaranteed to occupy exactly `aspect` regardless of the
 /// loaded image's real proportions.
@@ -18,29 +23,68 @@ struct PosterImage: View {
     var aspect: CGFloat = 2.0 / 3.0
     var placeholderSystemImage: String = "film"
 
+    // User-Bericht 2026-08-19: EIN bestimmtes Poster ("American Fighter" 1985) zeigte
+    // in JEDER Ansicht (normales Grid, Sammlung) dasselbe zugeschnitten/gezoomt wirkende
+    // Bild, obwohl die Server-Datei nachweislich korrekt ist UND der Browser dasselbe
+    // Poster fehlerfrei zeigt — reproduziert über mehrere App-Neubauten hinweg. Da es
+    // immer GENAU dasselbe Item betrifft (nicht z.B. "immer die erste Kachel"), ist die
+    // wahrscheinlichste Erklärung ein hartnäckiger Eintrag in `URLCache.shared`, den
+    // `AsyncImage` intern nutzt — dieser Cache liegt auf der Festplatte im App-Caches-
+    // Ordner und überlebt Neubauten der App (anders als reiner In-Memory-State). Fix:
+    // Poster-Loads laufen jetzt über einen eigenen Loader mit `.reloadIgnoringLocalAndRemoteCacheData`
+    // statt AsyncImage, der JEDEN Cache (lokal + protocol-level) ignoriert.
+    @State private var loadedImage: PlatformImage?
+    @State private var loadFailed = false
+
     var body: some View {
         Color.clear
             .aspectRatio(aspect, contentMode: .fit)
             .overlay {
-                if let url {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image.resizable().scaledToFill()
-                        default:
-                            placeholder
-                        }
-                    }
+                if let loadedImage, !loadFailed {
+                    Image(platformImage: loadedImage)
+                        .resizable()
+                        .scaledToFill()
                 } else {
                     placeholder
                 }
             }
             .clipped()
+            .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        loadedImage = nil
+        loadFailed = false
+        guard let url else { return }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let image = PlatformImage(data: data) else {
+            loadFailed = true
+            return
+        }
+        loadedImage = image
     }
 
     private var placeholder: some View {
         Rectangle()
             .fill(.secondary.opacity(0.2))
             .overlay(Image(systemName: placeholderSystemImage).foregroundStyle(.secondary))
+    }
+}
+
+#if os(macOS)
+typealias PlatformImage = NSImage
+#else
+typealias PlatformImage = UIImage
+#endif
+
+private extension Image {
+    init(platformImage: PlatformImage) {
+        #if os(macOS)
+        self.init(nsImage: platformImage)
+        #else
+        self.init(uiImage: platformImage)
+        #endif
     }
 }

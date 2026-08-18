@@ -799,7 +799,7 @@ private struct PlayerControlsBar: View {
                     }
                     Button(action: onTogglePlay) {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title3)
+                            .font(.title2)
                     }
                     Button { onSkip(15) } label: {
                         Image(systemName: "goforward.15")
@@ -809,7 +809,7 @@ private struct PlayerControlsBar: View {
                         Image(systemName: "forward.end.fill")
                     }.disabled(!hasNext).opacity(hasNext ? 1 : 0.35)
                 }
-                .font(.body)
+                .font(.title3)
 
                 Spacer(minLength: 12)
                 HStack(spacing: 12) {
@@ -835,11 +835,12 @@ private struct PlayerControlsBar: View {
             .foregroundStyle(.white)
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
         .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
         .fixedSize(horizontal: false, vertical: true) // guard against any accidental vertical stretch from the parent
-        .frame(maxWidth: 480)
+        // User-Anfrage 2026-08-19: "Steuerfenster des Players ein klein wenig größer machen".
+        .frame(maxWidth: 560)
         .padding(.horizontal, 40)
     }
 
@@ -922,7 +923,7 @@ private struct ScrubberWithPreview: View {
             }
             #endif
         }
-        .frame(height: 20)
+        .frame(height: 24)
     }
 }
 
