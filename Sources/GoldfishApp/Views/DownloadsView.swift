@@ -15,7 +15,7 @@ struct DownloadsView: View {
     @EnvironmentObject var downloads: DownloadManager
     @EnvironmentObject var client: GoldfishClient
 
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
     private var allRecords: [DownloadRecord] {
         downloads.records.values.sorted { $0.title < $1.title }
@@ -206,7 +206,10 @@ private struct DownloadGroupCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            PosterImage(url: posterURL, placeholderSystemImage: placeholderSystemImage)
+            // fixedWidth: siehe PosterImage-Kommentar — verhindert, dass ein auf 2 Zeilen
+            // umbrechender Titel darunter die Bildhöhe DIESER Kachel in einem LazyVGrid
+            // verzerrt (bestätigter Bug, User-Bericht 2026-08-19).
+            PosterImage(url: posterURL, placeholderSystemImage: placeholderSystemImage, fixedWidth: 150)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .bottomTrailing) {
                     Text("\(group.items.count)")
@@ -247,7 +250,7 @@ private struct DownloadGroupDetailView: View {
     let group: DownloadGroup
     @EnvironmentObject var downloads: DownloadManager
 
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
     var body: some View {
         ScrollView {

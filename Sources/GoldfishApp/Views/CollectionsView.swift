@@ -15,7 +15,7 @@ struct CollectionsView: View {
     // Fixed (min == max) column width — gleicher Fix wie CollectionDetailView/ItemGridView
     // (echtes Adaptive-Grid kann die Kachelbreite beim ersten Renderpass falsch berechnen).
     private let cardWidth: CGFloat = 190
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
 
     private var filteredCollections: [Collection] {
         guard !search.isEmpty else { return collections }
@@ -99,7 +99,8 @@ private struct CollectionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            PosterImage(url: posterURL, placeholderSystemImage: "square.stack")
+            // fixedWidth: siehe PosterImage-Kommentar (User-Bericht 2026-08-19).
+            PosterImage(url: posterURL, placeholderSystemImage: "square.stack", fixedWidth: 190)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
                     if collection.isComplete {
@@ -168,7 +169,7 @@ struct CollectionDetailView: View {
     // .fit)` sie in eine zu kurze Box zwingt (symmetrischer Crop oben+unten). Eine feste
     // Breite umgeht das komplett, siehe `ItemGridView`s Kommentar zum selben Bug.
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
 
     private var visibleParts: [CollectionPart] {
         showHidden ? parts : parts.filter { !$0.hidden }

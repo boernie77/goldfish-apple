@@ -53,7 +53,7 @@ struct LocalLibraryItemsView: View {
     @State private var watchedFilter: LocalWatchedFilter = .all
 
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     private var isScanning: Bool {
         libraries.contains { localLibrary.scanningLibraryIds.contains($0.id) }

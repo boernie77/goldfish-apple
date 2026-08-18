@@ -38,7 +38,7 @@ struct LibrariesView: View {
     @State private var randomError: String?
     @State private var showingScopeSheet = false
 
-    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 220), spacing: 20)]
+    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 220), spacing: 20, alignment: .top)]
 
     private var mergedLocalLibraries: [LocalLibrary] {
         localLibrary.libraries.filter { localLibrary.mergedLibraryIds.contains($0.id) }

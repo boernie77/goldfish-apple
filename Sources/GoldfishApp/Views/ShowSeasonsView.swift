@@ -19,7 +19,7 @@ struct ShowSeasonsView: View {
     @State private var isLoading = true
 
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     var body: some View {
         Group {
@@ -168,7 +168,7 @@ struct SeasonEpisodesView: View {
     @State private var resolvedItem: Item?
     @State private var isResolving = false
 
-    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 16, alignment: .top)]
 
     var body: some View {
         ScrollView {

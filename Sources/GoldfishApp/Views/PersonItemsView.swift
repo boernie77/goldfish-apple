@@ -26,7 +26,7 @@ struct PersonItemsView: View {
     @State private var ascending = true
 
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     private var movies: [Item] {
         sortItems(items.filter { $0.metadata?.season == nil })
@@ -221,7 +221,7 @@ private struct PersonShowEpisodesView: View {
     let personName: String
 
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     var body: some View {
         ScrollView {

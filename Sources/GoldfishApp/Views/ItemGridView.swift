@@ -56,7 +56,7 @@ struct ItemGridView: View {
     // on macOS can miscompute their initial width right after a NavigationStack push,
     // which visually collapses the grid into one smeared column. A fixed cell size sidesteps that.
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     var body: some View {
         Group {

@@ -13,7 +13,7 @@ struct PlaylistsView: View {
     // auch keine nötig bei einer überschaubaren Playlist-Anzahl).
     @State private var search = ""
 
-    private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 16, alignment: .top)]
 
     private var filteredPlaylists: [Playlist] {
         guard !search.isEmpty else { return playlists }
@@ -185,7 +185,7 @@ struct PlaylistDetailView: View {
     @State private var renameText = ""
 
     private let cardWidth: CGFloat = 150
-    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)] }
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
 
     var body: some View {
         Group {
