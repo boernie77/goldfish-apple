@@ -1,0 +1,118 @@
+import SwiftUI
+import GoldfishCore
+
+struct LoginView: View {
+    @EnvironmentObject var client: GoldfishClient
+
+    @State private var serverURLString: String = ""
+    @State private var username: String = ""
+    @State private var password: String = ""
+    @State private var errorMessage: String?
+    @State private var isLoading = false
+    @State private var showingOIDC = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("🐠 Goldfish")
+                .font(.largeTitle.bold())
+
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Server-Adresse (z. B. https://goldfish.example.com)", text: $serverURLString)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    #endif
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+
+                TextField("Benutzername", text: $username)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+
+                SecureField("Passwort", text: $password)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .frame(maxWidth: 360)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+
+            Button {
+                Task { await login() }
+            } label: {
+                if isLoading {
+                    ProgressView()
+                } else {
+                    Text("Anmelden")
+                        .frame(maxWidth: 200)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(serverURLString.isEmpty || username.isEmpty || password.isEmpty || isLoading)
+
+            Button {
+                startOIDC()
+            } label: {
+                Text("Mit SSO anmelden (Authentik)")
+                    .frame(maxWidth: 200)
+            }
+            .buttonStyle(.bordered)
+            .disabled(serverURLString.isEmpty || isLoading)
+        }
+        .padding(40)
+        .onAppear {
+            if serverURLString.isEmpty, let saved = client.baseURL?.absoluteString {
+                serverURLString = saved
+            }
+        }
+        .sheet(isPresented: $showingOIDC) {
+            if let url = client.baseURL {
+                OIDCLoginView(baseURL: url) {
+                    Task { await refreshAfterOIDC() }
+                } onFailure: { message in
+                    errorMessage = message
+                }
+            }
+        }
+    }
+
+    private func startOIDC() {
+        errorMessage = nil
+        guard let url = URL(string: serverURLString), url.scheme != nil else {
+            errorMessage = "Bitte eine vollständige URL mit https:// eingeben."
+            return
+        }
+        client.configure(serverURL: url)
+        showingOIDC = true
+    }
+
+    private func refreshAfterOIDC() async {
+        if let status = try? await client.authStatus() {
+            client.applySessionStatus(status)
+        }
+    }
+
+    private func login() async {
+        errorMessage = nil
+        guard let url = URL(string: serverURLString), url.scheme != nil else {
+            errorMessage = "Bitte eine vollständige URL mit https:// eingeben."
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        client.configure(serverURL: url)
+        do {
+            try await client.login(username: username, password: password)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}

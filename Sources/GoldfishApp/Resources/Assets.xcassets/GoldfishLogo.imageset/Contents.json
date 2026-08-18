@@ -1,0 +1,11 @@
+{
+  "images" : [
+    { "idiom" : "universal", "scale" : "1x", "filename" : "GoldfishLogo.png" },
+    { "idiom" : "universal", "scale" : "2x", "filename" : "GoldfishLogo@2x.png" },
+    { "idiom" : "universal", "scale" : "3x", "filename" : "GoldfishLogo@2x.png" }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

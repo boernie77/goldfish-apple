@@ -1,0 +1,93 @@
+name: GoldfishApple
+options:
+  bundleIdPrefix: com.goldfish
+  deploymentTarget:
+    macOS: "13.0"
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+
+packages:
+  GoldfishCore:
+    path: Packages/GoldfishCore
+
+targets:
+  GoldfishMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/GoldfishApp
+    dependencies:
+      - package: GoldfishCore
+    info:
+      path: Sources/GoldfishApp/Resources/Info-Mac.plist
+      properties:
+        CFBundleDisplayName: Goldfish
+        LSApplicationCategoryType: public.app-category.entertainment
+        NSHumanReadableCopyright: ""
+    # App Sandbox intentionally OFF (2026-08-19) — see GoldfishMac.entitlements for the
+    # full story: Security-Scoped-Bookmarks failed unpredictably even for internal APFS
+    # folders under a free "Personal Team" signature, not just exFAT USB-sticks. Goldfish
+    # isn't Mac App Store-bound, so sandboxing isn't required. If that changes (Apple TV /
+    # App Store distribution raised 2026-08-19), this needs revisiting together with a
+    # paid Developer Program membership.
+    entitlements:
+      path: Sources/GoldfishApp/Resources/GoldfishMac.entitlements
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.mac
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  GoldfishiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/GoldfishApp
+    dependencies:
+      - package: GoldfishCore
+    info:
+      path: Sources/GoldfishApp/Resources/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: Goldfish
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.ios
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+schemes:
+  GoldfishMac:
+    build:
+      targets:
+        GoldfishMac: all
+    run:
+      config: Debug
+  GoldfishiOS:
+    build:
+      targets:
+        GoldfishiOS: all
+    run:
+      config: Debug

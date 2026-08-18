@@ -1,0 +1,407 @@
+import Foundation
+
+public enum GoldfishError: Error, LocalizedError {
+    case invalidURL
+    case notConfigured
+    case server(Int, String)
+    case decoding(Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidURL: return "Ungültige Server-Adresse"
+        case .notConfigured: return "Kein Server konfiguriert"
+        case .server(let code, let msg): return msg.isEmpty ? "Server-Fehler \(code)" : msg
+        case .decoding(let e): return "Antwort konnte nicht gelesen werden: \(e.localizedDescription)"
+        }
+    }
+}
+
+@MainActor
+public final class GoldfishClient: ObservableObject {
+    public static let shared = GoldfishClient()
+
+    @Published public private(set) var baseURL: URL?
+    @Published public private(set) var currentUsername: String?
+    @Published public private(set) var isAdmin: Bool = false
+    @Published public private(set) var isLoggedIn: Bool = false
+
+    private let session: URLSession
+    private let decoder: JSONDecoder
+
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.httpCookieStorage = .shared
+        config.httpShouldSetCookies = true
+        config.httpCookieAcceptPolicy = .always
+        self.session = URLSession(configuration: config)
+        self.decoder = JSONDecoder()
+
+        if let saved = UserDefaults.standard.string(forKey: "goldfish.baseURL"), let url = URL(string: saved) {
+            self.baseURL = url
+        }
+        self.currentUsername = UserDefaults.standard.string(forKey: "goldfish.username")
+        self.isLoggedIn = self.currentUsername != nil
+    }
+
+    public func configure(serverURL: URL) {
+        var url = serverURL
+        if url.absoluteString.hasSuffix("/") {
+            url = URL(string: String(url.absoluteString.dropLast()))!
+        }
+        self.baseURL = url
+        UserDefaults.standard.set(url.absoluteString, forKey: "goldfish.baseURL")
+    }
+
+    // MARK: - URL building
+
+    private func makeURL(_ path: String, query: [URLQueryItem] = []) throws -> URL {
+        guard let base = baseURL else { throw GoldfishError.notConfigured }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        comps.path = base.path + path
+        if !query.isEmpty { comps.queryItems = query }
+        guard let u = comps.url else { throw GoldfishError.invalidURL }
+        return u
+    }
+
+    /// Public URL builder for asset endpoints (posters, streaming) consumed directly by SwiftUI/AVKit.
+    public func assetURL(_ path: String) -> URL? {
+        guard let base = baseURL else { return nil }
+        return base.appendingPathComponent(path)
+    }
+
+    public func resolvedURL(forServerPath path: String) -> URL? {
+        guard let base = baseURL else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") { return URL(string: path) }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        // path already contains its own query string (e.g. "/api/transcode/1/index.m3u8?profile=...")
+        if let sepIdx = path.firstIndex(of: "?") {
+            comps.path = base.path + String(path[path.startIndex..<sepIdx])
+            comps.query = String(path[path.index(after: sepIdx)...])
+        } else {
+            comps.path = base.path + path
+        }
+        return comps.url
+    }
+
+    // MARK: - Generic request helpers
+
+    private func perform<T: Decodable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], jsonBody: Data? = nil, timeout: TimeInterval? = nil) async throws -> T {
+        var req = URLRequest(url: try makeURL(path, query: query))
+        req.httpMethod = method
+        if let timeout { req.timeoutInterval = timeout }
+        if let jsonBody {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = jsonBody
+        }
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw GoldfishError.server(0, "Keine Antwort vom Server")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw GoldfishError.server(http.statusCode, msg)
+        }
+        if data.isEmpty {
+            // Endpoints like 204 No Content decode into Void-ish callers; avoid crashing here.
+            if T.self == EmptyResponse.self {
+                return EmptyResponse() as! T
+            }
+        }
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw GoldfishError.decoding(error)
+        }
+    }
+
+    /// Raw response bytes without decoding — for endpoints whose JSON shape varies by server
+    /// state (see `fetchCollectionParts`'s parts-vs-plain-items fallback).
+    private func performRaw(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+        let req = URLRequest(url: try makeURL(path, query: query))
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw GoldfishError.server(0, "Keine Antwort vom Server")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw GoldfishError.server(http.statusCode, msg)
+        }
+        return data
+    }
+
+    private func performVoid(_ path: String, method: String = "PUT", query: [URLQueryItem] = [], jsonBody: Data? = nil) async throws {
+        var req = URLRequest(url: try makeURL(path, query: query))
+        req.httpMethod = method
+        if let jsonBody {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = jsonBody
+        }
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw GoldfishError.server(0, "Keine Antwort vom Server")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? ""
+            throw GoldfishError.server(http.statusCode, msg)
+        }
+    }
+
+    // MARK: - Auth
+
+    public func authStatus() async throws -> AuthStatus {
+        try await perform("/api/auth/status")
+    }
+
+    /// Reconciles local login state with what the server actually knows (e.g. an expired cookie).
+    public func applySessionStatus(_ status: AuthStatus) {
+        if status.loggedIn {
+            currentUsername = status.username
+            isAdmin = status.isAdmin
+            isLoggedIn = true
+            if let username = status.username {
+                UserDefaults.standard.set(username, forKey: "goldfish.username")
+            }
+        } else {
+            currentUsername = nil
+            isAdmin = false
+            isLoggedIn = false
+            UserDefaults.standard.removeObject(forKey: "goldfish.username")
+        }
+    }
+
+    public func login(username: String, password: String) async throws {
+        let body = try JSONEncoder().encode(["username": username, "password": password])
+        let resp: LoginResponse = try await perform("/api/auth/login", method: "POST", jsonBody: body)
+        currentUsername = resp.username
+        isAdmin = resp.isAdmin
+        isLoggedIn = true
+        UserDefaults.standard.set(resp.username, forKey: "goldfish.username")
+    }
+
+    /// URL to open in a web view to start the Authentik SSO flow. The server handles the
+    /// entire OAuth2/PKCE exchange itself and sets the session cookie on success.
+    public var oidcLoginURL: URL? {
+        assetURL("/api/auth/oidc/login")
+    }
+
+    public func logout() async {
+        _ = try? await performVoid("/api/auth/logout", method: "POST")
+        currentUsername = nil
+        isAdmin = false
+        isLoggedIn = false
+        UserDefaults.standard.removeObject(forKey: "goldfish.username")
+        if let base = baseURL, let cookies = HTTPCookieStorage.shared.cookies(for: base) {
+            cookies.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+        }
+    }
+
+    // MARK: - Libraries
+
+    public func fetchLibraries() async throws -> [Library] {
+        try await perform("/api/libraries")
+    }
+
+    public func fetchHome() async throws -> HomeResponse {
+        try await perform("/api/home")
+    }
+
+    // MARK: - Items
+
+    public func fetchItems(
+        libraryId: Int64? = nil,
+        folder: String? = nil,
+        search: String? = nil,
+        sort: ItemSort? = nil,
+        ascending: Bool? = nil,
+        watched: WatchedFilter? = nil,
+        favoritesOnly: Bool = false,
+        buckets: [String] = [],
+        personId: Int64? = nil
+    ) async throws -> [Item] {
+        var query: [URLQueryItem] = []
+        if let libraryId { query.append(URLQueryItem(name: "libraryId", value: String(libraryId))) }
+        if let folder { query.append(URLQueryItem(name: "folder", value: folder)) }
+        if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
+        if let sort, sort != .title { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
+        if let ascending { query.append(URLQueryItem(name: "dir", value: ascending ? "asc" : "desc")) }
+        if let watched, watched != .all { query.append(URLQueryItem(name: "watched", value: watched.rawValue)) }
+        // Server: `favorite=yes` (internal/api/items.go, ItemFilter.Favorite) — User-Anfrage
+        // 2026-08-19: "der Filter Favoriten fehlt", war bisher nirgends im Mac/iOS-Client
+        // verdrahtet trotz vorhandener Server-Unterstützung.
+        if favoritesOnly { query.append(URLQueryItem(name: "favorite", value: "yes")) }
+        for bucket in buckets { query.append(URLQueryItem(name: "bucket", value: bucket)) }
+        if let personId { query.append(URLQueryItem(name: "personId", value: String(personId))) }
+        return try await perform("/api/items", query: query)
+    }
+
+    /// `folderSelections` scopes shuffle to one or more libraries/subfolders at once
+    /// (User-Anfrage 2026-08-19: "Zufällig Abspielen" auf eine Auswahl von Bibliotheken UND
+    /// Unterordnern beschränkbar, analog zum Browser-🎯-Dialog). The server already supports
+    /// repeated `folderSel=<libId>:<relPath>` query params (CLAUDE.md "Ordner-Scoping für
+    /// Shuffle" / `ItemFilter.Folders`) — no server change needed. `libraryId`/`libraryIds`
+    /// stay for the PER-LIBRARY shuffle inside `ItemGridView`, unrelated to the global scope.
+    public func randomItem(libraryId: Int64? = nil, libraryIds: [Int64]? = nil, folderSelections: [ShuffleFolderSelection]? = nil, folder: String? = nil, search: String? = nil) async throws -> Item {
+        var query: [URLQueryItem] = []
+        if let folderSelections, !folderSelections.isEmpty {
+            for sel in folderSelections {
+                query.append(URLQueryItem(name: "folderSel", value: "\(sel.libraryId):\(sel.folder)"))
+            }
+        } else if let libraryIds, !libraryIds.isEmpty {
+            for id in libraryIds { query.append(URLQueryItem(name: "libraryId", value: String(id))) }
+        } else if let libraryId {
+            query.append(URLQueryItem(name: "libraryId", value: String(libraryId)))
+        }
+        if let folder { query.append(URLQueryItem(name: "folder", value: folder)) }
+        if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
+        return try await perform("/api/items/random", query: query)
+    }
+
+    public func fetchItem(id: Int64) async throws -> Item {
+        try await perform("/api/items/\(id)")
+    }
+
+    /// All sibling files sharing the same `metadataId` as `itemId` (including `itemId`
+    /// itself) — powers the "Varianten"-Picker in `ItemDetailView`.
+    public func fetchVariants(itemId: Int64) async throws -> [Item] {
+        try await perform("/api/items/\(itemId)/variants")
+    }
+
+    public func fetchSeasons(libraryId: Int64, folder: String) async throws -> SeasonsResponse {
+        try await perform("/api/libraries/\(libraryId)/seasons", query: [URLQueryItem(name: "folder", value: folder)])
+    }
+
+    public func fetchCast(metadataId: Int64) async throws -> [CastMember] {
+        try await perform("/api/metadata/\(metadataId)/cast")
+    }
+
+    public func fetchFolders(libraryId: Int64, parent: String? = nil) async throws -> [FolderTile] {
+        var query: [URLQueryItem] = []
+        if let parent, !parent.isEmpty { query.append(URLQueryItem(name: "parent", value: parent)) }
+        return try await perform("/api/libraries/\(libraryId)/folders", query: query)
+    }
+
+    // MARK: - Resume
+
+    public func getResume(itemId: Int64) async throws -> Double {
+        let resp: ResumePosition = try await perform("/api/items/\(itemId)/resume")
+        return resp.positionSec
+    }
+
+    public func setResume(itemId: Int64, positionSec: Double) async throws {
+        let body = try JSONEncoder().encode(ResumePosition(positionSec: positionSec))
+        try await performVoid("/api/items/\(itemId)/resume", method: "PUT", jsonBody: body)
+    }
+
+    // MARK: - Watched / Favorite
+
+    public func setWatched(itemId: Int64, watched: Bool) async throws {
+        let body = try JSONEncoder().encode(["watched": watched])
+        try await performVoid("/api/items/\(itemId)/watched", method: "PUT", jsonBody: body)
+    }
+
+    public func setFavorite(itemId: Int64, favorite: Bool) async throws {
+        let body = try JSONEncoder().encode(["favorite": favorite])
+        try await performVoid("/api/items/\(itemId)/favorite", method: "PUT", jsonBody: body)
+    }
+
+    // MARK: - Playback
+
+    public func playback(itemId: Int64, mode: String = "auto") async throws -> PlaybackResponse {
+        try await perform("/api/playback/\(itemId)", query: [URLQueryItem(name: "mode", value: mode)])
+    }
+
+    // MARK: - Collections
+
+    public func fetchCollections() async throws -> [Collection] {
+        try await perform("/api/collections")
+    }
+
+    /// `/api/collections/{id}/items` returns `[CollectionPart]` for collections whose parts
+    /// have already been fetched from TMDB, but falls back to a plain `[Item]` for older
+    /// collections that predate the parts feature (see `internal/api/collections.go`
+    /// `collectionItems`) — try the normal shape first, then fall back rather than erroring.
+    public func fetchCollectionParts(id: Int64) async throws -> [CollectionPart] {
+        let data = try await performRaw("/api/collections/\(id)/items")
+        if let parts = try? decoder.decode([CollectionPart].self, from: data) {
+            return parts
+        }
+        let items = try decoder.decode([Item].self, from: data)
+        return items.map {
+            CollectionPart(tmdbMovieId: $0.metadata?.tmdbId ?? $0.id, title: $0.displayTitle, releaseDate: $0.releasedAt, posterPath: $0.metadata?.posterPath, owned: true, hidden: false, item: $0)
+        }
+    }
+
+    public func hideCollectionPart(collectionId: Int64, tmdbMovieId: Int64) async throws {
+        try await performVoid("/api/collections/\(collectionId)/parts/\(tmdbMovieId)/hide", method: "POST")
+    }
+
+    public func unhideCollectionPart(collectionId: Int64, tmdbMovieId: Int64) async throws {
+        try await performVoid("/api/collections/\(collectionId)/parts/\(tmdbMovieId)/hide", method: "DELETE")
+    }
+
+    public func collectionPosterURL(id: Int64) -> URL? {
+        assetURL("/api/poster/collection/\(id)")
+    }
+
+    // MARK: - Playlists
+
+    public func fetchPlaylists() async throws -> [Playlist] {
+        try await perform("/api/playlists")
+    }
+
+    public func createPlaylist(name: String) async throws -> Playlist {
+        let body = try JSONEncoder().encode(["name": name])
+        return try await perform("/api/playlists", method: "POST", jsonBody: body)
+    }
+
+    public func renamePlaylist(id: Int64, name: String) async throws {
+        let body = try JSONEncoder().encode(["name": name])
+        try await performVoid("/api/playlists/\(id)", method: "PUT", jsonBody: body)
+    }
+
+    public func deletePlaylist(id: Int64) async throws {
+        try await performVoid("/api/playlists/\(id)", method: "DELETE")
+    }
+
+    public func fetchPlaylistItems(id: Int64) async throws -> [Item] {
+        try await perform("/api/playlists/\(id)/items")
+    }
+
+    public struct AddPlaylistItemResponse: Decodable { public let added: Bool }
+
+    @discardableResult
+    public func addToPlaylist(playlistId: Int64, itemId: Int64) async throws -> Bool {
+        let body = try JSONEncoder().encode(["itemId": itemId])
+        let resp: AddPlaylistItemResponse = try await perform("/api/playlists/\(playlistId)/items", method: "POST", jsonBody: body)
+        return resp.added
+    }
+
+    public func removeFromPlaylist(playlistId: Int64, itemId: Int64) async throws {
+        try await performVoid("/api/playlists/\(playlistId)/items/\(itemId)", method: "DELETE")
+    }
+
+    public func reorderPlaylist(id: Int64, itemIds: [Int64]) async throws {
+        let body = try JSONEncoder().encode(["itemIds": itemIds])
+        try await performVoid("/api/playlists/\(id)/items", method: "PUT", jsonBody: body)
+    }
+
+    public func fetchPlaylistsForItem(itemId: Int64) async throws -> [Playlist] {
+        try await perform("/api/items/\(itemId)/playlists")
+    }
+
+    // MARK: - Assets
+
+    public func posterURL(metadataId: Int64) -> URL? {
+        assetURL("/api/poster/metadata/\(metadataId)")
+    }
+
+    public func thumbURL(itemId: Int64) -> URL? {
+        assetURL("/api/thumb/\(itemId)")
+    }
+
+    public func downloadFileURL(itemId: Int64) -> URL? {
+        assetURL("/api/download/\(itemId)")
+    }
+}
+
+private struct EmptyResponse: Decodable {}
