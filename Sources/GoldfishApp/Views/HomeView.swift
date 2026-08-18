@@ -80,7 +80,7 @@ private struct HomeRow: View {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(items) { item in
                             NavigationLink(destination: ItemDetailView(item: item, queue: items)) {
-                                ItemCard(item: item)
+                                ItemCard(item: item, width: 130)
                                     .frame(width: 130)
                             }
                             .buttonStyle(.plain)

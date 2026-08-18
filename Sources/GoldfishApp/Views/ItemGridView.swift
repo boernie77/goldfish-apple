@@ -396,24 +396,28 @@ struct FolderCard: View {
 
 struct ItemCard: View {
     let item: Item
+    /// Real bug hit 2026-08-19: hatte das früher hart auf 150 einprogrammiert — brach
+    /// HomeView's Reihen, die 130 nutzen (Poster überlappte die Nachbarkachel, weil
+    /// PosterImage.fixedWidth die äußere `.frame(width: 130)`-Vorgabe ignorierte). JEDER
+    /// Aufrufer muss seine tatsächliche Kartenbreite hier mitgeben, nicht nur außen per
+    /// `.frame(width:)` — beide müssen übereinstimmen.
+    var width: CGFloat = 150
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
     @State private var watched: Bool
     @State private var favorite: Bool
 
-    init(item: Item) {
+    init(item: Item, width: CGFloat = 150) {
         self.item = item
+        self.width = width
         _watched = State(initialValue: item.watched)
         _favorite = State(initialValue: item.favorite)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // fixedWidth: 150 matcht den festen `cardWidth`, den JEDER Aufrufer dieser Karte
-            // von außen per `.frame(width:)` vorgibt (ItemGridView/PersonItemsView/
-            // CollectionsView/LocalLibraryItemsView) — siehe PosterImage.fixedWidth-Kommentar
-            // für den Bug, den das umgeht.
-            PosterImage(url: posterURL, fixedWidth: 150)
+            // fixedWidth: siehe PosterImage.fixedWidth-Kommentar für den Bug, den das umgeht.
+            PosterImage(url: posterURL, fixedWidth: width)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
                     VStack(spacing: 3) {
