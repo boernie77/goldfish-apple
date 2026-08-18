@@ -56,6 +56,7 @@ struct PlayerView: View {
     @State private var errorMessage: String?
     @State private var resumeTimer: Timer?
     @State private var timeObserverToken: Any?
+    @State private var didEndObserverToken: NSObjectProtocol?
 
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -324,6 +325,8 @@ struct PlayerView: View {
         resumeTimer = nil
         if let token = timeObserverToken, let player { player.removeTimeObserver(token) }
         timeObserverToken = nil
+        if let token = didEndObserverToken { NotificationCenter.default.removeObserver(token) }
+        didEndObserverToken = nil
         if let player {
             // Capture + pause synchronously — by the time an async Task actually runs,
             // `self.player` would already be nil below and saveResume() would no-op.
@@ -502,6 +505,33 @@ struct PlayerView: View {
                 currentResolutionLabel = Self.resolutionLabel(for: size)
             }
         }
+
+        // Sicherheitsnetz analog player.js' `vjs.on("ended", …)` (CLAUDE.md "markWatchedNow:
+        // gemeinsamer Pfad für 90-%-Threshold UND ended-Event"): der 90-%-Check in
+        // `maybeMarkWatchedOrSaveResume` verlässt sich auf `item.durationSec` vom Server —
+        // bei manchen yt-dlp-Privat-Lib-Downloads ist dieser ffprobe-Wert unzuverlässig
+        // (falsch hoch geschätzt bei defekten/gemergten Containern), sodass 90 % der
+        // GEMELDETEN Laufzeit real nie erreicht wird, obwohl das Video fertig durchgelaufen
+        // ist (User-Bericht 2026-08-19: "Was der Frühling kostet" wurde nicht als gesehen
+        // markiert). `didPlayToEndTimeNotification` ist unabhängig von der Dauer-Berechnung
+        // und feuert garantiert beim echten Ende — markiert dann unconditional als gesehen.
+        didEndObserverToken = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { _ in
+            Task { await markWatchedNow() }
+        }
+    }
+
+    /// Unconditional "gesehen"-Markierung beim echten Wiedergabe-Ende — Ergänzung zu
+    /// `maybeMarkWatchedOrSaveResume`'s 90-%-Heuristik, siehe deren Aufrufstelle oben.
+    private func markWatchedNow() async {
+        guard !hasMarkedWatchedThisSession else { return }
+        hasMarkedWatchedThisSession = true
+        try? await client.setWatched(itemId: item.id, watched: true)
+        downloads.updateCachedWatched(itemId: item.id, watched: true)
+        try? await client.setResume(itemId: item.id, positionSec: 0)
     }
 
     /// Same bucket formula as `Item.resolutionLabel` (`max(height, width*9/16)`) — keeps
