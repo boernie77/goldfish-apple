@@ -157,6 +157,9 @@ private struct SeasonCard: View {
     }
 }
 
+/// User-Anfrage 2026-08-19: "wenn ich eine Staffel öffne, habe ich eine Listenansicht. Das
+/// soll aber auch eine Kachelansicht sein, so wie im Browser" — war bisher eine reine `List`
+/// mit Text-Zeilen, während der Browser Episoden-Kacheln mit TMDB-Still-Vorschaubild zeigt.
 struct SeasonEpisodesView: View {
     let library: Library
     let season: SeasonOut
@@ -165,39 +168,32 @@ struct SeasonEpisodesView: View {
     @State private var resolvedItem: Item?
     @State private var isResolving = false
 
+    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 16)]
+
     var body: some View {
-        List {
-            // `.navigationTitle` alone isn't visible on-screen on macOS — an explicit
-            // Section header (with the episode count, as requested) covers both.
-            Section(header: Text("\(season.name ?? "Staffel \(season.seasonNumber)") (\(season.episodes.count))")
-                .font(.title3.bold())
-                .foregroundStyle(.primary)
-                .textCase(nil)
-            ) {
-                ForEach(season.episodes) { episode in
-                    Button {
-                        Task { await openEpisode(episode) }
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("S\(episode.season)E\(String(format: "%02d", episode.episode)) — \(episode.title ?? "Unbekannt")")
-                                    .font(.body)
-                                if !episode.owned {
-                                    Text("Fehlt")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            if episode.watched {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                // `.navigationTitle` alone isn't visible on-screen on macOS — an explicit
+                // heading (with the episode count, as requested) covers both.
+                Text("\(season.name ?? "Staffel \(season.seasonNumber)") (\(season.episodes.count))")
+                    .font(.title3.bold())
+                    .padding(.horizontal)
+
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(season.episodes) { episode in
+                        Button {
+                            Task { await openEpisode(episode) }
+                        } label: {
+                            EpisodeTile(episode: episode)
                         }
+                        .buttonStyle(.plain)
+                        .focusableCompat(false)
+                        .disabled(!episode.owned || isResolving)
                     }
-                    .disabled(!episode.owned)
-                    .foregroundStyle(episode.owned ? .primary : .secondary)
                 }
+                .padding(.horizontal)
             }
+            .padding(.vertical)
         }
         .navigationTitle(season.name ?? "Staffel \(season.seasonNumber)")
         .pushDestination(item: $resolvedItem) { item in
@@ -210,6 +206,46 @@ struct SeasonEpisodesView: View {
         isResolving = true
         defer { isResolving = false }
         resolvedItem = try? await client.fetchItem(id: itemId)
+    }
+}
+
+private struct EpisodeTile: View {
+    let episode: EpisodeOut
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PosterImage(url: tmdbImageURL(episode.stillPath, size: "w300"), aspect: 16.0 / 9.0, placeholderSystemImage: "tv")
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .topLeading) {
+                    if episode.watched {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .padding(6)
+                            .background(.black.opacity(0.5), in: Circle())
+                            .padding(6)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !episode.owned {
+                        Text("Fehlt")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
+                }
+                .opacity(episode.owned ? 1 : 0.5)
+
+            Text("S\(episode.season)E\(String(format: "%02d", episode.episode))")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(episode.title ?? "Unbekannt")
+                .font(.subheadline.weight(.medium))
+                .lineLimit(2)
+                .foregroundStyle(episode.owned ? .primary : .secondary)
+        }
+        .contentShape(Rectangle())
     }
 }
 

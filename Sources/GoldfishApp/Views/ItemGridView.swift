@@ -388,6 +388,7 @@ struct FolderCard: View {
 struct ItemCard: View {
     let item: Item
     @EnvironmentObject var client: GoldfishClient
+    @EnvironmentObject var downloads: DownloadManager
     @State private var watched: Bool
     @State private var favorite: Bool
 
@@ -506,6 +507,9 @@ struct ItemCard: View {
         let newValue = !watched
         watched = newValue
         Task { try? await client.setWatched(itemId: item.id, watched: newValue) }
+        // Keeps a downloaded item's frozen tile-snapshot in sync too — see
+        // `Item.withWatched`'s doc comment.
+        downloads.updateCachedWatched(itemId: item.id, watched: newValue)
     }
 
     private func toggleFavorite() {

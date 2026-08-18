@@ -54,6 +54,14 @@ struct ItemDetailView: View {
                     if let runtime = item.metadata?.runtimeMin {
                         Text("\(runtime) min")
                     }
+                    // User-Anfrage 2026-08-19: FSK/Altersfreigabe soll beim Öffnen eines Films
+                    // oder einer Episode mit angezeigt werden — Auflösung stand hier bereits,
+                    // FSK fehlte komplett.
+                    if let ageRating = item.metadata?.ageRating, !ageRating.isEmpty {
+                        Text("FSK \(ageRating)")
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.secondary.opacity(0.2), in: RoundedRectangle(cornerRadius: 4))
+                    }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -216,6 +224,7 @@ struct ItemDetailView: View {
         let newValue = !isWatched
         isWatched = newValue
         try? await client.setWatched(itemId: selectedItem.id, watched: newValue)
+        downloads.updateCachedWatched(itemId: selectedItem.id, watched: newValue)
     }
 }
 

@@ -37,9 +37,42 @@ struct SettingsView: View {
     // ich immer noch nicht"). Zusätzlicher, klar beschrifteter Zugang hier in den
     // Einstellungen, wo Nutzer eher globale App-Einstellungen erwarten.
     @State private var shuffleScopeLibraries: [Library] = []
+    // Gesehen-Sync (User-Anfrage 2026-08-19): kurze Zusammenfassung des aktuellen
+    // Verknüpfungsstatus für die Übersichtszeile, analog `shuffleScope`-Zeile oben.
+    @State private var watchLinks: [WatchLink] = []
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
+
+    /// Per-User-Scoping für die "Formatanpassung"-Anzeige (siehe `LocalTranscodeService.
+    /// scopedCompletedCount`'s Doc-Kommentar) — `localLibrary.libraries`/`downloads.records`
+    /// sind beide bereits auf den aktuellen User gefiltert, hier nur noch auf IDs reduziert.
+    private var ownedLocalItemIds: Set<UUID> {
+        let ownedLibraryIds = Set(localLibrary.libraries.map(\.id))
+        return Set(localLibrary.items.filter { ownedLibraryIds.contains($0.libraryId) }.map(\.id))
+    }
+    private var ownedDownloadItemIds: Set<Int64> {
+        Set(downloads.records.keys)
+    }
+    private var ownedDownloadFailedItemIds: [Int64] {
+        Array(transcode.downloadFailedItems.keys.filter { ownedDownloadItemIds.contains($0) })
+    }
+    private var scopedCompletedCount: Int {
+        transcode.scopedCompletedCount(ownedLocalItemIds: ownedLocalItemIds, ownedDownloadItemIds: ownedDownloadItemIds)
+    }
     #endif
+
+    private var watchLinkSummary: String {
+        if let active = watchLinks.first(where: { $0.status == "accepted" }) {
+            return active.partnerName
+        }
+        if watchLinks.contains(where: { $0.status == "pending_incoming" }) {
+            return "Anfrage offen"
+        }
+        if watchLinks.contains(where: { $0.status == "pending_outgoing" }) {
+            return "Warte auf Bestätigung"
+        }
+        return "Nicht verknüpft"
+    }
 
     var body: some View {
         NavigationStack {
@@ -74,6 +107,26 @@ struct SettingsView: View {
                 }
                 .task {
                     shuffleScopeLibraries = (try? await client.fetchLibraries()) ?? []
+                }
+
+                Section {
+                    NavigationLink {
+                        WatchLinkSettingsView(watchLinks: $watchLinks)
+                    } label: {
+                        HStack {
+                            Text("Gesehen-Sync")
+                            Spacer()
+                            Text(watchLinkSummary)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Gesehen-Sync")
+                } footer: {
+                    Text("Verknüpft deinen Gesehen-Status mit einem anderen Benutzer — beide müssen zustimmen. Es werden nur Videos synchronisiert, auf die der jeweils andere Benutzer selbst Zugriff hat.")
+                }
+                .task {
+                    watchLinks = (try? await client.fetchWatchLinks()) ?? []
                 }
 
                 Section("Downloads") {
@@ -168,7 +221,14 @@ struct SettingsView: View {
                 }
 
                 #if os(macOS)
-                if !localLibrary.libraries.isEmpty {
+                // Real bug hit 2026-08-19 (User: "beim Benutzer Börnie fehlt der Menüpunkt des
+                // Konvertierens"): dieser Abschnitt deckt sowohl lokale Bibliotheken ALS AUCH
+                // Server-Downloads ab (siehe `transcode.downloadFailedItems`/
+                // `currentDownloadTitle` unten), war aber komplett hinter "hat mindestens eine
+                // lokale Bibliothek" versteckt — ein User wie Börnie, der nur Server-Downloads
+                // nutzt und nie eine lokale Bibliothek angelegt hat, sah den ganzen Abschnitt
+                // nie, obwohl er für seine Downloads durchaus relevant ist.
+                if !localLibrary.libraries.isEmpty || !downloads.records.isEmpty {
                     Section {
                         if let current = transcode.currentItem {
                             VStack(alignment: .leading, spacing: 4) {
@@ -182,12 +242,14 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        if transcode.completedCount > 0 {
-                            Text("✓ \(transcode.completedCount) Datei(en) für Wiedergabe angepasst")
+                        if scopedCompletedCount > 0 {
+                            Text("✓ \(scopedCompletedCount) Datei(en) für Wiedergabe angepasst")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        ForEach(Array(transcode.failedItems.keys), id: \.self) { id in
+                        // Nur eigene Fehler zeigen — `ownedLocalItemIds` kommt bereits
+                        // per-User-gefiltert aus `localLibrary.items`.
+                        ForEach(Array(transcode.failedItems.keys.filter { ownedLocalItemIds.contains($0) }), id: \.self) { id in
                             Text("⚠ Fehlgeschlagen: \(transcode.failedItems[id] ?? "")")
                                 .font(.caption2)
                                 .foregroundStyle(.red)
@@ -198,16 +260,25 @@ struct SettingsView: View {
                         // Button für beides statt zwei getrennter — `isConverted`/
                         // `isDownloadConverted` sorgen dafür, dass bereits fertige Dateien
                         // ohnehin übersprungen werden, hier also kein unnötiges Neu-Konvertieren.
-                        if !transcode.downloadFailedItems.isEmpty || transcode.currentDownloadTitle != nil {
-                            ForEach(Array(transcode.downloadFailedItems.keys), id: \.self) { id in
+                        if !ownedDownloadFailedItemIds.isEmpty || transcode.currentDownloadTitle != nil {
+                            ForEach(Array(ownedDownloadFailedItemIds), id: \.self) { id in
                                 Text("⚠ Download fehlgeschlagen: \(transcode.downloadFailedItems[id] ?? "")")
                                     .font(.caption2)
                                     .foregroundStyle(.red)
                             }
                             if let title = transcode.currentDownloadTitle {
-                                Text("Prüfe: \(title)…")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                // User-Anfrage 2026-08-19: "bei der Formatanpassung fehlt der
+                                // Fortschrittsbalken" — der Download-Pfad zeigte bisher nur
+                                // Text, nie den `ProgressView`, den der lokale Pfad oben schon
+                                // hatte (`transcode.progress["local-<uuid>"]`). Gleiches Muster
+                                // jetzt auch für Downloads via `currentDownloadItemId`.
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Wird angepasst: \(title)")
+                                        .font(.caption)
+                                    if let itemId = transcode.currentDownloadItemId {
+                                        ProgressView(value: transcode.progress["dl-\(itemId)"] ?? 0)
+                                    }
+                                }
                             }
                         }
                         // Manuell erneut anstoßen, ohne die Bibliothek zu löschen/neu

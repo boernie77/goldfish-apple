@@ -14,6 +14,21 @@ public struct LoginResponse: Decodable {
     public let isAdmin: Bool
 }
 
+// MARK: - Watch-Link (Gesehen-Sync zwischen zwei Usern, User-Anfrage 2026-08-19)
+
+public struct OtherUser: Decodable, Identifiable, Hashable {
+    public let id: Int64
+    public let username: String
+}
+
+public struct WatchLink: Decodable, Identifiable, Hashable {
+    public let partnerId: Int64
+    public let partnerName: String
+    /// "accepted" | "pending_outgoing" | "pending_incoming"
+    public let status: String
+    public var id: Int64 { partnerId }
+}
+
 // MARK: - Library
 
 public struct Library: Decodable, Identifiable, Hashable {
@@ -167,6 +182,24 @@ public struct Item: Codable, Identifiable, Hashable {
     /// `releasedAt`'s date portion, formatted for display — nil for Go's zero `time.Time`
     /// (serializes as "0001-01-01T00:00:00Z" when nothing was ever set) so an empty download
     /// tile doesn't show a bogus year-1 date.
+    /// Copy with `watched` overridden — used by `DownloadManager.updateCachedWatched` to keep
+    /// a download's cached `Item` snapshot (frozen at download time, see `DownloadRecord.
+    /// itemData`'s doc comment) in sync with the real watched state after playback, instead of
+    /// permanently showing whatever it looked like the moment the download finished (real bug
+    /// hit 2026-08-19: "was auf dem Server als gesehen markiert ist, sehe ich nicht in der
+    /// App" — the Downloads tab's tiles read this frozen snapshot, so a later `setWatched`
+    /// call never showed up there without this).
+    public func withWatched(_ watched: Bool) -> Item {
+        Item(id: id, libraryId: libraryId, path: path, relPath: relPath, title: title,
+             container: container, videoCodec: videoCodec, audioCodec: audioCodec, width: width,
+             height: height, durationSec: durationSec, sizeBytes: sizeBytes, bitrateKbps: bitrateKbps,
+             hasThumb: hasThumb, releasedAt: releasedAt, addedAt: addedAt, metadataId: metadataId,
+             metadataConfirmed: metadataConfirmed, episodeEnd: episodeEnd, metadata: metadata,
+             watched: watched, watchedAt: watchedAt, favorite: favorite, favoritedAt: favoritedAt,
+             trickplayStatus: trickplayStatus, variantCount: variantCount, variantSplit: variantSplit,
+             introStartSec: introStartSec, introEndSec: introEndSec)
+    }
+
     public var releasedDateLabel: String? {
         guard let releasedAt, let date = ISO8601DateFormatter().date(from: releasedAt) else { return nil }
         let year = Calendar(identifier: .gregorian).component(.year, from: date)

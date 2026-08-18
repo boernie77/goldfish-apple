@@ -60,6 +60,15 @@ struct PlayerView: View {
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
+    // User-Anfrage 2026-08-19 (Folgerunde): "die gesehen werden nicht gesynct" trotz des
+    // Teardown-Fixes — Verdacht: `.onDisappear` feuert nicht zuverlässig, wenn das
+    // WindowGroup-Fenster über den nativen roten Schließen-Knopf statt den eigenen
+    // "Schließen"-Button beendet wird (bekanntes Muster in dieser App, siehe die
+    // AppDelegate-Fensterverwaltungs-Bugs). Fix: dieselbe 90%-Prüfung läuft jetzt auch im
+    // periodischen 15s-Resume-Timer mit, nicht nur einmalig bei `teardown()` — deckt also
+    // JEDE Art, den Player zu verlassen, ab, nicht nur den Klick auf den eigenen Button.
+    // Flag verhindert wiederholte `setWatched`-Calls im selben Player-Life-Cycle.
+    @State private var hasMarkedWatchedThisSession = false
     @State private var isScrubbing = false
     @State private var volume: Float = 1.0
 
@@ -321,7 +330,8 @@ struct PlayerView: View {
             let seconds = virtualOffset + player.currentTime().seconds
             player.pause()
             if seconds.isFinite, seconds > 0 {
-                Task { try? await client.setResume(itemId: item.id, positionSec: seconds) }
+                let capturedSeconds = seconds
+                Task { await maybeMarkWatchedOrSaveResume(seconds: capturedSeconds) }
             }
         }
         player = nil
@@ -376,6 +386,7 @@ struct PlayerView: View {
         duration = item.durationSec ?? 0
         currentResolutionLabel = nil
         isFavorite = item.favorite
+        hasMarkedWatchedThisSession = false
 
         // Offline-first: if this item was downloaded, play the local file — works with no
         // network at all. The server's `/api/download` endpoint serves the ORIGINAL,
@@ -574,7 +585,26 @@ struct PlayerView: View {
         guard let player else { return }
         let seconds = virtualOffset + player.currentTime().seconds
         guard seconds.isFinite, seconds > 0 else { return }
-        try? await client.setResume(itemId: item.id, positionSec: seconds)
+        await maybeMarkWatchedOrSaveResume(seconds: seconds)
+    }
+
+    /// CLAUDE.md "Auto-Markierung bei 90% Laufzeit" — real gap hit 2026-08-19 (User: "es wird
+    /// nicht mit dem Server synchronisiert, welche Folgen ich schon geschaut habe"): this
+    /// player never auto-marked items watched at all (online OR offline/downloaded), that
+    /// logic only ever existed in `LocalPlayerView` (pure local libraries). Runs from BOTH the
+    /// periodic 15s resume-timer AND `teardown()`, since relying on `teardown()`/`onDisappear`
+    /// alone turned out not to be enough (see `hasMarkedWatchedThisSession`'s doc comment).
+    /// `try?` matches the existing resume-save pattern — a downloaded item watched fully
+    /// offline just fails silently and stays unsynced until the next call with network.
+    private func maybeMarkWatchedOrSaveResume(seconds: Double) async {
+        if duration > 0, seconds >= duration * 0.9 {
+            guard !hasMarkedWatchedThisSession else { return }
+            hasMarkedWatchedThisSession = true
+            try? await client.setWatched(itemId: item.id, watched: true)
+            downloads.updateCachedWatched(itemId: item.id, watched: true)
+        } else {
+            try? await client.setResume(itemId: item.id, positionSec: seconds)
+        }
     }
 
     private func toggleFavorite() {

@@ -13,7 +13,16 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("🐠 Goldfish")
+            // User-Anfrage 2026-08-19: "auf der Anmeldeseite ist noch der falsche Goldfish
+            // (ICON)" — das echte Marken-Artwork (GoldfishLogo.imageset, dasselbe wie im
+            // RootView-Header) statt des rohen 🐠-System-Emojis, das hier noch als
+            // Platzhalter aus einer früheren Runde stand.
+            Image("GoldfishLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            Text("Goldfish")
                 .font(.largeTitle.bold())
 
             VStack(alignment: .leading, spacing: 12) {

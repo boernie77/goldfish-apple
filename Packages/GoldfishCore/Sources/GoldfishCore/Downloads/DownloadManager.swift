@@ -205,6 +205,16 @@ public final class DownloadManager: NSObject, ObservableObject {
         saveIndex()
     }
 
+    /// Keeps a download's frozen `Item` snapshot in sync with the real watched state — see
+    /// `Item.withWatched`'s doc comment for the bug this fixes. Called right after any
+    /// successful `client.setWatched` for an item that also happens to be downloaded.
+    public func updateCachedWatched(itemId: Int64, watched: Bool) {
+        guard var rec = records[itemId], let item = rec.cachedItem else { return }
+        rec.itemData = try? JSONEncoder().encode(item.withWatched(watched))
+        setRecord(rec)
+        saveIndex()
+    }
+
     public func localFileURL(itemId: Int64) -> URL? {
         guard let rec = records[itemId], rec.state == .done else { return nil }
         let url = URL(fileURLWithPath: rec.filePath)

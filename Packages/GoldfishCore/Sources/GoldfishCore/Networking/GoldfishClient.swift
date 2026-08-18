@@ -304,6 +304,29 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/items/\(itemId)/favorite", method: "PUT", jsonBody: body)
     }
 
+    // MARK: - Watch-Link (Gesehen-Sync zwischen zwei Usern)
+
+    public func fetchOtherUsers() async throws -> [OtherUser] {
+        try await perform("/api/users/names")
+    }
+
+    public func fetchWatchLinks() async throws -> [WatchLink] {
+        try await perform("/api/watch-links")
+    }
+
+    public func requestWatchLink(username: String) async throws {
+        let body = try JSONEncoder().encode(["username": username])
+        try await performVoid("/api/watch-links", method: "POST", jsonBody: body)
+    }
+
+    public func confirmWatchLink(partnerId: Int64) async throws {
+        try await performVoid("/api/watch-links/\(partnerId)/confirm", method: "POST")
+    }
+
+    public func unlinkWatchLink(partnerId: Int64) async throws {
+        try await performVoid("/api/watch-links/\(partnerId)", method: "DELETE")
+    }
+
     // MARK: - Playback
 
     public func playback(itemId: Int64, mode: String = "auto") async throws -> PlaybackResponse {

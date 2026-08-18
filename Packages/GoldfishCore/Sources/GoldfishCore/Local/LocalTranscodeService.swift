@@ -95,6 +95,12 @@ public final class LocalTranscodeService: ObservableObject {
     }
     /// Title of the download currently being retried by `rescanDownloads` — nil when idle.
     @Published public private(set) var currentDownloadTitle: String?
+    /// Companion to `currentDownloadTitle` — User-Anfrage 2026-08-19: "bei der
+    /// Formatanpassung fehlt der Fortschrittsbalken" für Downloads. The local-item path already
+    /// showed one by keying `progress["local-<uuid>"]` off `currentItem.id`; the download path
+    /// only ever exposed the title, nothing to key `progress["dl-<itemId>"]` off. Added so
+    /// Settings can show the exact same `ProgressView` for downloads too.
+    @Published public private(set) var currentDownloadItemId: Int64?
     private static let failedItemsKey = "goldfish.transcode.failedItems"
     private static let downloadFailedItemsKey = "goldfish.transcode.downloadFailedItems"
     private var isProcessingQueue = false
@@ -154,11 +160,39 @@ public final class LocalTranscodeService: ObservableObject {
 
     /// Recomputes `completedCount` from what's actually in the cache folder — see the comment
     /// on `completedCount` for why this replaced a manually-incremented counter.
+    ///
+    /// Real bug hit 2026-08-19 (User: "der Zähler muss pro Benutzer gelten, bei Börnie startet
+    /// er schon mit 41 — das sind aber Anpassungen von Christian"): the cache folder
+    /// (`GoldfishTranscoded`) is a single shared folder for the whole Mac, not per-user — this
+    /// raw count is therefore the total across EVERY account that ever converted a file here,
+    /// same class of bug as the local-libraries/downloads per-user isolation fixes. `completedCount`
+    /// itself stays the unscoped total (kept for internal bookkeeping / anything that doesn't
+    /// care about ownership); the UI-facing number is `scopedCompletedCount(...)` below, which
+    /// filters by which local items / downloads actually belong to the CURRENT user.
     private func refreshCompletedCount() {
-        let count = (try? FileManager.default.contentsOfDirectory(at: Self.outDir, includingPropertiesForKeys: nil))?
+        completedCount = cacheFileNames().count
+    }
+
+    private func cacheFileNames() -> [String] {
+        (try? FileManager.default.contentsOfDirectory(at: Self.outDir, includingPropertiesForKeys: nil))?
             .filter { $0.pathExtension == "mp4" && !$0.lastPathComponent.hasSuffix(".tmp.mp4") }
-            .count ?? 0
-        completedCount = count
+            .map { $0.deletingPathExtension().lastPathComponent } ?? []
+    }
+
+    /// Same count as `completedCount`, but scoped to files that belong to the CURRENT user —
+    /// pass the caller's own visible local-item UUIDs and download item IDs (both already
+    /// per-user-filtered by `LocalLibraryManager`/`DownloadManager`) to cross-reference against
+    /// the cache filenames' `local-<uuid>`/`dl-<itemId>` prefixes.
+    public func scopedCompletedCount(ownedLocalItemIds: Set<UUID>, ownedDownloadItemIds: Set<Int64>) -> Int {
+        cacheFileNames().filter { name in
+            if name.hasPrefix("local-"), let uuid = UUID(uuidString: String(name.dropFirst("local-".count))) {
+                return ownedLocalItemIds.contains(uuid)
+            }
+            if name.hasPrefix("dl-"), let itemId = Int64(name.dropFirst("dl-".count)) {
+                return ownedDownloadItemIds.contains(itemId)
+            }
+            return false
+        }.count
     }
 
     private static let outDir: URL = {
@@ -270,6 +304,7 @@ public final class LocalTranscodeService: ObservableObject {
                 let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? true
                 guard !playable else { continue }
                 currentDownloadTitle = rec.title
+                currentDownloadItemId = rec.itemId
                 do {
                     _ = try await remuxDownload(itemId: rec.itemId, sourceURL: url)
                     refreshCompletedCount()
@@ -279,6 +314,7 @@ public final class LocalTranscodeService: ObservableObject {
                 }
             }
             currentDownloadTitle = nil
+            currentDownloadItemId = nil
             isProcessingDownloads = false
         }
     }
