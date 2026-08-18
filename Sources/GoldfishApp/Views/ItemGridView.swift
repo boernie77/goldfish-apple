@@ -528,7 +528,7 @@ struct ItemCard: View {
     }
 
     private var posterURL: URL? {
-        if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId) {
+        if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) {
             return url
         }
         return client.thumbURL(itemId: item.id)

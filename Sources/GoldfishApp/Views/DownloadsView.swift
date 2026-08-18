@@ -234,7 +234,7 @@ private struct DownloadGroupCard: View {
         if let parentId = representative.metadata?.parentId, let url = client.posterURL(metadataId: parentId) {
             return url
         }
-        if let metadataId = representative.metadataId, let url = client.posterURL(metadataId: metadataId) {
+        if let metadataId = representative.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: representative.metadata?.posterPath) {
             return url
         }
         return client.thumbURL(itemId: representative.id)

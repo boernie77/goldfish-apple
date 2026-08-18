@@ -444,8 +444,23 @@ public final class GoldfishClient: ObservableObject {
 
     // MARK: - Assets
 
-    public func posterURL(metadataId: Int64) -> URL? {
-        assetURL("/api/poster/metadata/\(metadataId)")
+    /// `posterPath` (optional): der TMDB-Pfad-String aus `metadata.posterPath`. Der Server
+    /// cached das Poster unter einem vom Pfad abgeleiteten Dateinamen (sha1(posterPath), siehe
+    /// `internal/enrich/worker.go` `posterFilename`) — die URL selbst bleibt aber bei jedem
+    /// Re-Match unter derselben `metadataId` gleich. Ohne Cache-Busting kann ein Client-seitiger
+    /// URL-Cache (Browser ODER `AsyncImage`/`URLCache.shared` in der Mac/iOS-App — beide teilen
+    /// sich denselben System-Cache) nach einer Neuzuordnung noch das ALTE Poster unter derselben
+    /// URL zeigen (User-Bericht 2026-08-19: "American Fighter"-Kachel zeigte ein zugeschnittenes/
+    /// falsch wirkendes Poster, reproduzierbar sowohl im Browser als auch in der nativen App —
+    /// die Datei auf dem Server war nachweislich korrekt, also ein Client-Cache-Problem). Ein
+    /// `?v=<posterPath>`-Query erzwingt bei jeder Änderung des TMDB-Posters eine komplett neue
+    /// URL, der alte Cache-Eintrag wird nie wieder getroffen.
+    public func posterURL(metadataId: Int64, posterPath: String? = nil) -> URL? {
+        guard let base = assetURL("/api/poster/metadata/\(metadataId)") else { return nil }
+        guard let posterPath, !posterPath.isEmpty else { return base }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        comps?.queryItems = [URLQueryItem(name: "v", value: posterPath)]
+        return comps?.url ?? base
     }
 
     public func thumbURL(itemId: Int64) -> URL? {
