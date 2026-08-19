@@ -418,7 +418,24 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
             self.setRecord(rec)
             self.tasks[itemId] = nil
             self.saveIndex()
+            if rec.state == .done {
+                self.autoConvertIfNeeded(itemId: itemId, fileURL: dest)
+            }
         }
+    }
+
+    /// User-Anfrage 2026-08-19: "Auch nach einem Download soll die Formatanpassung
+    /// automatisch starten" — bisher lief der Kompatibilitäts-Fix für Downloads nur
+    /// on-demand beim ersten Abspielversuch (PlayerView) oder über den manuellen
+    /// "Erneut prüfen"-Button. Jetzt zusätzlich direkt nach jedem einzelnen Download,
+    /// gleiches Muster wie `LocalLibraryManager.scan()`'s automatischer
+    /// `enqueueCompatibilityCheck`-Aufruf nach dem Einlesen.
+    private func autoConvertIfNeeded(itemId: Int64, fileURL: URL) {
+        #if os(macOS)
+        Task {
+            await LocalTranscodeService.shared.autoConvertDownloadIfNeeded(itemId: itemId, sourceURL: fileURL)
+        }
+        #endif
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {

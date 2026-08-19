@@ -248,6 +248,27 @@ public final class LocalTranscodeService: ObservableObject {
         try await remux(cacheKey: "dl-\(itemId)", sourceURL: sourceURL)
     }
 
+    /// Probe-and-fix für EINEN frisch abgeschlossenen Download — User-Anfrage 2026-08-19:
+    /// "Auch nach einem Download soll die Formatanpassung automatisch starten". Bisher lief
+    /// der Fix für Downloads nur on-demand beim ersten Abspielversuch oder über den
+    /// manuellen "Erneut prüfen"-Button (`rescanDownloads`); dieser Pfad hier ist der
+    /// Einzel-Item-Aufruf direkt nach `DownloadManager`s `didFinishDownloadingTo`. Gleiches
+    /// State-Tracking wie `rescanDownloads` (downloadFailedItems + refreshCompletedCount),
+    /// damit die Formatanpassung-Anzeige in den Einstellungen konsistent bleibt, egal ob der
+    /// Fix über den Bulk-Retry oder automatisch nach einem einzelnen Download lief.
+    public func autoConvertDownloadIfNeeded(itemId: Int64, sourceURL: URL) async {
+        guard !isDownloadConverted(itemId: itemId) else { return }
+        let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? true
+        guard !playable else { return }
+        do {
+            _ = try await remuxDownload(itemId: itemId, sourceURL: sourceURL)
+            refreshCompletedCount()
+            downloadFailedItems[itemId] = nil
+        } catch {
+            downloadFailedItems[itemId] = error.localizedDescription
+        }
+    }
+
     /// Called once per scan (`LocalLibraryManager.scan`) — probes each new/unconverted item
     /// for native playability and queues the incompatible ones for background conversion, so
     /// the fix happens ahead of time instead of the user hitting a dead player on first play.

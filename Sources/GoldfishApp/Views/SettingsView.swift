@@ -177,6 +177,18 @@ struct SettingsView: View {
                                 Spacer(minLength: 8)
                                 if localLibrary.scanningLibraryIds.contains(lib.id) {
                                     ProgressView().controlSize(.small)
+                                } else {
+                                    // User-Anfrage 2026-08-19: "so einen Kreispfeil, der die
+                                    // lokale Bibliothek erneut einließt" — `scan(_:)` prüft
+                                    // ohnehin jede Datei neu (nicht nur neue) UND stößt am
+                                    // Ende automatisch enqueueCompatibilityCheck an, die
+                                    // Formatanpassung läuft also von selbst mit.
+                                    Button {
+                                        Task { await localLibrary.scan(lib) }
+                                    } label: {
+                                        Image(systemName: "arrow.clockwise")
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                                 Button {
                                     renameText = lib.name
