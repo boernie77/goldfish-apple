@@ -28,6 +28,13 @@ struct LibrariesView: View {
     @State private var libraries: [Library] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
+    // User-Anfrage 2026-08-19: "wenn ich wirklich offline bin, dann erscheinen gar keine
+    // Bibliotheken, auch nicht die lokalen!!" — `errorMessage` ersetzte bisher die KOMPLETTE
+    // Ansicht bei einem fehlgeschlagenen fetchLibraries()-Call, inkl. der lokalen
+    // Bibliotheken (die gar keinen Netzwerk-Call brauchen). Jetzt: Server-Bibliotheken werden
+    // beim ersten erfolgreichen Laden pro User auf Platte gecacht; schlägt ein Reload fehl,
+    // zeigt die App weiterhin die zuletzt bekannte Liste (+ "Offline"-Badge) statt gar nichts.
+    @State private var isOffline = false
     // Keyed by "server:<id>" / "local:<uuid>" — one representative poster per library tile.
     @State private var previewURLs: [String: URL] = [:]
 
@@ -56,16 +63,24 @@ struct LibrariesView: View {
             Group {
                 if isLoading {
                     ProgressView()
-                } else if let errorMessage {
-                    ContentUnavailableMessage(text: errorMessage)
                 } else if libraries.isEmpty && localLibrary.libraries.isEmpty {
-                    ContentUnavailableMessage(text: "Keine Bibliotheken verfügbar.")
+                    // Nur wenn WIRKLICH nichts da ist (weder Server-Cache noch lokale Libs)
+                    // zeigen wir eine Vollbild-Meldung — ein reiner Netzwerkfehler mit noch
+                    // leerem Cache landet hier zwangsläufig auch, ist aber der einzige Fall,
+                    // in dem es tatsächlich nichts zum Anzeigen gibt.
+                    ContentUnavailableMessage(text: errorMessage ?? "Keine Bibliotheken verfügbar.")
                 } else {
                     ScrollView {
+                        if isOffline {
+                            Label("Offline — zeige zuletzt geladene Bibliotheken", systemImage: "wifi.slash")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                        }
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(libraries) { lib in
                                 NavigationLink(value: LibraryDestination.server(lib)) {
-                                    LibraryCard(name: lib.name, kind: lib.kind, isLocal: false, previewURL: previewURLs["server:\(lib.id)"])
+                                    LibraryCard(name: lib.name, kind: lib.kind, isLocal: false, previewURL: previewURLs["server:\(lib.id)"], isOffline: isOffline)
                                 }
                                 .buttonStyle(.plain)
                                 .focusableCompat(false)
@@ -197,16 +212,43 @@ struct LibrariesView: View {
     }
     #endif
 
+    private static let cacheKeyPrefix = "goldfish.cachedLibraries."
+    private var cacheKey: String { Self.cacheKeyPrefix + (client.currentUsername ?? "_") }
+
     private func load() async {
-        isLoading = true
+        isLoading = libraries.isEmpty
         defer { isLoading = false }
+        // Zuerst den zuletzt bekannten Stand zeigen (falls vorhanden), damit bei langsamer/
+        // fehlender Verbindung nicht erst eine leere Ansicht aufblitzt, bevor der Fehler
+        // überhaupt feststeht.
+        if libraries.isEmpty, let cached = loadCachedLibraries() {
+            libraries = cached
+        }
         do {
             libraries = try await client.fetchLibraries()
             errorMessage = nil
+            isOffline = false
+            saveCachedLibraries(libraries)
             await loadPreviews()
         } catch {
-            errorMessage = error.localizedDescription
+            // Kein harter Fehlerzustand mehr (siehe body-Kommentar) — nur wenn wir NICHTS
+            // haben (weder frisch noch aus dem Cache), bleibt errorMessage als letzter Ausweg
+            // für die Vollbild-Meldung stehen.
+            isOffline = true
+            if libraries.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    private func loadCachedLibraries() -> [Library]? {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey) else { return nil }
+        return try? JSONDecoder().decode([Library].self, from: data)
+    }
+
+    private func saveCachedLibraries(_ libs: [Library]) {
+        guard let data = try? JSONEncoder().encode(libs) else { return }
+        UserDefaults.standard.set(data, forKey: cacheKey)
     }
 
     private func loadPreviews() async {
@@ -419,6 +461,10 @@ private struct LibraryCard: View {
     /// is currently nicht eingesteckt — Kachel bleibt sichtbar statt zu verschwinden oder
     /// hart zu fehlern, nur verblasst + mit Hinweis (User-Anfrage 2026-08-19).
     var isUnavailable: Bool = false
+    /// True für Server-Bibliotheken, wenn der letzte Reload fehlschlug und nur der
+    /// Platten-Cache angezeigt wird (User-Anfrage 2026-08-19: "bei den online Bibliotheken
+    /// soll dann der Hinweis Offline erscheinen").
+    var isOffline: Bool = false
 
     /// Experiment 2026-08-19 (User: "Vorschaubilder passen da nicht richtig rein,
     /// versuchen wir es mit Rund... wenn es nicht schön ist, dann können wir es ja wieder
@@ -468,10 +514,12 @@ private struct LibraryCard: View {
                 HStack(spacing: 4) {
                     if isUnavailable {
                         Image(systemName: "externaldrive.badge.xmark")
+                    } else if isOffline {
+                        Image(systemName: "wifi.slash")
                     } else if isLocal {
                         Image(systemName: "externaldrive")
                     }
-                    Text(isUnavailable ? "nicht verbunden" : kindLabel)
+                    Text(isUnavailable ? "nicht verbunden" : (isOffline ? "Offline" : kindLabel))
                 }
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.85))
@@ -482,7 +530,7 @@ private struct LibraryCard: View {
         .frame(width: diameter, height: diameter)
         .clipShape(Circle())
         .shadow(color: .black.opacity(0.2), radius: 5, y: 3)
-        .opacity(isUnavailable ? 0.5 : 1)
+        .opacity((isUnavailable || isOffline) ? 0.6 : 1)
     }
 
     private var icon: String {

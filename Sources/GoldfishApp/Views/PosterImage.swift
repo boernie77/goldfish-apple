@@ -88,6 +88,20 @@ struct PosterImage: View {
         loadedImage = nil
         loadFailed = false
         guard let url else { return }
+        // User-Anfrage 2026-08-19: "wenn ich die Verbindung trenne, dann sind auch die
+        // Vorschaubilder bei den Downloads weg" — der Offline-Poster-Cache liefert eine
+        // `file://`-URL (siehe DownloadManager.cachedPosterURL), aber dieser Loader ging
+        // bisher IMMER über URLSession, unabhängig vom Schema. Lokale Dateien direkt lesen
+        // statt über den Netzwerk-Stack zu gehen, der für file:// weder nötig noch sauber
+        // definiert ist.
+        if url.isFileURL {
+            guard let data = try? Data(contentsOf: url), let image = PlatformImage(data: data) else {
+                loadFailed = true
+                return
+            }
+            loadedImage = image
+            return
+        }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         guard let (data, _) = try? await URLSession.shared.data(for: request),

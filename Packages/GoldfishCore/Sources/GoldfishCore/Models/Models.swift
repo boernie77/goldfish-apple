@@ -31,7 +31,7 @@ public struct WatchLink: Decodable, Identifiable, Hashable {
 
 // MARK: - Library
 
-public struct Library: Decodable, Identifiable, Hashable {
+public struct Library: Codable, Identifiable, Hashable {
     public let id: Int64
     public let name: String
     public let path: String

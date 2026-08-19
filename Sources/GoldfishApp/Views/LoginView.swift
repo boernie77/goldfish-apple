@@ -121,7 +121,26 @@ struct LoginView: View {
         do {
             try await client.login(username: username, password: password)
         } catch {
-            errorMessage = error.localizedDescription
+            // User-Anfrage 2026-08-19: "Kann ich offline den Benutzer wechseln? [...] Mit
+            // Passwortabfrage wäre mir aber lieber" — NUR bei einem echten Verbindungsproblem
+            // (kein Server erreichbar) auf den lokal gespeicherten Passwort-Verifier
+            // zurückfallen, nicht bei jedem beliebigen Fehler (z.B. falsches Passwort, das der
+            // Server selbst schon klar zurückgemeldet hat).
+            if GoldfishClient.isConnectivityError(error) {
+                switch client.loginOffline(username: username, password: password) {
+                case .success:
+                    errorMessage = nil
+                    return
+                case .wrongPassword:
+                    errorMessage = "Falsches Passwort."
+                case .noRememberedSession:
+                    errorMessage = "Keine Verbindung zum Server — für dieses Konto ist noch kein Offline-Login gespeichert (einmal online anmelden, dann geht's auch offline)."
+                case .sessionExpired:
+                    errorMessage = "Offline-Anmeldung ist abgelaufen (länger als 14 Tage kein Online-Login) — bitte mit Internetverbindung erneut anmelden."
+                }
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

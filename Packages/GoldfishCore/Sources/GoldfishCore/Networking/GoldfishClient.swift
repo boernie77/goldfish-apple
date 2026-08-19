@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if os(macOS)
 import AppKit
 #else
@@ -29,6 +30,10 @@ public final class GoldfishClient: ObservableObject {
     @Published public private(set) var currentUsername: String?
     @Published public private(set) var isAdmin: Bool = false
     @Published public private(set) var isLoggedIn: Bool = false
+    /// User-Anfrage 2026-08-19: "Kann ich offline den Benutzer wechseln?" — Konten, deren
+    /// Session-Cookie einmal online erfolgreich gesetzt wurde, bleiben hier gelistet und
+    /// lassen sich OHNE Netzwerk-Call zurückwechseln (`switchToRememberedAccount`).
+    @Published public private(set) var rememberedAccounts: [RememberedAccount] = []
 
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -46,6 +51,7 @@ public final class GoldfishClient: ObservableObject {
         }
         self.currentUsername = UserDefaults.standard.string(forKey: "goldfish.username")
         self.isLoggedIn = self.currentUsername != nil
+        self.rememberedAccounts = Self.loadRememberedAccountsList()
     }
 
     public func configure(serverURL: URL) {
@@ -165,6 +171,10 @@ public final class GoldfishClient: ObservableObject {
             isLoggedIn = true
             if let username = status.username {
                 UserDefaults.standard.set(username, forKey: "goldfish.username")
+                // Kein rememberCurrentSession hier: dieser Pfad deckt auch OIDC-Logins ab, für
+                // die es kein Goldfish-eigenes Passwort gibt, gegen das offline verifiziert
+                // werden könnte — Offline-Kontowechsel bleibt bewusst auf Passwort-Logins
+                // beschränkt (siehe login()).
             }
         } else {
             currentUsername = nil
@@ -181,6 +191,149 @@ public final class GoldfishClient: ObservableObject {
         isAdmin = resp.isAdmin
         isLoggedIn = true
         UserDefaults.standard.set(resp.username, forKey: "goldfish.username")
+        rememberCurrentSession(username: resp.username, isAdmin: resp.isAdmin, password: password)
+    }
+
+    /// True wenn `error` daran scheiterte, den Server überhaupt zu erreichen (kein Internet,
+    /// DNS, Timeout, …) — im Unterschied zu einem Server-seitigen Ablehnen (401 falsches
+    /// Passwort). `LoginView` nutzt das, um NUR bei echten Verbindungsproblemen den
+    /// Offline-Fallback zu versuchen, nicht bei einem simplen Tippfehler im Passwort.
+    public static func isConnectivityError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .timedOut, .dnsLookupFailed, .internationalRoamingOff,
+             .dataNotAllowed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: - Gemerkte Konten (Offline-Benutzerwechsel)
+
+    public struct RememberedAccount: Codable, Identifiable, Equatable {
+        public let username: String
+        public let isAdmin: Bool
+        public var id: String { username }
+    }
+
+    private static let rememberedAccountsKey = "goldfish.rememberedAccounts"
+
+    private static func loadRememberedAccountsList() -> [RememberedAccount] {
+        guard let data = UserDefaults.standard.data(forKey: rememberedAccountsKey),
+              let list = try? JSONDecoder().decode([RememberedAccount].self, from: data) else { return [] }
+        return list
+    }
+
+    private func saveRememberedAccountsList(_ list: [RememberedAccount]) {
+        rememberedAccounts = list
+        if let data = try? JSONEncoder().encode(list) {
+            UserDefaults.standard.set(data, forKey: Self.rememberedAccountsKey)
+        }
+    }
+
+    /// Keychain-Einträge sind pro Server gescoped (Host im Key) — dieselbe Kombination aus
+    /// Username kann auf zwei verschiedenen Goldfish-Servern völlig unterschiedliche Accounts
+    /// meinen.
+    private func keychainKey(for username: String) -> String {
+        "\(baseURL?.host ?? "_")|\(username)"
+    }
+
+    /// Läuft nach jedem erfolgreichen PASSWORT-Login (nicht OIDC — da gibt es kein
+    /// Goldfish-eigenes Passwort zu prüfen) — sichert die Session-Cookies UND einen lokalen
+    /// Passwort-Verifier (gesalzener SHA256-Hash, NICHT das Klartext-Passwort), damit dieses
+    /// Konto später per Passwort-Eingabe offline freigeschaltet werden kann. User-Anfrage
+    /// 2026-08-19: "Mit Passwortabfrage wäre mir aber lieber" — ein reiner Klick-Wechsel ohne
+    /// erneute Passworteingabe wäre auf dem gemeinsam genutzten Familien-Mac keine echte
+    /// Zugriffskontrolle zwischen den Konten gewesen.
+    private func rememberCurrentSession(username: String, isAdmin: Bool, password: String) {
+        guard let base = baseURL, let cookies = HTTPCookieStorage.shared.cookies(for: base), !cookies.isEmpty else { return }
+        guard let cookieData = try? NSKeyedArchiver.archivedData(withRootObject: cookies, requiringSecureCoding: true) else { return }
+        KeychainHelper.set(cookieData, forKey: keychainKey(for: username))
+
+        let salt = (KeychainHelper.get(forKey: verifierKey(for: username)).flatMap { try? JSONDecoder().decode(PasswordVerifier.self, from: $0) }?.salt)
+            ?? UUID().uuidString
+        let verifier = PasswordVerifier(salt: salt, hash: Self.hash(password: password, salt: salt), savedAt: Date())
+        if let verifierData = try? JSONEncoder().encode(verifier) {
+            KeychainHelper.set(verifierData, forKey: verifierKey(for: username))
+        }
+
+        var list = Self.loadRememberedAccountsList().filter { $0.username != username }
+        list.append(RememberedAccount(username: username, isAdmin: isAdmin))
+        saveRememberedAccountsList(list)
+    }
+
+    private struct PasswordVerifier: Codable {
+        let salt: String
+        let hash: String
+        let savedAt: Date
+    }
+
+    private func verifierKey(for username: String) -> String { keychainKey(for: username) + "|pw" }
+
+    private static func hash(password: String, salt: String) -> String {
+        let digest = SHA256.hash(data: Data((salt + password).utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Wie lange eine offline verifizierte Anmeldung gültig bleibt, bevor zwingend wieder ein
+    /// echter Online-Login nötig ist — User-Anfrage: "zumindest immer für 14 Tage. Spätestens
+    /// dann muss man wieder online gehen". Jeder erfolgreiche ONLINE-Login (siehe `login()`)
+    /// setzt die 14 Tage neu, weil `rememberCurrentSession` `savedAt` dabei immer neu schreibt.
+    private static let offlineGracePeriod: TimeInterval = 14 * 24 * 60 * 60
+
+    public enum OfflineLoginResult {
+        case success
+        case wrongPassword
+        case noRememberedSession
+        case sessionExpired
+    }
+
+    /// User-Anfrage 2026-08-19: "Kann ich offline den Benutzer wechseln?" — prüft das
+    /// eingegebene Passwort gegen den lokal gespeicherten Verifier (kein Netzwerk-Call) und
+    /// stellt bei Erfolg die gemerkten Session-Cookies wieder her. `LoginView` ruft das NUR
+    /// auf, wenn der normale Online-Login zuvor an einem echten Verbindungsproblem gescheitert
+    /// ist (siehe `isConnectivityError`), nicht bei jedem beliebigen Fehler.
+    public func loginOffline(username: String, password: String) -> OfflineLoginResult {
+        guard let verifierData = KeychainHelper.get(forKey: verifierKey(for: username)),
+              let verifier = try? JSONDecoder().decode(PasswordVerifier.self, from: verifierData) else {
+            return .noRememberedSession
+        }
+        guard Self.hash(password: password, salt: verifier.salt) == verifier.hash else {
+            return .wrongPassword
+        }
+        guard Date().timeIntervalSince(verifier.savedAt) <= Self.offlineGracePeriod else {
+            return .sessionExpired
+        }
+        guard switchToRememberedAccount(username: username) else { return .noRememberedSession }
+        return .success
+    }
+
+    private func switchToRememberedAccount(username: String) -> Bool {
+        guard let base = baseURL,
+              let data = KeychainHelper.get(forKey: keychainKey(for: username)),
+              let cookies = try? NSKeyedUnarchiver.unarchivedObject(ofClasses: [NSArray.self, HTTPCookie.self], from: data) as? [HTTPCookie] else {
+            return false
+        }
+        // Erst alle aktuell für diesen Host gesetzten Cookies entfernen — sonst könnte ein
+        // Cookie des VORHERIGEN Kontos neben den neuen stehen bleiben.
+        if let existing = HTTPCookieStorage.shared.cookies(for: base) {
+            for c in existing { HTTPCookieStorage.shared.deleteCookie(c) }
+        }
+        for cookie in cookies { HTTPCookieStorage.shared.setCookie(cookie) }
+        let remembered = rememberedAccounts.first { $0.username == username }
+        currentUsername = username
+        isAdmin = remembered?.isAdmin ?? false
+        isLoggedIn = true
+        UserDefaults.standard.set(username, forKey: "goldfish.username")
+        return true
+    }
+
+    public func forgetRememberedAccount(username: String) {
+        KeychainHelper.delete(forKey: keychainKey(for: username))
+        KeychainHelper.delete(forKey: verifierKey(for: username))
+        saveRememberedAccountsList(rememberedAccounts.filter { $0.username != username })
     }
 
     /// URL to open in a web view to start the Authentik SSO flow. The server handles the
