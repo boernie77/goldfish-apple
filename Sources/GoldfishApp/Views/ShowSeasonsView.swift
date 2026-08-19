@@ -192,6 +192,7 @@ struct SeasonEpisodesView: View {
                     }
                 }
                 .padding(.horizontal)
+                .environmentObject(client)
             }
             .padding(.vertical)
         }
@@ -212,17 +213,28 @@ struct SeasonEpisodesView: View {
 private struct EpisodeTile: View {
     let episode: EpisodeOut
 
+    @EnvironmentObject var client: GoldfishClient
+    @EnvironmentObject var downloads: DownloadManager
+    // User-Anfrage 2026-08-19: "der Gesehen Button fehlt noch bei den Folgen" — vorher nur
+    // ein statisches Icon, kein Toggle. @State für sofortiges UI-Feedback, mirrors
+    // ItemCard.watched.
+    @State private var watched: Bool
+
+    init(episode: EpisodeOut) {
+        self.episode = episode
+        _watched = State(initialValue: episode.watched)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             PosterImage(url: tmdbImageURL(episode.stillPath, size: "w300"), aspect: 16.0 / 9.0, placeholderSystemImage: "tv")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
-                    if episode.watched {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .padding(6)
-                            .background(.black.opacity(0.5), in: Circle())
-                            .padding(6)
+                    if episode.owned {
+                        PosterToggleBadge(isOn: watched, onSymbol: "checkmark.circle.fill", offSymbol: "checkmark.circle", tint: .green) {
+                            toggleWatched()
+                        }
+                        .padding(6)
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
@@ -266,6 +278,14 @@ private struct EpisodeTile: View {
                 .foregroundStyle(episode.owned ? .primary : .secondary)
         }
         .contentShape(Rectangle())
+    }
+
+    private func toggleWatched() {
+        guard let itemId = episode.itemId else { return }
+        let newValue = !watched
+        watched = newValue
+        Task { try? await client.setWatched(itemId: itemId, watched: newValue) }
+        downloads.updateCachedWatched(itemId: itemId, watched: newValue)
     }
 }
 
