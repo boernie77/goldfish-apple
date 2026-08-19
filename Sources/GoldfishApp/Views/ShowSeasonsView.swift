@@ -225,9 +225,29 @@ private struct EpisodeTile: View {
                             .padding(6)
                     }
                 }
+                .overlay(alignment: .bottomLeading) {
+                    // User-Anfrage 2026-08-19: "bei den Serienfolgen fehlen die
+                    // Informationen in der Kachel, wie gesehen, Auflösung" — gleiche
+                    // Position/Optik wie ItemCard's Auflösungs-Badge.
+                    if !episode.resolutionLabel.isEmpty {
+                        Text(episode.resolutionLabel)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if !episode.owned {
                         Text("Fehlt")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    } else if episode.durationSec != nil {
+                        Text(episode.durationLabel)
                             .font(.caption2.bold())
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.black.opacity(0.6), in: Capsule())

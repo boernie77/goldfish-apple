@@ -33,6 +33,10 @@ struct ItemGridView: View {
     @State private var randomItem: Item?
     @State private var isLoadingRandom = false
     @State private var randomError: String?
+    /// User-Anfrage 2026-08-19: "in jeder Bibliothek auf der rechten Seite eine
+    /// Buchstabenleiste zum navigieren" — filtert wie im Browser (CLAUDE.md
+    /// "Alphabet-Sidebar rechts"), kein Scroll-Sprung.
+    @State private var alphaFilter: String?
 
     /// Custom init only to set the sort defaults from `library.kind` — everything else keeps
     /// the compiler-synthesized memberwise behavior's parameter shape/defaults.
@@ -52,11 +56,43 @@ struct ItemGridView: View {
         !search.isEmpty || watchedFilter != .all || favoritesOnly || !selectedBuckets.isEmpty
     }
 
+    private var displayedFolders: [FolderTile] {
+        folders.filter { AlphabetSidebar.matches($0.metadata?.title ?? $0.displayName, alphaFilter) }
+    }
+    private var displayedItems: [Item] {
+        items.filter { AlphabetSidebar.matches($0.displayTitle, alphaFilter) }
+    }
+
     // Fixed (min == max) column width instead of a fully adaptive grid: adaptive grids
     // on macOS can miscompute their initial width right after a NavigationStack push,
     // which visually collapses the grid into one smeared column. A fixed cell size sidesteps that.
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
+
+    /// Ausgelagert aus `body` — der große kombinierte ViewBuilder-Ausdruck brachte den
+    /// Type-Checker sonst zum Timeout ("unable to type-check ... in reasonable time"),
+    /// nachdem `displayedFolders`/`displayedItems` dazukamen.
+    @ViewBuilder
+    private var itemGrid: some View {
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(displayedFolders) { tile in
+                NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
+                    FolderCard(tile: tile)
+                        .frame(width: cardWidth)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+            }
+            ForEach(displayedItems) { item in
+                NavigationLink(destination: ItemDetailView(item: item, queue: items)) {
+                    ItemCard(item: item)
+                        .frame(width: cardWidth)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -90,30 +126,21 @@ struct ItemGridView: View {
                                 .padding(.horizontal)
                         }
 
-                        LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(folders) { tile in
-                                NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
-                                    FolderCard(tile: tile)
-                                        .frame(width: cardWidth)
-                                }
-                                .buttonStyle(.plain)
-                                .focusableCompat(false)
-                            }
-                            ForEach(items) { item in
-                                NavigationLink(destination: ItemDetailView(item: item, queue: items)) {
-                                    ItemCard(item: item)
-                                        .frame(width: cardWidth)
-                                }
-                                .buttonStyle(.plain)
-                                .focusableCompat(false)
-                            }
-                        }
-                        .padding(.horizontal)
+                        itemGrid
+                            .padding(.horizontal)
+                            .padding(.trailing, 28)
                     }
                     .padding(.vertical)
                 }
+                .overlay(alignment: .trailing) {
+                    if !folders.isEmpty || !items.isEmpty {
+                        AlphabetSidebar(selected: $alphaFilter)
+                            .padding(.trailing, 4)
+                    }
+                }
             }
         }
+        .onChange(of: folder) { _ in alphaFilter = nil }
         .navigationTitle(folder?.components(separatedBy: "/").last ?? library.name)
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(item: item)
@@ -310,6 +337,23 @@ struct ItemGridView: View {
         isLoading = items.isEmpty && folders.isEmpty
         defer { isLoading = false }
         do {
+            // User-Anfrage 2026-08-19: "wenn ich in den Serien suche, dann soll er nur
+            // Serien zeigen, keine Folgen" — die normale Suche (unten) läuft über
+            // /api/items?search= und liefert flache EPISODEN-Treffer, weil sie gegen
+            // Episode-Titel/relPath matcht. Nur im TV-Library-ROOT (nicht innerhalb
+            // einer schon geöffneten Serie) macht eine Serien-Namens-Suche Sinn — dort
+            // werden stattdessen alle Show-Ordner geladen und client-seitig nach Namen
+            // gefiltert, keine Episoden-Treffer mehr gemischt.
+            if library.kind == "tv", folder == nil, !search.isEmpty {
+                let allFolders = try await client.fetchFolders(libraryId: library.id, parent: nil)
+                let q = search.trimmingCharacters(in: .whitespaces)
+                folders = allFolders.filter {
+                    ($0.metadata?.title ?? $0.displayName).localizedCaseInsensitiveContains(q)
+                }
+                items = []
+                errorMessage = nil
+                return
+            }
             // Server semantics (internal/store/sqlite.go ListItems): folder="" means
             // "no filter at all" (every item in the library, any depth!), folder="/"
             // means "only items with no subfolder", folder="<path>" means "under path,

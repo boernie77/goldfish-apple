@@ -465,8 +465,34 @@ public struct EpisodeOut: Decodable, Identifiable, Hashable {
     public let owned: Bool
     public let watched: Bool
     public let itemId: Int64?
+    // User-Anfrage 2026-08-19: "bei den Serienfolgen fehlen die Informationen in der
+    // Kachel, wie gesehen, Auflösung [...] und auch die Dauer der Folge".
+    public let width: Int?
+    public let height: Int?
+    public let durationSec: Double?
 
     public var id: String { "\(season)-\(episode)" }
+
+    /// Gleiche Bucket-Formel wie `Item.resolutionLabel`.
+    public var resolutionLabel: String {
+        guard let h = height, let w = width, h > 0 else { return "" }
+        let effective = max(Double(h), Double(w) * 9.0 / 16.0)
+        switch effective {
+        case 2000...: return "4K"
+        case 1000..<2000: return "1080p"
+        case 700..<1000: return "720p"
+        default: return "\(Int(effective))p"
+        }
+    }
+
+    /// Gleiche Formatierung wie `Item.durationLabel`.
+    public var durationLabel: String {
+        let sec = Int((durationSec ?? 0).rounded())
+        let h = sec / 3600
+        let m = (sec % 3600) / 60
+        let s = sec % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
 }
 
 public struct SeasonOut: Decodable, Identifiable, Hashable {
