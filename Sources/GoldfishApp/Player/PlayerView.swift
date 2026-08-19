@@ -250,11 +250,28 @@ struct PlayerView: View {
         .task(id: item.id) { await setUp() }
         .onDisappear {
             hideControlsTask?.cancel()
+            #if os(macOS)
+            NSCursor.unhide()
+            #endif
             teardown()
         }
         .sheet(isPresented: $showingAddToPlaylist) {
             AddToPlaylistSheet(item: item)
         }
+        #if os(macOS)
+        // User-Anfrage 2026-08-19: "Der Mauszeiger verschwindet nicht, wenn ich den Player
+        // vergrößere" — bisher gab es GAR KEINE Cursor-Ausblendung, nur das eigene
+        // Steuerfeld faded per Timer weg. `NSCursor` folgt jetzt `controlsVisible`. Bewegung
+        // zählt zusätzlich als Aktivität (nicht nur Klicks) — sonst bliebe der Cursor
+        // unsichtbar, obwohl man die Maus bewegt, weil `resetAutoHide()` bisher nur von
+        // Button-Taps aus aufgerufen wurde.
+        .onContinuousHover { phase in
+            if case .active = phase { resetAutoHide() }
+        }
+        .onChange(of: controlsVisible) { visible in
+            if visible { NSCursor.unhide() } else { NSCursor.hide() }
+        }
+        #endif
     }
 
     private func toggleControlsVisibility() {

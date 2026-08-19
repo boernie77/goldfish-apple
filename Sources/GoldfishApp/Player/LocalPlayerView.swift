@@ -188,8 +188,21 @@ struct LocalPlayerView: View {
         .task(id: item.id) { await setUp() }
         .onDisappear {
             hideControlsTask?.cancel()
+            #if os(macOS)
+            NSCursor.unhide()
+            #endif
             teardown()
         }
+        #if os(macOS)
+        // Gleicher Fix wie PlayerView (User-Anfrage 2026-08-19: "Mauszeiger verschwindet
+        // nicht, wenn ich den Player vergrößere").
+        .onContinuousHover { phase in
+            if case .active = phase { resetAutoHide() }
+        }
+        .onChange(of: controlsVisible) { visible in
+            if visible { NSCursor.unhide() } else { NSCursor.hide() }
+        }
+        #endif
     }
 
     private func toggleControlsVisibility() {
