@@ -326,6 +326,7 @@ struct SettingsView: View {
                             transcode.rescanDownloads(records: Array(downloads.records.values)) { itemId in
                                 downloads.localFileURL(itemId: itemId)
                             }
+                            downloads.cacheAllDownloadPostersIfNeeded()
                         } label: {
                             Label("Erneut prüfen (Bibliotheken + Downloads)", systemImage: "arrow.clockwise")
                         }

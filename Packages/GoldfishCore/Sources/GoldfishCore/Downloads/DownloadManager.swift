@@ -194,6 +194,7 @@ public final class DownloadManager: NSObject, ObservableObject {
             return
         }
         records = allRecordsOnDisk.filter { $0.value.ownerUsername == user || $0.value.ownerUsername == nil }
+        cacheAllDownloadPostersIfNeeded()
     }
 
     /// Persists `allRecordsOnDisk` (ALL users' download records), not the filtered `records`
@@ -350,6 +351,43 @@ public final class DownloadManager: NSObject, ObservableObject {
         }
     }
 
+    /// Show-Poster für Serien-Downloads — Episoden haben fast nie ein eigenes Poster
+    /// (`metadata.posterPath` meist leer), die Downloads-Kachel zeigt stattdessen das
+    /// SHOW-Poster über `metadata.parentId` (siehe `DownloadGroupCard.posterURL`). Eigener
+    /// Cache-Namensraum (`show-<parentId>.jpg`), weil mehrere Episoden-Downloads sich
+    /// dasselbe Show-Poster teilen — pro Show nur einmal laden, nicht pro Episode.
+    public func cachedShowPosterURL(parentId: Int64) -> URL? {
+        let url = Self.posterCacheDir.appendingPathComponent("show-\(parentId).jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func cacheShowPosterIfNeeded(parentId: Int64) {
+        guard cachedShowPosterURL(parentId: parentId) == nil else { return }
+        guard let posterURL = GoldfishClient.shared.posterURL(metadataId: parentId) else { return }
+        let destination = Self.posterCacheDir.appendingPathComponent("show-\(parentId).jpg")
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(from: posterURL), !data.isEmpty else { return }
+            try? data.write(to: destination)
+        }
+    }
+
+    // User-Anfrage 2026-08-19 (Folgerunde): "er sich von allen Downloads die Bilder zieht
+    // und speichert. Nicht erst, wenn ich es öffne" — `cachePosterIfNeeded` beim Download-
+    // Start deckte nur NEUE Downloads ab, nicht die schon vorhandenen (vor diesem Feature
+    // heruntergeladen) UND nicht das Show-Poster (das kam bisher nur lazy beim Öffnen der
+    // Serien-Übersicht zustande). Läuft proaktiv über ALLE aktuell sichtbaren Downloads —
+    // wird von `refreshVisibleRecords()` bei jedem Login/App-Start angestoßen, zusätzlich
+    // manuell über den bestehenden "Erneut prüfen"-Button (siehe SettingsView).
+    public func cacheAllDownloadPostersIfNeeded() {
+        for record in records.values {
+            guard record.state == .done, let item = record.cachedItem else { continue }
+            cachePosterIfNeeded(for: item)
+            if let parentId = item.metadata?.parentId {
+                cacheShowPosterIfNeeded(parentId: parentId)
+            }
+        }
+    }
+
     /// Same sanitize rules as the server's `rename.SanitizeFilename` (CLAUDE.md
     /// "Auto-Rename bestätigter Filme"): strip filesystem-illegal characters and control
     /// characters, trim trailing dots/spaces (Windows/exFAT dislike both).
@@ -485,7 +523,7 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
             self.tasks[itemId] = nil
             self.saveIndex()
             if rec.state == .done {
-                self.autoConvertIfNeeded(itemId: itemId, fileURL: dest)
+                self.autoConvertIfNeeded(itemId: itemId, title: rec.title, fileURL: dest)
             }
         }
     }
@@ -496,10 +534,10 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
     /// "Erneut prüfen"-Button. Jetzt zusätzlich direkt nach jedem einzelnen Download,
     /// gleiches Muster wie `LocalLibraryManager.scan()`'s automatischer
     /// `enqueueCompatibilityCheck`-Aufruf nach dem Einlesen.
-    private func autoConvertIfNeeded(itemId: Int64, fileURL: URL) {
+    private func autoConvertIfNeeded(itemId: Int64, title: String, fileURL: URL) {
         #if os(macOS)
         Task {
-            await LocalTranscodeService.shared.autoConvertDownloadIfNeeded(itemId: itemId, sourceURL: fileURL)
+            await LocalTranscodeService.shared.autoConvertDownloadIfNeeded(itemId: itemId, title: title, sourceURL: fileURL)
         }
         #endif
     }

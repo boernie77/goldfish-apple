@@ -256,10 +256,20 @@ public final class LocalTranscodeService: ObservableObject {
     /// State-Tracking wie `rescanDownloads` (downloadFailedItems + refreshCompletedCount),
     /// damit die Formatanpassung-Anzeige in den Einstellungen konsistent bleibt, egal ob der
     /// Fix über den Bulk-Retry oder automatisch nach einem einzelnen Download lief.
-    public func autoConvertDownloadIfNeeded(itemId: Int64, sourceURL: URL) async {
+    public func autoConvertDownloadIfNeeded(itemId: Int64, title: String, sourceURL: URL) async {
         guard !isDownloadConverted(itemId: itemId) else { return }
         let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? true
         guard !playable else { return }
+        // Real gap hit 2026-08-19: lief lautlos im Hintergrund — currentDownloadTitle/
+        // currentDownloadItemId (die die Settings-Anzeige "Wird angepasst: …" speisen)
+        // wurden hier nie gesetzt, nur von `rescanDownloads`. User sah dadurch keinerlei
+        // Hinweis, dass überhaupt etwas läuft, und hielt das Feature für kaputt.
+        currentDownloadTitle = title
+        currentDownloadItemId = itemId
+        defer {
+            currentDownloadTitle = nil
+            currentDownloadItemId = nil
+        }
         do {
             _ = try await remuxDownload(itemId: itemId, sourceURL: sourceURL)
             refreshCompletedCount()
