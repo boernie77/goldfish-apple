@@ -32,8 +32,30 @@ struct LocalLibraryItemsView: View {
     /// (gleiche Konvention wie Android's `loadMerged`).
     let libraries: [LocalLibrary]
 
-    init(library: LocalLibrary) { self.libraries = [library] }
-    init(libraries: [LocalLibrary]) { self.libraries = libraries }
+    init(library: LocalLibrary) {
+        self.libraries = [library]
+        let key = Self.sortStorageKey(libraryIds: [library.id])
+        if let savedRaw = UserDefaults.standard.string(forKey: key), let saved = LocalSort(rawValue: savedRaw) {
+            _sort = State(initialValue: saved)
+            _ascending = State(initialValue: UserDefaults.standard.object(forKey: key + ".asc") as? Bool ?? true)
+        }
+    }
+    init(libraries: [LocalLibrary]) {
+        self.libraries = libraries
+        let key = Self.sortStorageKey(libraryIds: Set(libraries.map(\.id)))
+        if let savedRaw = UserDefaults.standard.string(forKey: key), let saved = LocalSort(rawValue: savedRaw) {
+            _sort = State(initialValue: saved)
+            _ascending = State(initialValue: UserDefaults.standard.object(forKey: key + ".asc") as? Bool ?? true)
+        }
+    }
+
+    // User-Anfrage 2026-08-19/20: "eine Bibliothek soll sich die letzte Sortierung merken" —
+    // gleiche Konvention wie `ItemGridView.sortStorageKey`, nur mit den (ggf. mehreren
+    // gemergten) UUID-Library-IDs statt einer einzelnen Int64.
+    private static func sortStorageKey(libraryIds: Set<UUID>) -> String {
+        "goldfish.localSort.\(libraryIds.map(\.uuidString).sorted().joined(separator: ","))"
+    }
+    private var sortStorageKey: String { Self.sortStorageKey(libraryIds: libraryIds) }
 
     private var displayName: String {
         if libraries.count >= 2, !localLibrary.mergedLibraryName.isEmpty { return localLibrary.mergedLibraryName }
@@ -196,11 +218,18 @@ struct LocalLibraryItemsView: View {
                 .disabled(displayedItems.isEmpty)
 
                 Menu {
-                    Picker("Sortierung", selection: $sort) {
-                        ForEach(LocalSort.allCases) { option in
-                            Text(option.label).tag(option)
+                    // Flache Buttons statt `Picker` — ein `Picker` in einer `Menu` rendert als
+                    // native AppKit-Submenu (eigenes Panel, eigener Disclosure-Chevron), siehe
+                    // dieselbe Erklärung + denselben Fix in `ItemGridView`. Angeglichen, damit
+                    // Online- und lokale Bibliotheken optisch identisch aussehen.
+                    ForEach(LocalSort.allCases) { option in
+                        Button {
+                            sort = option
+                        } label: {
+                            Label(option.label, systemImage: sort == option ? "checkmark" : "")
                         }
                     }
+                    Divider()
                     Button {
                         ascending.toggle()
                     } label: {
@@ -211,9 +240,11 @@ struct LocalLibraryItemsView: View {
                 }
 
                 Menu {
-                    Picker("Gesehen-Status", selection: $watchedFilter) {
-                        ForEach(LocalWatchedFilter.allCases) { option in
-                            Text(option.label).tag(option)
+                    ForEach(LocalWatchedFilter.allCases) { option in
+                        Button {
+                            watchedFilter = option
+                        } label: {
+                            Label(option.label, systemImage: watchedFilter == option ? "checkmark" : "")
                         }
                     }
                 } label: {
@@ -227,6 +258,12 @@ struct LocalLibraryItemsView: View {
                 }
                 .disabled(isScanning)
             }
+        }
+        .onChange(of: sort) { newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: sortStorageKey)
+        }
+        .onChange(of: ascending) { newValue in
+            UserDefaults.standard.set(newValue, forKey: sortStorageKey + ".asc")
         }
         #if os(macOS)
         .onChange(of: playingItem) { newValue in

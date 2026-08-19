@@ -251,19 +251,45 @@ struct LibrariesView: View {
         UserDefaults.standard.set(data, forKey: cacheKey)
     }
 
+    // User-Anfrage 2026-08-19 (Folgerunde): "auch nicht für die Bibliotheksvorschaubilder" —
+    // dieselbe Offline-Lücke wie bei den Downloads-Postern: `previewURLs` zeigte bisher immer
+    // auf eine Live-Server-URL, die offline schlicht fehlschlägt. Eigener Platten-Cache,
+    // gleiche Application-Support-Konvention wie `DownloadManager.posterCacheDir`.
+    private static let libraryPreviewCacheDir: URL = {
+        let fm = FileManager.default
+        let support = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+            ?? fm.temporaryDirectory
+        let dir = support.appendingPathComponent("GoldfishLibraryPreviews", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private func cachedPreviewFile(key: String) -> URL {
+        Self.libraryPreviewCacheDir.appendingPathComponent("\(key.replacingOccurrences(of: ":", with: "_")).jpg")
+    }
+
     private func loadPreviews() async {
         for lib in libraries {
             let key = "server:\(lib.id)"
-            guard previewURLs[key] == nil else { continue }
+            let cacheFile = cachedPreviewFile(key: key)
+            // Sofort das gecachte Bild zeigen (funktioniert offline) — wird unten bei
+            // erfolgreichem Reload einfach überschrieben, bei fehlgeschlagenem bleibt es stehen.
+            if previewURLs[key] == nil, FileManager.default.fileExists(atPath: cacheFile.path) {
+                previewURLs[key] = cacheFile
+            }
             // A random item's poster is a cheap, representative cover — avoids fetching
             // (and discarding) the library's entire item list just to grab one image.
-            if let item = try? await client.randomItem(libraryId: lib.id),
-               let metadataId = item.metadataId,
-               let url = client.posterURL(metadataId: metadataId) {
-                previewURLs[key] = url
-            } else if let item = try? await client.randomItem(libraryId: lib.id) {
-                previewURLs[key] = client.thumbURL(itemId: item.id)
+            guard let item = try? await client.randomItem(libraryId: lib.id) else { continue }
+            let networkURL: URL?
+            if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId) {
+                networkURL = url
+            } else {
+                networkURL = client.thumbURL(itemId: item.id)
             }
+            guard let networkURL,
+                  let (data, _) = try? await URLSession.shared.data(from: networkURL), !data.isEmpty else { continue }
+            try? data.write(to: cacheFile)
+            previewURLs[key] = cacheFile
         }
         for lib in localLibrary.libraries {
             let key = "local:\(lib.id)"
@@ -476,19 +502,12 @@ private struct LibraryCard: View {
     var body: some View {
         ZStack {
             if let previewURL {
-                // `Color.clear` zuerst auf die feste Kreisgröße gebracht, DANN das Bild
-                // reingelegt — gleicher Fix wie vorher beim Rechteck (siehe `PosterImage`-
-                // Kommentar): AsyncImage direkt seine eigene Größe verhandeln zu lassen
-                // führte zu falsch beschnittenen Kacheln.
-                Color.clear
-                    .overlay {
-                        AsyncImage(url: previewURL) { phase in
-                            switch phase {
-                            case .success(let image): image.resizable().scaledToFill()
-                            default: LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                            }
-                        }
-                    }
+                // `PosterImage` statt eigenem `AsyncImage`: braucht ohnehin schon eine feste
+                // Kreisgröße (frühere Begründung unten), UND behandelt `file://`-URLs korrekt
+                // direkt von der Platte statt sie (unzuverlässig) über URLSession zu laden —
+                // User-Anfrage 2026-08-19: "auch nicht für die Bibliotheksvorschaubilder"
+                // (Vorschaubilder offline verschwunden, gleicher Bug wie bei Downloads-Postern).
+                PosterImage(url: previewURL, aspect: 1, placeholderSystemImage: icon, fixedWidth: diameter)
                     .clipShape(Circle())
                 // Radialer Verlauf zur Mitte hin abgedunkelt, damit der zentrierte Titel
                 // auf JEDEM Vorschaubild lesbar bleibt, nicht nur auf dunklen.

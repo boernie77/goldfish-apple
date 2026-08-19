@@ -342,11 +342,23 @@ public final class DownloadManager: NSObject, ObservableObject {
 
     private func cachePosterIfNeeded(for item: Item) {
         guard cachedPosterURL(itemId: item.id) == nil else { return }
-        guard let metadataId = item.metadataId,
-              let posterURL = GoldfishClient.shared.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) else { return }
+        // User-Anfrage 2026-08-19 (Folgerunde): "klappt das nur für Filme und Serien, nicht
+        // für Private Dateien wie YouTube" — Privat-Bibliotheks-Items haben (fast) nie ein
+        // TMDB-Poster (`metadataId`/`posterPath` fehlen), der bisherige Code brach dafür
+        // komplett ab statt auf das Video-Thumbnail zurückzufallen, das `ItemCard.posterURL`
+        // online längst als Fallback nutzt (`client.thumbURL`). Gleicher Fallback hier.
+        let sourceURL: URL?
+        if let metadataId = item.metadataId, let posterPath = item.metadata?.posterPath, !posterPath.isEmpty {
+            sourceURL = GoldfishClient.shared.posterURL(metadataId: metadataId, posterPath: posterPath)
+        } else if item.hasThumb == true {
+            sourceURL = GoldfishClient.shared.thumbURL(itemId: item.id)
+        } else {
+            sourceURL = nil
+        }
+        guard let sourceURL else { return }
         let destination = Self.posterCacheDir.appendingPathComponent("\(item.id).jpg")
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: posterURL), !data.isEmpty else { return }
+            guard let (data, _) = try? await URLSession.shared.data(from: sourceURL), !data.isEmpty else { return }
             try? data.write(to: destination)
         }
     }

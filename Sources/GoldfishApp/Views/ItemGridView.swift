@@ -48,9 +48,24 @@ struct ItemGridView: View {
         self.library = library
         self.folder = folder
         self.showsFolderTiles = showsFolderTiles
-        _sort = State(initialValue: library.isPrivate ? .released : .title)
-        _ascending = State(initialValue: true)
+        // User-Anfrage 2026-08-19: "eine Bibliothek soll sich die letzte Sortierung merken" —
+        // vorher immer der harte kind-abhängige Default, jede Navigation zurück in eine
+        // Bibliothek/einen Ordner setzte die Sortierung zurück. Gleiche Konvention wie der
+        // Browser (CLAUDE.md: `sort:lib:<libID>:<folder>` in localStorage).
+        let key = Self.sortStorageKey(libraryId: library.id, folder: folder)
+        if let savedRaw = UserDefaults.standard.string(forKey: key), let saved = ItemSort(rawValue: savedRaw) {
+            _sort = State(initialValue: saved)
+            _ascending = State(initialValue: UserDefaults.standard.object(forKey: key + ".asc") as? Bool ?? saved.defaultAscending)
+        } else {
+            _sort = State(initialValue: library.isPrivate ? .released : .title)
+            _ascending = State(initialValue: true)
+        }
     }
+
+    private static func sortStorageKey(libraryId: Int64, folder: String?) -> String {
+        "goldfish.sort.\(libraryId).\(folder ?? "_")"
+    }
+    private var sortStorageKey: String { Self.sortStorageKey(libraryId: library.id, folder: folder) }
 
     private var isFilterActive: Bool {
         !search.isEmpty || watchedFilter != .all || favoritesOnly || !selectedBuckets.isEmpty
@@ -255,8 +270,15 @@ struct ItemGridView: View {
         }
         .task { await load() }
         .onChange(of: search) { _ in Task { await load() } }
-        .onChange(of: sort) { _ in ascending = sort.defaultAscending; Task { await load() } }
-        .onChange(of: ascending) { _ in Task { await load() } }
+        .onChange(of: sort) { newValue in
+            ascending = newValue.defaultAscending
+            UserDefaults.standard.set(newValue.rawValue, forKey: sortStorageKey)
+            Task { await load() }
+        }
+        .onChange(of: ascending) { newValue in
+            UserDefaults.standard.set(newValue, forKey: sortStorageKey + ".asc")
+            Task { await load() }
+        }
         .onChange(of: watchedFilter) { _ in Task { await load() } }
         .onChange(of: favoritesOnly) { _ in Task { await load() } }
         .onChange(of: selectedBuckets) { _ in Task { await load() } }

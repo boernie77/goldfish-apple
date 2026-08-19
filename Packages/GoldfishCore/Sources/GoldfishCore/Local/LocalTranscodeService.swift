@@ -258,7 +258,13 @@ public final class LocalTranscodeService: ObservableObject {
     /// Fix über den Bulk-Retry oder automatisch nach einem einzelnen Download lief.
     public func autoConvertDownloadIfNeeded(itemId: Int64, title: String, sourceURL: URL) async {
         guard !isDownloadConverted(itemId: itemId) else { return }
-        let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? true
+        // Bugfix 2026-08-20: `?? true` (playable-Annahme bei fehlgeschlagener Probe) stand hier
+        // im Widerspruch zum `?? false`, das `PlayerView`/`LocalPlayerView` beim tatsächlichen
+        // Abspielen verwenden — eine Datei, deren `.isPlayable`-Check throwt, galt hier also
+        // fälschlich als "okay, kein Fix nötig", wurde aber beim ersten Abspielversuch trotzdem
+        // remuxed. Grund für den User-Report "Erneut prüfen macht nichts, aber beim Abspielen
+        // wird trotzdem angepasst". `?? false` (im Zweifel lieber fixen) angeglichen.
+        let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? false
         guard !playable else { return }
         // Real gap hit 2026-08-19: lief lautlos im Hintergrund — currentDownloadTitle/
         // currentDownloadItemId (die die Settings-Anzeige "Wird angepasst: …" speisen)
@@ -287,7 +293,9 @@ public final class LocalTranscodeService: ObservableObject {
             for item in items {
                 guard !isConverted(item), !queuedItems.contains(where: { $0.id == item.id }), currentItem?.id != item.id else { continue }
                 guard let url = fileURLProvider(item) else { continue }
-                let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? true
+                // `?? false`, siehe Kommentar bei `autoConvertDownloadIfNeeded` — konsistent
+                // mit dem play-time-Check in `LocalPlayerView`.
+                let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? false
                 if !playable {
                     queuedItems.append(item)
                 }
@@ -340,7 +348,8 @@ public final class LocalTranscodeService: ObservableObject {
             for rec in records where rec.state == .done {
                 guard !isDownloadConverted(itemId: rec.itemId) else { continue }
                 guard let url = fileURLProvider(rec.itemId) else { continue }
-                let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? true
+                // `?? false`, siehe Kommentar bei `autoConvertDownloadIfNeeded`.
+                let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? false
                 guard !playable else { continue }
                 pending.append(rec)
             }
