@@ -494,6 +494,13 @@ struct PlayerView: View {
             let p = AVPlayer(url: playURL)
             self.player = p
             attachObservers(to: p)
+            // User-Anfrage 2026-08-19: "bei offline Dateien merkt er sich nicht, wo man
+            // zuletzt war" — dieser Zweig hat nie eine Resume-Position gelesen. Rein lokaler
+            // Speicher (siehe DownloadManager.localResumeSeconds), unabhängig vom Server.
+            let resumeSec = startFromBeginning ? 0 : downloads.localResumeSeconds(itemId: item.id)
+            if resumeSec > 5 {
+                await p.seek(to: CMTime(seconds: resumeSec, preferredTimescale: 600))
+            }
             p.play()
             startResumeTimer(for: p)
             return
@@ -710,8 +717,13 @@ struct PlayerView: View {
             hasMarkedWatchedThisSession = true
             try? await client.setWatched(itemId: item.id, watched: true)
             downloads.updateCachedWatched(itemId: item.id, watched: true)
+            downloads.setLocalResume(itemId: item.id, seconds: 0)
         } else {
             try? await client.setResume(itemId: item.id, positionSec: seconds)
+            // Läuft IMMER mit, nicht nur offline — reiner lokaler Speicher, kostet nichts
+            // und dient als verlässlicher Fallback, falls der Server-Call fehlschlägt
+            // (Netzwerk weg, siehe Kommentar oben) oder gar keine Verbindung besteht.
+            downloads.setLocalResume(itemId: item.id, seconds: seconds)
         }
     }
 

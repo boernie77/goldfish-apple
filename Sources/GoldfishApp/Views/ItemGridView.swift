@@ -580,6 +580,10 @@ struct ItemCard: View {
     }
 
     private var posterURL: URL? {
+        // Offline-Poster (User-Anfrage 2026-08-19): für heruntergeladene Items bevorzugt das
+        // beim Download-Start gecachte Poster von Platte, statt live vom Server zu laden —
+        // sonst zeigt die Kachel ohne Netz nur den Platzhalter.
+        if let cached = downloads.cachedPosterURL(itemId: item.id) { return cached }
         if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) {
             return url
         }

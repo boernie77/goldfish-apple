@@ -203,6 +203,7 @@ private struct DownloadGroupCard: View {
     let group: DownloadGroup
     let placeholderSystemImage: String
     @EnvironmentObject var client: GoldfishClient
+    @EnvironmentObject var downloads: DownloadManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -229,6 +230,10 @@ private struct DownloadGroupCard: View {
 
     private var posterURL: URL? {
         guard let representative = group.items.first else { return nil }
+        // Offline-Poster (User-Anfrage 2026-08-19), siehe ItemCard.posterURL-Kommentar. Nur
+        // für die eigene metadataId gecacht (Filme) — Episoden haben meist gar kein eigenes
+        // Poster, deren Serien-Cover (parentId, unten) bleibt daher online-only.
+        if let cached = downloads.cachedPosterURL(itemId: representative.id) { return cached }
         // Serien-Gruppe: das echte SHOW-Poster laden, nicht das (meist fehlende) Episoden-
         // eigene Poster — `metadata.parentId` ist die Show-Metadata-ID, exakt das gleiche
         // Muster wie `PersonItemsView`s Serien-Sammelkarte. User-Anfrage 2026-08-19: "Serien

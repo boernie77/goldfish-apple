@@ -66,6 +66,24 @@ struct ItemDetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+                // User-Anfrage 2026-08-19: "Länge der Datei, das Videoformat und die Größe
+                // der Datei anzeigen" — bewusst getrennt von der Zeile oben: dort steht das
+                // TMDB-Runtime (kann von der tatsächlichen Datei abweichen, z.B. bei
+                // Doppelfolgen/Extended Cuts), hier die REALEN ffprobe-Werte der Datei.
+                HStack(spacing: 12) {
+                    if let container = selectedItem.container, !container.isEmpty {
+                        Text(container.uppercased())
+                    }
+                    if selectedItem.durationSec ?? 0 > 0 {
+                        Text(selectedItem.durationLabel)
+                    }
+                    if let sizeLabel {
+                        Text(sizeLabel)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
                 if let rating = item.metadata?.rating, rating > 0 {
                     Label(String(format: "%.1f", rating), systemImage: "star.fill")
                         .foregroundStyle(.yellow)
@@ -184,6 +202,11 @@ struct ItemDetailView: View {
         }
     }
 
+    private var sizeLabel: String? {
+        guard let bytes = selectedItem.sizeBytes, bytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
     private func variantLabel(_ variant: Item) -> String {
         var parts: [String] = []
         if let container = variant.container, !container.isEmpty { parts.append(container.uppercased()) }
@@ -200,9 +223,19 @@ struct ItemDetailView: View {
     /// `PlayerView.setUp()` already uses) skip the dialog and just play — asking every time
     /// would be annoying for something that's barely been started.
     private func startPlayback() async {
+        // User-Anfrage 2026-08-19: "bei offline Dateien merkt er sich nicht, wo man zuletzt
+        // war" — dieser Zweig übersprang den Resume-Dialog für Downloads komplett (fragte nie
+        // beim Server nach, weil offline ohnehin sinnlos), fragt jetzt aber den rein lokalen
+        // Resume-Speicher ab (siehe DownloadManager.localResumeSeconds), der unabhängig vom
+        // Server funktioniert.
         guard !downloads.isDownloaded(itemId: selectedItem.id) else {
-            startFromBeginning = false
-            showPlayer = true
+            let resumeSec = downloads.localResumeSeconds(itemId: selectedItem.id)
+            if resumeSec > 5 {
+                showResumePrompt = true
+            } else {
+                startFromBeginning = false
+                showPlayer = true
+            }
             return
         }
         isCheckingResume = true
@@ -217,6 +250,8 @@ struct ItemDetailView: View {
     }
 
     private var posterURL: URL? {
+        // Offline-Poster, siehe ItemCard.posterURL-Kommentar.
+        if let cached = downloads.cachedPosterURL(itemId: item.id) { return cached }
         if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) {
             return url
         }

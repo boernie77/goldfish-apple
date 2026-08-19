@@ -153,6 +153,35 @@ public final class DownloadManager: NSObject, ObservableObject {
 
     private func currentUsername() -> String? { GoldfishClient.shared.currentUsername }
 
+    // User-Anfrage 2026-08-19: "bei offline Dateien merkt er sich nicht, wo man zuletzt
+    // war, er fängt immer von vorne an" — PlayerView's Offline-Zweig (lokal heruntergeladene
+    // Datei) hat nie eine Resume-Position gelesen ODER geschrieben, nur die Online-Variante
+    // rief `client.getResume`/`setResume` auf (die im Offline-Fall stillschweigend fehlschlagen
+    // — `try?`). Eigener, rein lokaler Resume-Speicher, gleiches Muster wie
+    // `LocalLibraryManager.setResume`/`resumePosSec` für Bibliotheks-Items. Per-User gekeyt wie
+    // die Records selbst.
+    private static let resumeKey = "goldfish.downloadResumePositions"
+
+    private func resumeStoreKey(itemId: Int64) -> String {
+        "\(currentUsername() ?? "_")|\(itemId)"
+    }
+
+    public func localResumeSeconds(itemId: Int64) -> Double {
+        let all = UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: Double] ?? [:]
+        return all[resumeStoreKey(itemId: itemId)] ?? 0
+    }
+
+    public func setLocalResume(itemId: Int64, seconds: Double) {
+        var all = UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: Double] ?? [:]
+        let key = resumeStoreKey(itemId: itemId)
+        if seconds > 5 {
+            all[key] = seconds
+        } else {
+            all.removeValue(forKey: key)
+        }
+        UserDefaults.standard.set(all, forKey: Self.resumeKey)
+    }
+
     /// Recomputes `records` (the only dict the UI ever sees) from `allRecordsOnDisk`, scoped
     /// to the current user. Real bug hit 2026-08-19 (same fix as `LocalLibraryManager`'s
     /// `refreshVisibleLibraries`): auto-attributing an unowned legacy record to whoever
@@ -280,11 +309,45 @@ public final class DownloadManager: NSObject, ObservableObject {
                                   bytesExpected: item.sizeBytes ?? 0, bytesWritten: 0, state: .downloading, errorMessage: nil,
                                   itemData: try? JSONEncoder().encode(item), ownerUsername: currentUsername()))
         saveIndex()
+        cachePosterIfNeeded(for: item)
 
         let task = session.downloadTask(with: remoteURL)
         task.taskDescription = String(item.id)
         tasks[item.id] = task
         task.resume()
+    }
+
+    // User-Anfrage 2026-08-19: "werden die [Poster] gespeichert für die Offlinenutzung oder
+    // werden die jedes Mal online gezogen?" — bisher wurden Downloads-Poster IMMER live vom
+    // Server geladen (seit dem Cache-Bust-Fix sogar explizit unter Umgehung jedes Caches),
+    // waren also offline unsichtbar. Poster werden jetzt einmalig beim Download-Start auf
+    // Platte gecacht (gleiche Application-Support-Cache-Konvention wie
+    // `LocalTranscodeService.outDir`), unabhängig vom eigentlichen Video-Download.
+    private static let posterCacheDir: URL = {
+        let fm = FileManager.default
+        let support = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+            ?? fm.temporaryDirectory
+        let dir = support.appendingPathComponent("GoldfishDownloadPosters", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// nil solange kein Poster gecacht wurde (z.B. noch nicht heruntergeladen, oder das Item
+    /// hat gar kein TMDB-Poster) — Aufrufer fallen dann auf die Live-Server-URL zurück.
+    public func cachedPosterURL(itemId: Int64) -> URL? {
+        let url = Self.posterCacheDir.appendingPathComponent("\(itemId).jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func cachePosterIfNeeded(for item: Item) {
+        guard cachedPosterURL(itemId: item.id) == nil else { return }
+        guard let metadataId = item.metadataId,
+              let posterURL = GoldfishClient.shared.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) else { return }
+        let destination = Self.posterCacheDir.appendingPathComponent("\(item.id).jpg")
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(from: posterURL), !data.isEmpty else { return }
+            try? data.write(to: destination)
+        }
     }
 
     /// Same sanitize rules as the server's `rename.SanitizeFilename` (CLAUDE.md
@@ -319,6 +382,9 @@ public final class DownloadManager: NSObject, ObservableObject {
     public func deleteDownload(itemId: Int64) {
         if let url = localFileURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: url)
+        }
+        if let cachedPoster = cachedPosterURL(itemId: itemId) {
+            try? FileManager.default.removeItem(at: cachedPoster)
         }
         removeRecord(itemId: itemId)
         saveIndex()
