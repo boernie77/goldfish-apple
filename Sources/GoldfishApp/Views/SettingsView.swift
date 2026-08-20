@@ -306,7 +306,13 @@ struct SettingsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Wird angepasst: \(title)")
                                         .font(.caption)
-                                    ProgressView(value: transcode.progress["dl-\(itemId)"] ?? 0)
+                                    // Bugfix 2026-08-20: `convertDownloadInPlace` läuft unter dem
+                                    // Cache-Key "dl-inplace-<id>" (siehe LocalTranscodeService-
+                                    // Kommentar), nicht mehr "dl-<id>" — die Progress-Anzeige
+                                    // zeigte seit dem In-Place-Umbau nur noch 0%, weil sie den
+                                    // alten Key abfragte, während der eigentliche Fortschritt
+                                    // unter dem neuen Key lief.
+                                    ProgressView(value: transcode.progress["dl-inplace-\(itemId)"] ?? 0)
                                 }
                             }
                             // `transcode.queuedDownloads` kommt bereits aus den per-User
