@@ -219,6 +219,9 @@ struct LocalPlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
+        // Bugfix 2026-08-20, siehe identischer Kommentar in `PlayerView.observeFullScreenChanges`.
+        window.styleMask.insert(.resizable)
+        window.collectionBehavior.insert(.fullScreenPrimary)
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
         }

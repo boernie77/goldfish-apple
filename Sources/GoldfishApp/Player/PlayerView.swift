@@ -291,6 +291,15 @@ struct PlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
+        // Bugfix 2026-08-20 (User: "der Vergrößern-Pfeil im Steuerfeld funktioniert immer
+        // noch nicht", nach dem Umstieg von `WindowGroup` auf `Window` für Single-Instance-
+        // Fenster): `Window`-Szenen setzen offenbar nicht automatisch dieselbe
+        // Fullscreen-/Resize-Fähigkeit wie `WindowGroup` — `styleMask` ohne `.resizable`
+        // ODER `collectionBehavior` ohne `.fullScreenPrimary` lässt `toggleFullScreen(nil)`
+        // stillschweigend nichts tun (kein Fehler, kein Crash, einfach No-op). Beides hier
+        // defensiv erzwingen, statt uns auf das Scene-Default zu verlassen.
+        window.styleMask.insert(.resizable)
+        window.collectionBehavior.insert(.fullScreenPrimary)
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
         }
