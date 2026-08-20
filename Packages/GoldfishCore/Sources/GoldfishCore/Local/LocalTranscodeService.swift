@@ -139,6 +139,17 @@ public final class LocalTranscodeService: ObservableObject {
             })
         }
         Self.purgeStaleCacheIfNeeded()
+        // Real Fund 2026-08-20: eine 5,5 GB große `local-<uuid>.tmp.mp4` blieb nach einem
+        // vermutlichen App-Absturz/Kill mitten in einer Konvertierung für immer liegen —
+        // `performRemux` löscht den `.tmp.mp4`-Rest einer vorherigen Konvertierung nur direkt
+        // VOR dem nächsten Versuch für DENSELBEN cacheKey, nicht generell. Ein Item, das
+        // danach nie wieder angefasst wurde (z.B. weil es inzwischen erfolgreich lief oder
+        // gelöscht wurde), ließ seinen Rest für immer im Cache-Ordner liegen — komplett
+        // unsichtbar für `enforceCacheSizeCap` als "Müll", zählt dort nur als normaler
+        // (potenziell nie evicteter, weil ggf. "kürzlich" modifiziert) Cache-Eintrag mit.
+        // Jeder `.tmp.mp4`-Fund beim Start ist per Definition ein abgebrochener Rest, nie
+        // eine gültige fertige Konvertierung — immer sicher zu löschen.
+        Self.purgeOrphanedTempFiles()
         // Proaktiv beim Start prüfen, nicht erst nach der nächsten Konvertierung — der User
         // hat sich 2026-08-20 bewusst gegen ein Einmal-Aufräumen des damals schon 177 GB
         // großen Bestands entschieden, das Limit soll den Bestand aber trotzdem von selbst
@@ -169,6 +180,13 @@ public final class LocalTranscodeService: ObservableObject {
             for url in contents { try? FileManager.default.removeItem(at: url) }
         }
         UserDefaults.standard.set(cacheFormatVersion, forKey: cacheFormatVersionKey)
+    }
+
+    private static func purgeOrphanedTempFiles() {
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: outDir, includingPropertiesForKeys: nil) else { return }
+        for url in contents where url.lastPathComponent.hasSuffix(".tmp.mp4") {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// Recomputes `completedCount` from what's actually in the cache folder — see the comment
