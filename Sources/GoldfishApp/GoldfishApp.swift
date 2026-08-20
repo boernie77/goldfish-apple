@@ -45,6 +45,12 @@ struct GoldfishApp: App {
         // bleibt trotzdem reaktiv — `pendingPlayer` ist weiterhin `@Published`, ein neuer
         // Request lässt die Scene-Closure neu evaluieren, `.id(request.id)` erzwingt einen
         // frischen `PlayerView` (neuer `@State`) für das neue Item im SELBEN Fenster.
+        // Bugfix 2026-08-20 (User: "jetzt kann ich das Fenster nicht mehr vergrößern"):
+        // `Window`-Szenen sind, anders als `WindowGroup`, standardmäßig NICHT frei
+        // größenveränderlich — ohne dieses explizite Modifier klemmt SwiftUI die Fenstergröße
+        // an die Content-Ideal-Größe fest. `.contentMinSize` erlaubt Vergrößern beliebig nach
+        // oben, Verkleinern nur bis zum `.frame(minWidth:minHeight:)` unten. Gilt PRO Scene,
+        // deshalb an beiden `Window`-Blöcken einzeln (nicht nur am letzten).
         Window("Player", id: "player") {
             if let request = playerLaunch.pendingPlayer {
                 PlayerView(item: request.item, queue: request.queue, queueIndex: request.queueIndex, randomContext: request.randomContext, startFromBeginning: request.startFromBeginning)
@@ -55,6 +61,7 @@ struct GoldfishApp: App {
                     .id(request.id)
             }
         }
+        .windowResizability(.contentMinSize)
 
         Window("Lokaler Player", id: "localPlayer") {
             if let request = playerLaunch.pendingLocalPlayer {
@@ -65,6 +72,7 @@ struct GoldfishApp: App {
                     .id(request.id)
             }
         }
+        .windowResizability(.contentMinSize)
         #endif
     }
 }
