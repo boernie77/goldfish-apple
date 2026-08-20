@@ -102,6 +102,20 @@ public final class DownloadManager: NSObject, ObservableObject {
         LocalTranscodeService.shared.onDownloadConverted = { [weak self] itemId, newURL in
             self?.updateFilePathAfterConversion(itemId: itemId, newURL: newURL)
         }
+        // User-Anfrage 2026-08-20 ("werden die bisherigen Downloads bereits konvertiert?"):
+        // Downloads von VOR diesem Umbau liegen noch im alten Zustand (rohes Original +
+        // ggf. eine separate, jetzt redundante Cache-Kopie aus dem Notfallpfad). Statt
+        // darauf zu warten, dass der User manuell "Erneut prüfen" klickt, läuft dieselbe
+        // Prüfung jetzt automatisch bei jedem App-Start — über `allRecordsOnDisk`
+        // (nicht das per-User gefilterte `records`), da hier vor einem abgeschlossenen
+        // Login noch niemand feststeht. Selbstheilend/idempotent: eine bereits migrierte
+        // Datei ist beim nächsten Start schon direkt `isPlayable` und wird sofort
+        // übersprungen, kostet also nur einen schnellen Playability-Probe pro Download.
+        LocalTranscodeService.shared.rescanDownloads(records: Array(allRecordsOnDisk.values)) { [weak self] itemId in
+            guard let rec = self?.allRecordsOnDisk[itemId], rec.state == .done else { return nil }
+            let url = URL(fileURLWithPath: rec.filePath)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         #endif
     }
 
