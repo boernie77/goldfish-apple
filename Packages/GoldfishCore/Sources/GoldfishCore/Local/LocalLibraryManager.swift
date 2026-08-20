@@ -43,6 +43,11 @@ public struct LocalItem: Codable, Identifiable, Hashable {
     public var resumePosSec: Double = 0
     public var watched = false
     public var thumbnailPath: String?
+    /// User-Anfrage 2026-08-20: "zuletzt Abgespielt" fehlte als Sortierung für lokale
+    /// Bibliotheken — es gab bisher gar keinen Zeitstempel dafür. Wird bei jedem echten
+    /// Wiedergabe-Fortschritt gesetzt (`LocalLibraryManager.setResume`), nicht bei einem
+    /// manuellen "als ungesehen markieren"-Toggle.
+    public var lastPlayedAt: Date?
 
     public var displayTitle: String {
         (fileName as NSString).deletingPathExtension
@@ -458,6 +463,7 @@ public final class LocalLibraryManager: ObservableObject {
     public func setResume(_ item: LocalItem, seconds: Double) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].resumePosSec = seconds
+        items[idx].lastPlayedAt = Date()
         save()
     }
 

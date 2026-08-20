@@ -2,13 +2,14 @@ import SwiftUI
 import GoldfishCore
 
 private enum LocalSort: String, CaseIterable, Identifiable {
-    case name, date, size
+    case name, date, size, played
     var id: String { rawValue }
     var label: String {
         switch self {
         case .name: return "Name"
         case .date: return "Datum"
         case .size: return "Größe"
+        case .played: return "Zuletzt abgespielt"
         }
     }
 }
@@ -112,6 +113,18 @@ struct LocalLibraryItemsView: View {
             result.sort { ascending ? $0.modifiedTime < $1.modifiedTime : $0.modifiedTime > $1.modifiedTime }
         case .size:
             result.sort { ascending ? $0.sizeBytes < $1.sizeBytes : $0.sizeBytes > $1.sizeBytes }
+        case .played:
+            // Nie abgespielte Items (lastPlayedAt == nil) fallen ans Ende, unabhängig von
+            // der Richtung — ein "nie gesehen"-Item hat schlicht keine sinnvolle Position
+            // in einer Zeitleiste.
+            result.sort { lhs, rhs in
+                switch (lhs.lastPlayedAt, rhs.lastPlayedAt) {
+                case (nil, nil): return false
+                case (nil, _): return false
+                case (_, nil): return true
+                case let (l?, r?): return ascending ? l < r : l > r
+                }
+            }
         }
         return result
     }

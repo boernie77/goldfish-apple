@@ -262,6 +262,11 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
     case added
     case duration
     case rating
+    /// User-Anfrage 2026-08-20: "bei den Filtern für die lokalen Bibliotheken fehlt zuletzt
+    /// Abgespielt" — Server unterstützt `sort=played` schon lange (CLAUDE.md "Flache
+    /// library-weite Sort-Modi"), war nur nie im Mac/iOS-Client verdrahtet. rawValue "played"
+    /// matcht direkt den Server-Query-Parameter, kein zusätzliches Mapping nötig.
+    case played
 
     public var id: String { rawValue }
 
@@ -272,6 +277,7 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
         case .added: return "Hinzugefügt"
         case .duration: return "Laufzeit"
         case .rating: return "Bewertung"
+        case .played: return "Zuletzt abgespielt"
         }
     }
 

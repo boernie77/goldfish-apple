@@ -45,6 +45,12 @@ struct PersonItemsView: View {
             sorted = list.sorted { ($0.durationSec ?? 0) < ($1.durationSec ?? 0) }
         case .rating:
             sorted = list.sorted { ($0.metadata?.rating ?? 0) < ($1.metadata?.rating ?? 0) }
+        case .played:
+            // `Item` hat kein `lastPlayedAt`-Feld (der Server sortiert `sort=played` selbst
+            // serverseitig über `us.last_played_at`, gibt es aber nicht im Item-JSON zurück)
+            // — diese Ansicht sortiert clientseitig eine bereits geladene Liste, kann also
+            // nicht danach sortieren. Reihenfolge bleibt unverändert, kein Absturz/Crash.
+            sorted = list
         }
         return ascending ? sorted : sorted.reversed()
     }
