@@ -120,6 +120,10 @@ public final class LocalTranscodeService: ObservableObject {
     /// original MKV source usually fails thumbnail generation for the same reason it fails
     /// playback (AVFoundation can't demux MKV at all, independent of the codecs inside).
     public var onConverted: (@MainActor (LocalItem) -> Void)?
+    /// Set once by `DownloadManager` — called after `convertDownloadInPlace` swaps the raw
+    /// download for its converted mp4, so the record's `filePath`/`fileName` can be updated
+    /// to the new location. Same wiring pattern as `onConverted` above.
+    public var onDownloadConverted: (@MainActor (Int64, URL) -> Void)?
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.failedItemsKey),
@@ -248,10 +252,42 @@ public final class LocalTranscodeService: ObservableObject {
         isConverted(cacheKey: "dl-\(itemId)")
     }
 
-    /// Same probe-and-fix logic as `remux(item:sourceURL:)`, for a downloaded server item
-    /// instead of a local-library one — used by `PlayerView`'s offline playback branch.
+    /// On-demand-Notfallpfad, für den Fall, dass der User eine Datei öffnet, BEVOR die
+    /// Hintergrund-Konvertierung (`convertDownloadInPlace`, unten) fertig ist — schreibt
+    /// bewusst in den geteilten `GoldfishTranscoded`-Cache statt an Ort und Stelle, weil hier
+    /// keine Zeit für einen sauberen Rename/Swap ist (`PlayerView` will SOFORT eine
+    /// abspielbare URL). User-Anfrage 2026-08-20: "die aktuelle Formatanpassung wäre nur
+    /// eine Notfalloption" — genau dieser Pfad bleibt dafür bestehen, wird aber NICHT mehr
+    /// automatisch nach jedem Download aufgerufen (das macht jetzt `convertDownloadInPlace`).
+    /// Sobald die Hintergrund-Konvertierung fertig ist, räumt sie einen hier evtl.
+    /// entstandenen Cache-Eintrag wieder auf (siehe `convertDownloadInPlace`).
     public func remuxDownload(itemId: Int64, sourceURL: URL) async throws -> URL {
         try await remux(cacheKey: "dl-\(itemId)", sourceURL: sourceURL)
+    }
+
+    /// Konvertiert eine gerade heruntergeladene Datei AN ORT UND STELLE zu einer
+    /// AVFoundation-abspielbaren mp4 — ersetzt die rohe Originaldatei im Downloads-Ordner
+    /// direkt, statt (wie bei lokalen Bibliotheken) zusätzlich eine ZWEITE Kopie im
+    /// geteilten `GoldfishTranscoded`-Cache anzulegen. User-Anfrage 2026-08-20: "das nimmt
+    /// zu viel Speicher in Anspruch" — bei Downloads gehört uns die lokale Kopie
+    /// vollständig (anders als bei lokalen Bibliotheks-Ordnern, deren Originaldatei dem
+    /// User selbst gehört und nicht angetastet werden darf, siehe `remux(item:sourceURL:)`),
+    /// es gibt also keinen Grund, dauerhaft zwei Kopien vorzuhalten. Rührt NIEMALS die
+    /// Originaldatei auf dem Server an — reine Nachbearbeitung der bereits heruntergeladenen
+    /// lokalen Kopie (das Server-`/api/download`-Original bleibt unverändert).
+    /// Eigener Cache-Key (`dl-inplace-`, nicht `dl-`), damit das mit `remuxDownload` oben
+    /// (Notfallpfad in den geteilten Cache) nicht um denselben `inFlightTasks`-Slot
+    /// konkurriert, falls beide für dasselbe Item fast gleichzeitig anlaufen.
+    public func convertDownloadInPlace(itemId: Int64, sourceURL: URL) async throws -> URL {
+        let dest = sourceURL.deletingPathExtension().appendingPathExtension("mp4")
+        let converted = try await remux(cacheKey: "dl-inplace-\(itemId)", sourceURL: sourceURL, dest: dest)
+        if converted.path != sourceURL.path {
+            try? FileManager.default.removeItem(at: sourceURL)
+        }
+        // Ein evtl. vom Notfallpfad (`remuxDownload`) währenddessen angelegter Cache-Eintrag
+        // ist jetzt redundant — die Datei selbst ist ab sofort direkt abspielbar.
+        deleteCachedConversion(downloadItemId: itemId)
+        return converted
     }
 
     /// Probe-and-fix für EINEN frisch abgeschlossenen Download — User-Anfrage 2026-08-19:
@@ -263,13 +299,15 @@ public final class LocalTranscodeService: ObservableObject {
     /// damit die Formatanpassung-Anzeige in den Einstellungen konsistent bleibt, egal ob der
     /// Fix über den Bulk-Retry oder automatisch nach einem einzelnen Download lief.
     public func autoConvertDownloadIfNeeded(itemId: Int64, title: String, sourceURL: URL) async {
-        guard !isDownloadConverted(itemId: itemId) else { return }
         // Bugfix 2026-08-20: `?? true` (playable-Annahme bei fehlgeschlagener Probe) stand hier
         // im Widerspruch zum `?? false`, das `PlayerView`/`LocalPlayerView` beim tatsächlichen
         // Abspielen verwenden — eine Datei, deren `.isPlayable`-Check throwt, galt hier also
         // fälschlich als "okay, kein Fix nötig", wurde aber beim ersten Abspielversuch trotzdem
         // remuxed. Grund für den User-Report "Erneut prüfen macht nichts, aber beim Abspielen
         // wird trotzdem angepasst". `?? false` (im Zweifel lieber fixen) angeglichen.
+        // Ersetzt auch die frühere `isDownloadConverted`-Vorprüfung: seit die Konvertierung an
+        // Ort und Stelle passiert, IST eine bereits konvertierte Datei einfach direkt
+        // `isPlayable`, kein separater Cache-Check mehr nötig.
         let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? false
         guard !playable else { return }
         // Real gap hit 2026-08-19: lief lautlos im Hintergrund — currentDownloadTitle/
@@ -283,9 +321,10 @@ public final class LocalTranscodeService: ObservableObject {
             currentDownloadItemId = nil
         }
         do {
-            _ = try await remuxDownload(itemId: itemId, sourceURL: sourceURL)
+            let newURL = try await convertDownloadInPlace(itemId: itemId, sourceURL: sourceURL)
             refreshCompletedCount()
             downloadFailedItems[itemId] = nil
+            onDownloadConverted?(itemId, newURL)
         } catch {
             downloadFailedItems[itemId] = error.localizedDescription
         }
@@ -352,9 +391,9 @@ public final class LocalTranscodeService: ObservableObject {
             // — vorher gab es hier gar keine Zwischen-Liste, nur das aktuell laufende Item.
             var pending: [DownloadRecord] = []
             for rec in records where rec.state == .done {
-                guard !isDownloadConverted(itemId: rec.itemId) else { continue }
                 guard let url = fileURLProvider(rec.itemId) else { continue }
-                // `?? false`, siehe Kommentar bei `autoConvertDownloadIfNeeded`.
+                // `?? false`, siehe Kommentar bei `autoConvertDownloadIfNeeded`. Kein
+                // `isDownloadConverted`-Vorcheck mehr nötig, siehe dort.
                 let playable = (try? await AVURLAsset(url: url).load(.isPlayable)) ?? false
                 guard !playable else { continue }
                 pending.append(rec)
@@ -366,9 +405,10 @@ public final class LocalTranscodeService: ObservableObject {
                 currentDownloadTitle = rec.title
                 currentDownloadItemId = rec.itemId
                 do {
-                    _ = try await remuxDownload(itemId: rec.itemId, sourceURL: url)
+                    let newURL = try await convertDownloadInPlace(itemId: rec.itemId, sourceURL: url)
                     refreshCompletedCount()
                     downloadFailedItems[rec.itemId] = nil
+                    onDownloadConverted?(rec.itemId, newURL)
                 } catch {
                     downloadFailedItems[rec.itemId] = error.localizedDescription
                 }
@@ -386,9 +426,14 @@ public final class LocalTranscodeService: ObservableObject {
         try await remux(cacheKey: "local-\(item.id.uuidString)", sourceURL: sourceURL)
     }
 
-    private func remux(cacheKey: String, sourceURL: URL) async throws -> URL {
-        let dest = convertedURL(cacheKey: cacheKey)
-        if FileManager.default.fileExists(atPath: dest.path) {
+    /// `destOverride` lets `convertDownloadInPlace` write the result somewhere OTHER than the
+    /// shared `GoldfishTranscoded`-Cache (namely: back into the downloads folder, replacing
+    /// the raw original) while still reusing the same dedup/progress/ffmpeg machinery. `nil`
+    /// (the default, used by every local-library/on-demand-download call site) keeps the
+    /// original cache-hit-shortcut behavior.
+    private func remux(cacheKey: String, sourceURL: URL, dest destOverride: URL? = nil) async throws -> URL {
+        let dest = destOverride ?? convertedURL(cacheKey: cacheKey)
+        if destOverride == nil, FileManager.default.fileExists(atPath: dest.path) {
             // LRU-Signal für `enforceCacheSizeCap()` — ohne dieses Touch würde die
             // Eviction nach Konvertierungs-Datum statt tatsächlicher Nutzung sortieren,
             // eine oft angeschaute alte Konvertierung würde dann vor einer frisch

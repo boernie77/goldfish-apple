@@ -6,7 +6,10 @@ import Combine
 public struct DownloadRecord: Codable, Identifiable, Equatable {
     public let itemId: Int64
     public let title: String
-    public let fileName: String
+    /// `var`, nicht `let` — `convertDownloadInPlace` (LocalTranscodeService) benennt die
+    /// Datei beim In-Place-Konvertieren ggf. um (z.B. `.mkv` → `.mp4`), der Record muss dem
+    /// folgen können.
+    public var fileName: String
     /// Absolute path at the time the download finished — kept even if the user later
     /// changes the downloads directory, so older files stay findable.
     public var filePath: String
@@ -89,7 +92,28 @@ public final class DownloadManager: NSObject, ObservableObject {
         // exist" instead of failing fast and falling back. Validate for real right at
         // launch instead of waiting for the first download to hit it mid-transfer.
         ensureWritableDownloadsDir()
+
+        #if os(macOS)
+        // User-Anfrage 2026-08-20: Downloads werden jetzt an Ort und Stelle konvertiert
+        // (siehe `autoConvertIfNeeded` unten) statt in einen separaten Cache zu dupliziert
+        // zu werden — die rohe Originaldatei wird dabei durch die konvertierte mp4 ersetzt,
+        // `filePath`/`fileName` im Record müssen also nachgezogen werden, sonst zeigt der
+        // Index weiter auf eine bereits gelöschte Datei.
+        LocalTranscodeService.shared.onDownloadConverted = { [weak self] itemId, newURL in
+            self?.updateFilePathAfterConversion(itemId: itemId, newURL: newURL)
+        }
+        #endif
     }
+
+    #if os(macOS)
+    private func updateFilePathAfterConversion(itemId: Int64, newURL: URL) {
+        guard var rec = allRecordsOnDisk[itemId] else { return }
+        rec.filePath = newURL.path
+        rec.fileName = newURL.lastPathComponent
+        setRecord(rec)
+        saveIndex()
+    }
+    #endif
 
     private static func defaultDirectory() -> URL {
         let fm = FileManager.default
@@ -311,6 +335,12 @@ public final class DownloadManager: NSObject, ObservableObject {
                                   itemData: try? JSONEncoder().encode(item), ownerUsername: currentUsername()))
         saveIndex()
         cachePosterIfNeeded(for: item)
+        // Bugfix 2026-08-20: nur `cacheAllDownloadPostersIfNeeded` (Batch, App-Start/"Erneut
+        // prüfen") cachte bisher das SHOW-Poster — ein frischer Einzel-Download einer Episode
+        // bekam sein Serien-Cover dadurch erst beim nächsten App-Start, nicht sofort.
+        if let parentId = item.metadata?.parentId {
+            cacheShowPosterIfNeeded(parentId: parentId)
+        }
 
         let task = session.downloadTask(with: remoteURL)
         task.taskDescription = String(item.id)

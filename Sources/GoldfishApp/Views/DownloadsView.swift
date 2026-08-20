@@ -230,18 +230,26 @@ private struct DownloadGroupCard: View {
 
     private var posterURL: URL? {
         guard let representative = group.items.first else { return nil }
-        // Offline-Poster (User-Anfrage 2026-08-19), siehe ItemCard.posterURL-Kommentar. Nur
-        // für die eigene metadataId gecacht (Filme) — Episoden haben meist gar kein eigenes
-        // Poster, deren Serien-Cover (parentId, unten) bleibt daher online-only.
-        if let cached = downloads.cachedPosterURL(itemId: representative.id) { return cached }
         // Serien-Gruppe: das echte SHOW-Poster laden, nicht das (meist fehlende) Episoden-
         // eigene Poster — `metadata.parentId` ist die Show-Metadata-ID, exakt das gleiche
-        // Muster wie `PersonItemsView`s Serien-Sammelkarte. User-Anfrage 2026-08-19: "Serien
-        // sollen das Cover nachladen für die Kachel" (vorher blieb die Kachel ohne Poster,
-        // weil Episoden keine eigene Poster-URL beim Server haben).
-        if let parentId = representative.metadata?.parentId, let url = client.posterURL(metadataId: parentId) {
-            return url
+        // Muster wie `PersonItemsView`s Serien-Sammelkarte.
+        //
+        // Bugfix 2026-08-20 (User: "bei den Download-Serien wird nicht das Seriencover
+        // geladen"): vorher wurde zuerst der (bei Episoden praktisch nie existente)
+        // Poster-Cache DER EPISODE SELBST geprüft und danach direkt die NETZWERK-URL für
+        // `parentId` — komplett offline blieb die Gruppen-Kachel dadurch ohne Bild, obwohl
+        // `DownloadManager.cacheShowPosterIfNeeded` das Show-Cover längst lokal gecacht
+        // hatte (`cachedShowPosterURL`), nur wurde diese Cache-Variante hier nie abgefragt.
+        // Jetzt: erst das gecachte Show-Poster, dann online, erst danach (Fallback für
+        // Nicht-Serien-Gruppen wie YouTube-Kanäle ohne parentId) die episoden-/item-eigene
+        // Variante — "nur bei den Folgen nicht" gilt hier automatisch, weil diese
+        // Priorisierung ausschließlich in der GRUPPEN-Kachel (`DownloadGroupCard`) greift,
+        // nicht in `ItemCard`, das einzelne Episoden in `DownloadGroupDetailView` rendert.
+        if let parentId = representative.metadata?.parentId {
+            if let cachedShow = downloads.cachedShowPosterURL(parentId: parentId) { return cachedShow }
+            if let url = client.posterURL(metadataId: parentId) { return url }
         }
+        if let cached = downloads.cachedPosterURL(itemId: representative.id) { return cached }
         if let metadataId = representative.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: representative.metadata?.posterPath) {
             return url
         }
