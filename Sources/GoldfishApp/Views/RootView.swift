@@ -27,10 +27,17 @@ struct RootView: View {
         // `GoldfishClient.currentUsername` internally, but need an explicit nudge to
         // recompute when that changes (login/logout/switch) since they don't otherwise
         // observe `GoldfishClient` themselves.
-        .onChange(of: client.currentUsername) { _ in
+        .onChange(of: client.currentUsername) { newValue in
             localLibrary.userDidChange()
             downloads.userDidChange()
             shuffleScope.userDidChange()
+            // Bugfix 2026-08-20: offline abgeschlossene Gesehen-Markierungen (siehe
+            // DownloadManager.queuePendingWatchedSync-Kommentar) blieben bisher für immer
+            // unsynced. Ein bestätigter Username-Wechsel ist ein zuverlässiges Signal "Netz
+            // ist gerade da" (Login/Session-Refresh ist selbst schon ein Server-Roundtrip).
+            if newValue != nil {
+                Task { await downloads.syncPendingWatched(client: client) }
+            }
         }
         #if os(macOS)
         // Real root cause found 2026-08-19 via Console.app: "Space Forces Hidden ... tiles=[

@@ -614,8 +614,15 @@ struct PlayerView: View {
     private func markWatchedNow() async {
         guard !hasMarkedWatchedThisSession else { return }
         hasMarkedWatchedThisSession = true
-        try? await client.setWatched(itemId: item.id, watched: true)
         downloads.updateCachedWatched(itemId: item.id, watched: true)
+        if (try? await client.setWatched(itemId: item.id, watched: true)) != nil {
+            downloads.clearPendingWatchedSync(itemId: item.id)
+        } else {
+            // Offline (oder sonst ein Netzwerkfehler) — Server erfährt es sonst NIE, siehe
+            // `DownloadManager.queuePendingWatchedSync`-Kommentar. Wird automatisch nachgeholt,
+            // sobald wieder eine Session bestätigt wird (`RootView.syncPendingWatched`).
+            downloads.queuePendingWatchedSync(itemId: item.id)
+        }
         try? await client.setResume(itemId: item.id, positionSec: 0)
     }
 
@@ -709,14 +716,19 @@ struct PlayerView: View {
     /// logic only ever existed in `LocalPlayerView` (pure local libraries). Runs from BOTH the
     /// periodic 15s resume-timer AND `teardown()`, since relying on `teardown()`/`onDisappear`
     /// alone turned out not to be enough (see `hasMarkedWatchedThisSession`'s doc comment).
-    /// `try?` matches the existing resume-save pattern — a downloaded item watched fully
-    /// offline just fails silently and stays unsynced until the next call with network.
+    /// Bugfix 2026-08-20 (User: "wird sie am Ende nicht als gesehen markiert"): `try?` allein
+    /// ließ eine offline fehlgeschlagene Markierung für immer unsynced — jetzt in
+    /// `DownloadManager.queuePendingWatchedSync` nachgehalten, siehe dessen Kommentar.
     private func maybeMarkWatchedOrSaveResume(seconds: Double) async {
         if duration > 0, seconds >= duration * 0.9 {
             guard !hasMarkedWatchedThisSession else { return }
             hasMarkedWatchedThisSession = true
-            try? await client.setWatched(itemId: item.id, watched: true)
             downloads.updateCachedWatched(itemId: item.id, watched: true)
+            if (try? await client.setWatched(itemId: item.id, watched: true)) != nil {
+                downloads.clearPendingWatchedSync(itemId: item.id)
+            } else {
+                downloads.queuePendingWatchedSync(itemId: item.id)
+            }
             downloads.setLocalResume(itemId: item.id, seconds: 0)
         } else {
             try? await client.setResume(itemId: item.id, positionSec: seconds)

@@ -220,6 +220,43 @@ public final class DownloadManager: NSObject, ObservableObject {
         UserDefaults.standard.set(all, forKey: Self.resumeKey)
     }
 
+    // User-Anfrage 2026-08-20: "Wenn ich eine Offlinefolge schaue, dann wird sie am Ende
+    // nicht als gesehen markiert" — `PlayerView.markWatchedNow`/`maybeMarkWatchedOrSaveResume`
+    // riefen zwar schon `client.setWatched` auf, aber nur `try?`-abgesichert: offline schlägt
+    // der Call stillschweigend fehl und es gab bisher KEINEN Retry, sobald wieder Netz da ist
+    // — der Server-Zustand blieb also für immer "ungesehen", auch wenn `downloads.
+    // updateCachedWatched` die lokale Downloads-Kachel schon korrekt aktualisierte. Persistenter
+    // Pending-Set, cross-user (Gesehen-Status ist server-seitig sowieso pro angemeldetem
+    // Account, kein zusätzlicher Owner-Filter hier nötig) — `RootView` ruft `syncPendingWatched`
+    // bei jedem `client.currentUsername`-Wechsel auf (= zuverlässiger Beleg für "Netz ist da").
+    private static let pendingWatchedSyncKey = "goldfish.pendingWatchedSync"
+
+    public func queuePendingWatchedSync(itemId: Int64) {
+        var all = Set((UserDefaults.standard.array(forKey: Self.pendingWatchedSyncKey) as? [Int64]) ?? [])
+        all.insert(itemId)
+        UserDefaults.standard.set(Array(all), forKey: Self.pendingWatchedSyncKey)
+    }
+
+    public func clearPendingWatchedSync(itemId: Int64) {
+        var all = Set((UserDefaults.standard.array(forKey: Self.pendingWatchedSyncKey) as? [Int64]) ?? [])
+        all.remove(itemId)
+        UserDefaults.standard.set(Array(all), forKey: Self.pendingWatchedSyncKey)
+    }
+
+    /// Vom Player NICHT direkt aufgerufen (der kennt nur EIN Item) — `RootView` ruft das
+    /// stattdessen global auf, sobald eine Session bestätigt wurde, damit auch Offline-
+    /// Markierungen aus einer VORHERIGEN App-Sitzung (App zwischenzeitlich beendet, nie wieder
+    /// online gegangen) nachgeholt werden, nicht nur die der laufenden.
+    public func syncPendingWatched(client: GoldfishClient) async {
+        let pending = Set((UserDefaults.standard.array(forKey: Self.pendingWatchedSyncKey) as? [Int64]) ?? [])
+        guard !pending.isEmpty else { return }
+        for itemId in pending {
+            if (try? await client.setWatched(itemId: itemId, watched: true)) != nil {
+                clearPendingWatchedSync(itemId: itemId)
+            }
+        }
+    }
+
     /// Recomputes `records` (the only dict the UI ever sees) from `allRecordsOnDisk`, scoped
     /// to the current user. Real bug hit 2026-08-19 (same fix as `LocalLibraryManager`'s
     /// `refreshVisibleLibraries`): auto-attributing an unowned legacy record to whoever

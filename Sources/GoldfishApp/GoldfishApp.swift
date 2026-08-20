@@ -33,7 +33,19 @@ struct GoldfishApp: App {
         // branch; closed via `hostWindow?.close()` from within the player (`\.dismissWindow`
         // would be the SwiftUI-native way, but needs macOS 14 — this app targets 13).
         #if os(macOS)
-        WindowGroup(id: "player") {
+        // Bugfix 2026-08-20 (User: "es öffnen sich manchmal mehrere Player ... es darf immer
+        // nur ein Player offen sein"): `WindowGroup` ist per Design für MEHRERE gleichzeitige
+        // Instanzen gedacht (wie Dokumentfenster) — jeder `openWindow(id: "player")`-Aufruf
+        // (vier Call-Sites: ItemDetailView, LibrariesView, ItemGridView,
+        // LocalLibraryItemsView) erzeugte deshalb ein GANZ NEUES Fenster, auch wenn schon
+        // eines offen war (z.B. Doppelklick, schnelles Play in zwei Ansichten). `Window`
+        // (Singular, seit macOS 13 verfügbar — Deployment-Target dieser App) ist dagegen
+        // waschecht Single-Instance: ein erneuter `openWindow(id:)`-Aufruf bei bereits
+        // offenem Fenster bringt es nur nach vorne, statt ein zweites zu öffnen. Der Inhalt
+        // bleibt trotzdem reaktiv — `pendingPlayer` ist weiterhin `@Published`, ein neuer
+        // Request lässt die Scene-Closure neu evaluieren, `.id(request.id)` erzwingt einen
+        // frischen `PlayerView` (neuer `@State`) für das neue Item im SELBEN Fenster.
+        Window("Player", id: "player") {
             if let request = playerLaunch.pendingPlayer {
                 PlayerView(item: request.item, queue: request.queue, queueIndex: request.queueIndex, randomContext: request.randomContext, startFromBeginning: request.startFromBeginning)
                     .environmentObject(client)
@@ -44,7 +56,7 @@ struct GoldfishApp: App {
             }
         }
 
-        WindowGroup(id: "localPlayer") {
+        Window("Lokaler Player", id: "localPlayer") {
             if let request = playerLaunch.pendingLocalPlayer {
                 LocalPlayerView(item: request.item, queue: request.queue, randomPool: request.randomPool)
                     .environmentObject(localLibrary)
