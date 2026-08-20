@@ -135,6 +135,12 @@ public final class LocalTranscodeService: ObservableObject {
             })
         }
         Self.purgeStaleCacheIfNeeded()
+        // Proaktiv beim Start prüfen, nicht erst nach der nächsten Konvertierung — der User
+        // hat sich 2026-08-20 bewusst gegen ein Einmal-Aufräumen des damals schon 177 GB
+        // großen Bestands entschieden, das Limit soll den Bestand aber trotzdem von selbst
+        // auf 40 GB zurückführen, sobald die App das nächste Mal läuft, nicht erst beim
+        // nächsten manuellen "Erneut prüfen".
+        Self.enforceCacheSizeCap()
         refreshCompletedCount()
     }
 
