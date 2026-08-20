@@ -376,6 +376,9 @@ public final class LocalLibraryManager: ObservableObject {
         if let thumbnailPath = item.thumbnailPath {
             try? FileManager.default.removeItem(atPath: thumbnailPath)
         }
+        #if os(macOS)
+        LocalTranscodeService.shared.deleteCachedConversion(itemUUID: item.id)
+        #endif
         items.removeAll { $0.id == item.id }
         save()
     }

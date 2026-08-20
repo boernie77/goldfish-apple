@@ -382,7 +382,14 @@ public final class LocalTranscodeService: ObservableObject {
 
     private func remux(cacheKey: String, sourceURL: URL) async throws -> URL {
         let dest = convertedURL(cacheKey: cacheKey)
-        if FileManager.default.fileExists(atPath: dest.path) { return dest }
+        if FileManager.default.fileExists(atPath: dest.path) {
+            // LRU-Signal für `enforceCacheSizeCap()` — ohne dieses Touch würde die
+            // Eviction nach Konvertierungs-Datum statt tatsächlicher Nutzung sortieren,
+            // eine oft angeschaute alte Konvertierung würde dann vor einer frisch
+            // konvertierten, aber nie wieder angesehenen Datei rausfliegen.
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: dest.path)
+            return dest
+        }
 
         if let existing = inFlightTasks[cacheKey] {
             return try await existing.value
@@ -505,7 +512,51 @@ public final class LocalTranscodeService: ObservableObject {
 
         try? FileManager.default.removeItem(at: dest)
         try FileManager.default.moveItem(at: tmp, to: dest)
+        // Real incident 2026-08-20: dieser Cache wuchs komplett unbegrenzt (177 GB, keine
+        // einzige Eviction jemals) und füllte die Systemplatte bis auf 0 Bytes frei — nicht
+        // nur die Formatanpassung schlug danach fehl ("No space left on device"), sondern
+        // sogar unabhängige Prozesse. Ab jetzt nach jeder erfolgreichen Konvertierung geprüft.
+        Self.enforceCacheSizeCap()
         return dest
+    }
+
+    /// Deckelt den GESAMTEN Cache-Ordner (lokale Items + Downloads gemeinsam, siehe
+    /// `convertedURL(cacheKey:)`-Kommentar) auf `maxCacheBytes` — älteste zuletzt GENUTZTE
+    /// Datei fliegt zuerst raus (LRU über `contentModificationDate`, angestoßen sowohl bei
+    /// jedem Cache-Hit oben als auch nach jeder Neu-Konvertierung), bis wieder unter dem Limit.
+    /// Kein Datenverlust: eine entfernte Datei wird beim nächsten Abspielversuch einfach neu
+    /// erzeugt (`remux`/`remuxDownload` prüfen ohnehin immer erst `FileManager.fileExists`).
+    private static let maxCacheBytes: Int64 = 40 * 1024 * 1024 * 1024
+
+    private static func enforceCacheSizeCap() {
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(at: outDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return }
+        var entries: [(url: URL, size: Int64, date: Date)] = urls.compactMap { url in
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize else { return nil }
+            return (url, Int64(size), values.contentModificationDate ?? .distantPast)
+        }
+        var total = entries.reduce(Int64(0)) { $0 + $1.size }
+        guard total > maxCacheBytes else { return }
+        entries.sort { $0.date < $1.date }
+        for entry in entries {
+            guard total > maxCacheBytes else { break }
+            try? fm.removeItem(at: entry.url)
+            total -= entry.size
+        }
+    }
+
+    /// Löscht (falls vorhanden) den gecachten Konvertierungs-Output für ein einzelnes lokales
+    /// Item ODER einen Download — aufgerufen aus `LocalLibraryManager.deleteItem`/
+    /// `DownloadManager.deleteDownload`. Real Lücke 2026-08-20: bisher verwaiste dieser
+    /// Cache-Eintrag beim Löschen des Originals dauerhaft (sichtbarer Beitrag zu den 177 GB) —
+    /// die Original-Datei war weg, ihre oft mehrere GB große Konvertierungs-Kopie blieb ewig
+    /// liegen, weil nichts sie je referenzierte und der Größen-Cap allein zu langsam abbaut.
+    public func deleteCachedConversion(itemUUID: UUID) {
+        try? FileManager.default.removeItem(at: convertedURL(cacheKey: "local-\(itemUUID.uuidString)"))
+    }
+    public func deleteCachedConversion(downloadItemId: Int64) {
+        try? FileManager.default.removeItem(at: convertedURL(cacheKey: "dl-\(downloadItemId)"))
     }
 
     /// ffmpeg stderr progress lines look like "...time=00:12:34.56 bitrate=...". Takes the

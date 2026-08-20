@@ -436,6 +436,9 @@ public final class DownloadManager: NSObject, ObservableObject {
         if let cachedPoster = cachedPosterURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: cachedPoster)
         }
+        #if os(macOS)
+        LocalTranscodeService.shared.deleteCachedConversion(downloadItemId: itemId)
+        #endif
         removeRecord(itemId: itemId)
         saveIndex()
     }
