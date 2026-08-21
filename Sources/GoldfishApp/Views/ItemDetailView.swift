@@ -177,8 +177,7 @@ struct ItemDetailView: View {
         #if os(macOS)
         .onChange(of: showPlayer) { newValue in
             guard newValue else { return }
-            PlayerLaunchCoordinator.shared.pendingPlayer = PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning)
-            openWindow(id: "player")
+            PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning), openWindow: openWindow)
             showPlayer = false
         }
         #else

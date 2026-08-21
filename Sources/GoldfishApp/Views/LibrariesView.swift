@@ -206,8 +206,7 @@ struct LibrariesView: View {
     #if os(macOS)
     private func openRandomPlayerWindow(for item: Item) {
         let context = RandomContext(libraryId: nil, folderSelections: shuffleScope.isScoped ? shuffleScope.selections : nil, folder: nil, search: nil)
-        PlayerLaunchCoordinator.shared.pendingPlayer = PlayerLaunchRequest(item: item, queue: [], queueIndex: nil, randomContext: context, startFromBeginning: false)
-        openWindow(id: "player")
+        PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: item, queue: [], queueIndex: nil, randomContext: context, startFromBeginning: false), openWindow: openWindow)
         randomItem = nil
     }
     #endif

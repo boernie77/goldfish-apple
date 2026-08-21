@@ -331,8 +331,7 @@ struct ItemGridView: View {
     // statement instead of as one giant expression.
     private func openRandomPlayerWindow(for item: Item) {
         let context = RandomContext(libraryId: library.id, folderSelections: shuffleScope.isScoped ? shuffleScope.selections : nil, folder: folder, search: search.isEmpty ? nil : search)
-        PlayerLaunchCoordinator.shared.pendingPlayer = PlayerLaunchRequest(item: item, queue: [], queueIndex: nil, randomContext: context, startFromBeginning: false)
-        openWindow(id: "player")
+        PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: item, queue: [], queueIndex: nil, randomContext: context, startFromBeginning: false), openWindow: openWindow)
         randomItem = nil
     }
     #endif

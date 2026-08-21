@@ -78,7 +78,9 @@ struct LocalPlayerView: View {
             WindowAccessor { window in
                 if hostWindow !== window {
                     hostWindow = window
+                    PlayerLaunchCoordinator.shared.localPlayerWindow = window
                     observeFullScreenChanges(for: window)
+                    observeWindowClose(for: window)
                 }
             }
             .frame(width: 0, height: 0)
@@ -219,14 +221,23 @@ struct LocalPlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
-        // Bugfix 2026-08-20, siehe identischer Kommentar in `PlayerView.observeFullScreenChanges`.
-        window.styleMask.insert(.resizable)
-        window.collectionBehavior.insert(.fullScreenPrimary)
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = false
+        }
+    }
+
+    /// Siehe identischer Kommentar in `PlayerView.observeWindowClose`.
+    private func observeWindowClose(for window: NSWindow) {
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            if PlayerLaunchCoordinator.shared.localPlayerWindow === window {
+                PlayerLaunchCoordinator.shared.localPlayerWindow = nil
+            }
+            if PlayerLaunchCoordinator.shared.pendingLocalPlayer != nil {
+                PlayerLaunchCoordinator.shared.pendingLocalPlayer = nil
+            }
         }
     }
 

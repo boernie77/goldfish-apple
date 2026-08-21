@@ -33,25 +33,16 @@ struct GoldfishApp: App {
         // branch; closed via `hostWindow?.close()` from within the player (`\.dismissWindow`
         // would be the SwiftUI-native way, but needs macOS 14 — this app targets 13).
         #if os(macOS)
-        // Bugfix 2026-08-20 (User: "es öffnen sich manchmal mehrere Player ... es darf immer
-        // nur ein Player offen sein"): `WindowGroup` ist per Design für MEHRERE gleichzeitige
-        // Instanzen gedacht (wie Dokumentfenster) — jeder `openWindow(id: "player")`-Aufruf
-        // (vier Call-Sites: ItemDetailView, LibrariesView, ItemGridView,
-        // LocalLibraryItemsView) erzeugte deshalb ein GANZ NEUES Fenster, auch wenn schon
-        // eines offen war (z.B. Doppelklick, schnelles Play in zwei Ansichten). `Window`
-        // (Singular, seit macOS 13 verfügbar — Deployment-Target dieser App) ist dagegen
-        // waschecht Single-Instance: ein erneuter `openWindow(id:)`-Aufruf bei bereits
-        // offenem Fenster bringt es nur nach vorne, statt ein zweites zu öffnen. Der Inhalt
-        // bleibt trotzdem reaktiv — `pendingPlayer` ist weiterhin `@Published`, ein neuer
-        // Request lässt die Scene-Closure neu evaluieren, `.id(request.id)` erzwingt einen
-        // frischen `PlayerView` (neuer `@State`) für das neue Item im SELBEN Fenster.
-        // Bugfix 2026-08-20 (User: "jetzt kann ich das Fenster nicht mehr vergrößern"):
-        // `Window`-Szenen sind, anders als `WindowGroup`, standardmäßig NICHT frei
-        // größenveränderlich — ohne dieses explizite Modifier klemmt SwiftUI die Fenstergröße
-        // an die Content-Ideal-Größe fest. `.contentMinSize` erlaubt Vergrößern beliebig nach
-        // oben, Verkleinern nur bis zum `.frame(minWidth:minHeight:)` unten. Gilt PRO Scene,
-        // deshalb an beiden `Window`-Blöcken einzeln (nicht nur am letzten).
-        Window("Player", id: "player") {
+        // Bugfix-Historie 2026-08-20: `Window` (Singular) statt `WindowGroup` wurde hier
+        // testweise eingesetzt, um doppelte Player-Fenster zu verhindern — brach dabei aber
+        // sowohl freie Größenänderung als auch den Vollbild-Button (beides trotz
+        // `.windowResizability`/erzwungenem `styleMask`/`collectionBehavior` nicht behebbar).
+        // Zurück auf `WindowGroup` (bekannt funktionierendes Verhalten für Resize/Vollbild).
+        // Die eigentliche "nur ein Player"-Regel wird jetzt NICHT mehr dem Scene-Typ
+        // überlassen, sondern explizit in `PlayerLaunchCoordinator.present(...)` erzwungen
+        // (prüft `playerWindow`/`localPlayerWindow` bevor `openWindow` überhaupt aufgerufen
+        // wird) — robuster als sich auf SwiftUIs Fenster-Uniqueness-Garantie zu verlassen.
+        WindowGroup(id: "player") {
             if let request = playerLaunch.pendingPlayer {
                 PlayerView(item: request.item, queue: request.queue, queueIndex: request.queueIndex, randomContext: request.randomContext, startFromBeginning: request.startFromBeginning)
                     .environmentObject(client)
@@ -61,9 +52,8 @@ struct GoldfishApp: App {
                     .id(request.id)
             }
         }
-        .windowResizability(.contentMinSize)
 
-        Window("Lokaler Player", id: "localPlayer") {
+        WindowGroup(id: "localPlayer") {
             if let request = playerLaunch.pendingLocalPlayer {
                 LocalPlayerView(item: request.item, queue: request.queue, randomPool: request.randomPool)
                     .environmentObject(localLibrary)
@@ -72,7 +62,6 @@ struct GoldfishApp: App {
                     .id(request.id)
             }
         }
-        .windowResizability(.contentMinSize)
         #endif
     }
 }

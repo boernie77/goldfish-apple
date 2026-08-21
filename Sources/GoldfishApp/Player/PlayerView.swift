@@ -137,7 +137,9 @@ struct PlayerView: View {
             WindowAccessor { window in
                 if hostWindow !== window {
                     hostWindow = window
+                    PlayerLaunchCoordinator.shared.playerWindow = window
                     observeFullScreenChanges(for: window)
+                    observeWindowClose(for: window)
                 }
             }
             .frame(width: 0, height: 0)
@@ -291,20 +293,28 @@ struct PlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
-        // Bugfix 2026-08-20 (User: "der Vergrößern-Pfeil im Steuerfeld funktioniert immer
-        // noch nicht", nach dem Umstieg von `WindowGroup` auf `Window` für Single-Instance-
-        // Fenster): `Window`-Szenen setzen offenbar nicht automatisch dieselbe
-        // Fullscreen-/Resize-Fähigkeit wie `WindowGroup` — `styleMask` ohne `.resizable`
-        // ODER `collectionBehavior` ohne `.fullScreenPrimary` lässt `toggleFullScreen(nil)`
-        // stillschweigend nichts tun (kein Fehler, kein Crash, einfach No-op). Beides hier
-        // defensiv erzwingen, statt uns auf das Scene-Default zu verlassen.
-        window.styleMask.insert(.resizable)
-        window.collectionBehavior.insert(.fullScreenPrimary)
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = false
+        }
+    }
+
+    /// Clears the coordinator's tracked window reference no matter HOW the window closes —
+    /// via `closePlayer()` (which already does this directly) OR via the user clicking the
+    /// native red close button, which bypasses `closePlayer()` entirely. Without this, closing
+    /// via the red button would leave `PlayerLaunchCoordinator.playerWindow` pointing at a
+    /// dead window, so the NEXT play attempt would call `makeKeyAndOrderFront` on a closed
+    /// window instead of opening a fresh one — silently doing nothing.
+    private func observeWindowClose(for window: NSWindow) {
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            if PlayerLaunchCoordinator.shared.playerWindow === window {
+                PlayerLaunchCoordinator.shared.playerWindow = nil
+            }
+            if PlayerLaunchCoordinator.shared.pendingPlayer != nil {
+                PlayerLaunchCoordinator.shared.pendingPlayer = nil
+            }
         }
     }
 

@@ -19,7 +19,39 @@ final class PlayerLaunchCoordinator: ObservableObject {
     static let shared = PlayerLaunchCoordinator()
     @Published var pendingPlayer: PlayerLaunchRequest?
     @Published var pendingLocalPlayer: LocalPlayerLaunchRequest?
+    /// Set by `PlayerView`/`LocalPlayerView`'s `WindowAccessor` once their window resolves,
+    /// cleared on close (both the programmatic `closePlayer()` path AND a direct click on the
+    /// native red close button, via `NSWindow.willCloseNotification`). Real bug hit
+    /// 2026-08-20 (User: "es öffnen sich manchmal mehrere Player ... der zweite ist dabei
+    /// nicht sichtbar"): relying on the `WindowGroup`/`Window` scene type alone to prevent a
+    /// second window (tried both) wasn't reliable — a fast second `openWindow(id:)` call
+    /// (e.g. double-click, or two different views triggering playback almost simultaneously)
+    /// could still race a second window into existence. Checking these directly before ever
+    /// calling `openWindow` sidesteps that race entirely: no window yet known → open one; one
+    /// already known → just update `pendingPlayer` (the existing window's content re-renders
+    /// reactively) and bring that SAME window to front instead of opening another.
+    weak var playerWindow: NSWindow?
+    weak var localPlayerWindow: NSWindow?
+
     private init() {}
+
+    func present(_ request: PlayerLaunchRequest, openWindow: OpenWindowAction) {
+        pendingPlayer = request
+        if let existing = playerWindow {
+            existing.makeKeyAndOrderFront(nil)
+        } else {
+            openWindow(id: "player")
+        }
+    }
+
+    func present(_ request: LocalPlayerLaunchRequest, openWindow: OpenWindowAction) {
+        pendingLocalPlayer = request
+        if let existing = localPlayerWindow {
+            existing.makeKeyAndOrderFront(nil)
+        } else {
+            openWindow(id: "localPlayer")
+        }
+    }
 }
 
 struct PlayerLaunchRequest: Identifiable {

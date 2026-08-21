@@ -281,12 +281,11 @@ struct LocalLibraryItemsView: View {
         #if os(macOS)
         .onChange(of: playingItem) { newValue in
             guard let newValue else { return }
-            PlayerLaunchCoordinator.shared.pendingLocalPlayer = LocalPlayerLaunchRequest(
+            PlayerLaunchCoordinator.shared.present(LocalPlayerLaunchRequest(
                 item: newValue,
                 queue: playFromShuffle ? [] : displayedItems,
                 randomPool: playFromShuffle ? displayedItems : nil
-            )
-            openWindow(id: "localPlayer")
+            ), openWindow: openWindow)
             playingItem = nil
         }
         #else
