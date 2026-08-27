@@ -30,6 +30,13 @@ struct ItemGridView: View {
     @State private var watchedFilter: WatchedFilter = .all
     @State private var favoritesOnly = false
     @State private var selectedBuckets: Set<ResolutionBucket> = []
+    // User-Anfrage 2026-08-25: "neben der Anzahl an Dateien auch immer die Gesamtgröße in
+    // GB, deaktivierbar im Menü" + Nachfrage "wenn man in weitere Unterordner geht, auch
+    // dort" — `items` ist bereits die aktuelle Ordner-Ebene (Breadcrumb-Navigation lädt bei
+    // jedem Wechsel neu), die Summe folgt dem also automatisch auf jeder Tiefe, ohne
+    // Extra-Logik. Gemeinsamer Schalter mit `LocalLibraryItemsView`
+    // (`DisplaySettings.showTotalSizeKey`).
+    @AppStorage(DisplaySettings.showTotalSizeKey) private var showTotalSize = true
     @State private var randomItem: Item?
     @State private var isLoadingRandom = false
     @State private var randomError: String?
@@ -69,6 +76,11 @@ struct ItemGridView: View {
 
     private var isFilterActive: Bool {
         !search.isEmpty || watchedFilter != .all || favoritesOnly || !selectedBuckets.isEmpty
+    }
+
+    private var totalSizeLabel: String {
+        let bytes = items.reduce(Int64(0)) { $0 + ($1.sizeBytes ?? 0) }
+        return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
     }
 
     private var displayedFolders: [FolderTile] {
@@ -123,7 +135,7 @@ struct ItemGridView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(folder?.components(separatedBy: "/").last ?? library.name)
                                 .font(.title2.bold())
-                            Text("(\(folders.count + items.count))")
+                            Text(showTotalSize && !items.isEmpty ? "(\(folders.count + items.count) · \(totalSizeLabel))" : "(\(folders.count + items.count))")
                                 .font(.title3)
                                 .foregroundStyle(.secondary)
                         }
@@ -262,6 +274,12 @@ struct ItemGridView: View {
                         } label: {
                             Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark" : "")
                         }
+                    }
+                    Divider()
+                    Button {
+                        showTotalSize.toggle()
+                    } label: {
+                        Label("Gesamtgröße anzeigen", systemImage: showTotalSize ? "checkmark" : "")
                     }
                 } label: {
                     Label("Filter", systemImage: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")

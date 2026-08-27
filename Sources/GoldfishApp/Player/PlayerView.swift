@@ -82,6 +82,18 @@ struct PlayerView: View {
     @State private var transcodeURLTemplate: String?
     @State private var virtualOffset: Double = 0
 
+    /// Audio-track switcher (User-Anfrage 2026-08-27: "Tonspur wählen können", zuerst für den
+    /// Mac-Download von Kill Bill geprüft — der Download hatte bis dahin nur die englische Spur,
+    /// weil `LocalTranscodeService`s Konvertierung nur den ERSTEN Audiostream behielt, siehe den
+    /// Fix dort). Nur relevant, wenn `AVPlayer` eine echte lokale/originale Datei abspielt
+    /// (Download ODER Direct-Play) — bei einer Server-Transcode-Session (`isTranscode == true`)
+    /// entscheidet der Server serverseitig über die Audiospur (Browser-Pendant: das Audio-
+    /// Dropdown im Player-Dialog dort steuert genau diesen Query-Parameter), hier gibt es
+    /// nichts lokal umzuschalten.
+    @State private var audioSelectionGroup: AVMediaSelectionGroup?
+    @State private var audioOptions: [AVMediaSelectionOption] = []
+    @State private var selectedAudioOption: AVMediaSelectionOption?
+
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     /// User-Anfrage 2026-08-19: Favoriten- und Playlist-Symbol auch im Steuerfeld —
@@ -102,8 +114,6 @@ struct PlayerView: View {
     @State private var trickplayCues: [TrickplayCue] = []
     @State private var trickplaySprite: CGImage?
     #if os(macOS)
-    @EnvironmentObject var transcode: LocalTranscodeService
-    @State private var isConverting = false
     @State private var isFullScreen = false
     @State private var hostWindow: NSWindow?
     // User-Anfrage 2026-08-19: "Player immer genau in dem Format wie das Video öffnen,
@@ -144,16 +154,7 @@ struct PlayerView: View {
             }
             .frame(width: 0, height: 0)
 
-            if isConverting {
-                VStack(spacing: 12) {
-                    ProgressView(value: transcode.progress["dl-\(item.id)"] ?? 0).frame(maxWidth: 260).tint(.white)
-                    Text("Format wird angepasst (einmalig) …")
-                        .foregroundStyle(.white)
-                    Button("Abbrechen") { teardown(); closePlayer() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-            } else if let player {
+            if let player {
                 NativePlayerView(player: player)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
@@ -240,7 +241,10 @@ struct PlayerView: View {
                             onAddToPlaylist: { showingAddToPlaylist = true },
                             isFullScreen: fullScreenStateForControlsBar,
                             onToggleFullScreen: fullScreenToggleForControlsBar,
-                            onClose: { teardown(); closePlayer() }
+                            onClose: { teardown(); closePlayer() },
+                            audioOptions: audioOptions,
+                            selectedAudioOption: selectedAudioOption,
+                            onSelectAudioOption: selectAudioOption
                         )
                     }
                     .padding(.bottom, 24)
@@ -253,7 +257,7 @@ struct PlayerView: View {
         .onDisappear {
             hideControlsTask?.cancel()
             #if os(macOS)
-            NSCursor.unhide()
+            NSCursor.setHiddenUntilMouseMoves(false)
             #endif
             teardown()
         }
@@ -267,11 +271,23 @@ struct PlayerView: View {
         // zählt zusätzlich als Aktivität (nicht nur Klicks) — sonst bliebe der Cursor
         // unsichtbar, obwohl man die Maus bewegt, weil `resetAutoHide()` bisher nur von
         // Button-Taps aus aufgerufen wurde.
+        //
+        // Real bug hit 2026-08-23 (User: "Mauszeiger verschwindet öfters auf der Seite" —
+        // also außerhalb des Players!): `NSCursor.hide()`/`unhide()` ist ein app-weiter,
+        // REFCOUNTED Stack, nicht auf dieses Fenster beschränkt. Falls `onDisappear` nicht
+        // feuert (dasselbe bereits dokumentierte Zuverlässigkeitsproblem beim Schließen über
+        // den nativen roten Knopf statt den eigenen "Schließen"-Button, siehe den
+        // Gesehen-Sync-Fix oben bei `hasMarkedWatchedThisSession`) bleibt ein offener
+        // `hide()`-Call für immer unbalanciert stehen — der Cursor bleibt dann versteckt,
+        // auch auf der normalen Bibliotheksseite, weit nachdem der Player geschlossen wurde.
+        // `setHiddenUntilMouseMoves(true)` hat kein Refcount-Problem: einmaliger, sich selbst
+        // aufhebender Zustand, der bei JEDER Mausbewegung automatisch endet — kein `unhide()`
+        // nötig, also nichts, das durch einen verpassten `onDisappear` leaken kann.
         .onContinuousHover { phase in
             if case .active = phase { resetAutoHide() }
         }
         .onChange(of: controlsVisible) { visible in
-            if visible { NSCursor.unhide() } else { NSCursor.hide() }
+            if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         }
         #endif
     }
@@ -466,6 +482,27 @@ struct PlayerView: View {
         item = next
     }
 
+    /// Populates `audioOptions`/`selectedAudioOption` from the asset's `.audible` media
+    /// selection group, if it has more than one option — a single-track source (the common
+    /// case) leaves the switcher hidden entirely (`PlayerControlsBar` only shows it when
+    /// `audioOptions.count > 1`).
+    private func loadAudioOptions(for player: AVPlayer) async {
+        audioSelectionGroup = nil
+        audioOptions = []
+        selectedAudioOption = nil
+        guard let asset = player.currentItem?.asset else { return }
+        guard let group = try? await asset.loadMediaSelectionGroup(for: .audible) else { return }
+        audioSelectionGroup = group
+        audioOptions = group.options
+        selectedAudioOption = player.currentItem?.currentMediaSelection.selectedMediaOption(in: group) ?? group.defaultOption
+    }
+
+    private func selectAudioOption(_ option: AVMediaSelectionOption) {
+        guard let group = audioSelectionGroup else { return }
+        player?.currentItem?.select(option, in: group)
+        selectedAudioOption = option
+    }
+
     private func setUp() async {
         errorMessage = nil
         isTranscode = false
@@ -483,36 +520,18 @@ struct PlayerView: View {
         }
 
         // Offline-first: if this item was downloaded, play the local file — works with no
-        // network at all. The server's `/api/download` endpoint serves the ORIGINAL,
-        // untranscoded file (CLAUDE.md "Download & Löschen") — same MKV/DTS/HEVC-tag
-        // incompatibilities as local-library files apply, so run it through the same
-        // compatibility check + remux before handing it to AVPlayer (real bug hit
-        // 2026-08-19: downloaded MKV files showed the same black-screen/no-thumbnail symptom
-        // as local-library ones, going through a completely separate code path than never
-        // got the fix).
+        // network at all. Since 2026-08-27 the server itself already delivers a compatible
+        // file for the download (`/api/download?compat=1`, see `internal/download` in the
+        // server repo — mirrors what Jellyfin's official apps do: the SERVER decides/fixes
+        // compatibility before the client ever sees the file, same way it already does for
+        // Direct Play vs. transcode streaming). No client-side remux needed anymore for
+        // downloads at all — `LocalTranscodeService` now only exists for local/external
+        // libraries scanned directly off disk, which have no server to ask.
         if let localURL = downloads.localFileURL(itemId: item.id) {
-            var playURL = localURL
-            #if os(macOS)
-            if transcode.isDownloadConverted(itemId: item.id) {
-                playURL = transcode.convertedDownloadURL(itemId: item.id)
-            } else {
-                let playable = (try? await AVURLAsset(url: localURL).load(.isPlayable)) ?? false
-                if !playable {
-                    isConverting = true
-                    do {
-                        playURL = try await transcode.remuxDownload(itemId: item.id, sourceURL: localURL)
-                    } catch {
-                        isConverting = false
-                        errorMessage = error.localizedDescription
-                        return
-                    }
-                    isConverting = false
-                }
-            }
-            #endif
-            let p = AVPlayer(url: playURL)
+            let p = AVPlayer(url: localURL)
             self.player = p
             attachObservers(to: p)
+            await loadAudioOptions(for: p)
             // User-Anfrage 2026-08-19: "bei offline Dateien merkt er sich nicht, wo man
             // zuletzt war" — dieser Zweig hat nie eine Resume-Position gelesen. Rein lokaler
             // Speicher (siehe DownloadManager.localResumeSeconds), unabhängig vom Server.
@@ -552,6 +571,12 @@ struct PlayerView: View {
             let p = AVPlayer(url: streamURL)
             self.player = p
             attachObservers(to: p)
+            // Nur bei Direct-Play sinnvoll — bei einer Transcode-Session entscheidet der
+            // Server über die Audiospur (Browser-Pendant: das Audio-Dropdown dort), es gibt
+            // hier serverseitig nur die eine ausgewählte Spur im Stream.
+            if !isTranscode {
+                await loadAudioOptions(for: p)
+            }
             if !isTranscode, startAt > 0 {
                 await p.seek(to: CMTime(seconds: startAt, preferredTimescale: 600))
             }
@@ -798,6 +823,12 @@ private struct PlayerControlsBar: View {
     var onToggleFullScreen: (() -> Void)? = nil
     /// User-Anfrage 2026-08-19: Schließen-Kreuz zusätzlich im Steuerfeld.
     var onClose: (() -> Void)? = nil
+    /// User-Anfrage 2026-08-27: Tonspur wählbar machen (Download/Direct-Play — bei einer
+    /// Server-Transcode-Session bleibt das leer, siehe `PlayerView.setUp()`). Button erscheint
+    /// nur, wenn die Quelle wirklich mehr als eine Audiospur hat.
+    var audioOptions: [AVMediaSelectionOption] = []
+    var selectedAudioOption: AVMediaSelectionOption? = nil
+    var onSelectAudioOption: ((AVMediaSelectionOption) -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -882,6 +913,23 @@ private struct PlayerControlsBar: View {
                     if let onAddToPlaylist {
                         Button(action: onAddToPlaylist) {
                             Image(systemName: "text.badge.plus")
+                        }
+                    }
+                    if audioOptions.count > 1, let onSelectAudioOption {
+                        Menu {
+                            ForEach(audioOptions, id: \.self) { option in
+                                Button {
+                                    onSelectAudioOption(option)
+                                } label: {
+                                    if option == selectedAudioOption {
+                                        Label(option.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(option.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "waveform")
                         }
                     }
                     if let onToggleFullScreen {

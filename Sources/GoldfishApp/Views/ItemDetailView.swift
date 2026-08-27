@@ -276,6 +276,13 @@ struct DownloadButtonRow: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
 
+    private static let speedFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useKB, .useMB, .useGB]
+        f.countStyle = .binary
+        return f
+    }()
+
     var body: some View {
         HStack {
             if let record = downloads.records[item.id] {
@@ -285,6 +292,12 @@ struct DownloadButtonRow: View {
                         .frame(maxWidth: 160)
                     Text("\(Int(record.progress * 100))%")
                         .font(.caption)
+                    // User-Anfrage 2026-08-27: Downloadgeschwindigkeit neben der Prozentanzeige.
+                    if let speed = downloads.downloadSpeeds[item.id] {
+                        Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Button("Abbrechen") { downloads.cancelDownload(itemId: item.id) }
                         .font(.caption)
                 case .done:

@@ -6,6 +6,31 @@ import AppKit
 import UIKit
 #endif
 
+/// User-Anfrage 2026-08-25: "kann man durch größeres Puffern flüssiger abspielen" (langsame
+/// externe Quelle) — Regler in den Einstellungen (`SettingsView`), gilt für ALLE Goldfish-
+/// Accounts auf diesem Mac (bewusst nicht account-gescoped, reine Geräte-/Hardware-Tuning-
+/// Einstellung, kein Nutzer-Datum). Gelesen von `LocalPlayerView.setUp()` für
+/// `AVPlayerItem.preferredForwardBufferDuration`. `defaultBufferSeconds` ist der Wert, der sich
+/// beim ersten Test (fest auf 60 verdrahtet) bereits bewährt hat — Slider startet dort, nicht
+/// bei irgendeinem Neutralwert.
+/// User-Anfrage 2026-08-25: "neben der Anzahl an Dateien auch immer die Gesamtgröße in GB,
+/// deaktivierbar im Menü" — EIN gemeinsamer Schalter für Server- UND lokale Bibliotheken
+/// (`ItemGridView` + `LocalLibraryItemsView`), damit ein Toggle an einer Stelle überall
+/// gilt. Default AN — der User will die Größe standardmäßig sehen, "deaktivierbar" heißt
+/// nur, dass es abschaltbar sein soll, nicht dass es erst manuell angeschaltet werden muss.
+public enum DisplaySettings {
+    public static let showTotalSizeKey = "goldfish.showTotalSize"
+}
+
+public enum LocalPlaybackSettings {
+    public static let bufferSecondsKey = "goldfish.localBufferSeconds"
+    public static let defaultBufferSeconds: Double = 60
+    public static var bufferSeconds: Double {
+        let stored = UserDefaults.standard.double(forKey: bufferSecondsKey)
+        return stored > 0 ? stored : defaultBufferSeconds
+    }
+}
+
 public struct LocalLibrary: Codable, Identifiable, Hashable {
     public let id: UUID
     public var name: String
@@ -40,9 +65,67 @@ public struct LocalItem: Codable, Identifiable, Hashable {
     public var fileName: String
     public var sizeBytes: Int64
     public var modifiedTime: Date
+    /// Zeitpunkt, an dem diese Datei erstmals in die Bibliothek eingelesen wurde (nicht die
+    /// Datei-mtime, die ist `modifiedTime`) — User-Anfrage 2026-08-27: "der Filter bei
+    /// externen Bibliotheken 'zuletzt Hinzugefügt' fehlt mir noch", analog zum Server-Sort
+    /// `added` (`items.added_at`). Optional, damit bereits bestehende, vor diesem Feature
+    /// gescannte Indizes weiter dekodieren (fehlt einfach, `LocalLibraryItemsView` fällt für
+    /// diese Alt-Items auf `modifiedTime` zurück). Bleibt bei einem Rescan unverändert
+    /// erhalten (`scan()` übernimmt `existing.addedAt`, setzt es nur für WIRKLICH neue Dateien).
+    public var addedAt: Date? = nil
     public var resumePosSec: Double = 0
     public var watched = false
     public var thumbnailPath: String?
+    /// User-Anfrage 2026-08-25: "bei den lokalen Dateien hätte ich gerne in den Kacheln noch
+    /// die Auflösung, und als Filter möchte ich auch nach Auflösung filtern können" — Server-
+    /// Items haben `width`/`height` schon immer (ffprobe beim Scan), lokale Items bisher nie.
+    /// Optional + nachträglich befüllt (siehe `LocalLibraryManager.generateThumbnailIfNeeded`),
+    /// damit bereits gescannte Bestandsdateien beim nächsten Rescan automatisch nachgezogen
+    /// werden, ohne die komplette Bibliothek neu einlesen zu müssen.
+    public var width: Int?
+    public var height: Int?
+
+    /// Gleiche Formel + Bucket-Grenzen wie der Server (CLAUDE.md "resLabel(it)" /
+    /// `internal/store/sqlite.go` ResBuckets) — Cinemascope-Filme landen dadurch im richtigen
+    /// Bucket basierend auf der horizontalen statt nur der vertikalen Auflösung.
+    public var resolutionLabel: String {
+        guard let h = height, let w = width, h > 0 else { return "" }
+        let effective = max(Double(h), Double(w) * 9.0 / 16.0)
+        switch effective {
+        case 2000...: return "4K"
+        case 1000..<2000: return "1080p"
+        case 700..<1000: return "720p"
+        default: return "\(Int(effective))p"
+        }
+    }
+
+    /// Für den Auflösungs-Filter — welcher `ResolutionBucket` dieses Item zugeordnet ist, nil
+    /// wenn (noch) keine Auflösung bekannt ist (Item fällt dann bei aktivem Filter weder rein
+    /// noch raus, siehe `LocalLibraryItemsView`s Filter-Logik).
+    public var resolutionBucket: ResolutionBucket? {
+        guard let h = height, let w = width, h > 0 else { return nil }
+        let effective = Int(max(Double(h), Double(w) * 9.0 / 16.0))
+        switch effective {
+        case 2000...: return .uhd4k
+        case 1400..<2000: return .uhd2k
+        case 1000..<1400: return .fhd1080
+        case 700..<1000: return .hd720
+        case 540..<700: return .sd576
+        case 500..<540: return .sd540
+        case 440..<500: return .sd480
+        default: return .low
+        }
+    }
+
+    /// User-Anfrage 2026-08-25: "im Doppelpfeilmenü auch einen Filter nach Auflösung, wo er
+    /// alle Dateien nach Auflösung sortiert" — numerischer Wert für `LocalLibraryItemsView`s
+    /// Sortier-Menü, gleiche `max(height, width*9/16)`-Formel wie `resolutionBucket`, nur
+    /// nicht in Buckets gerundet (echte Sortierung, nicht nur Gruppierung).
+    public var effectiveResolution: Int? {
+        guard let h = height, let w = width, h > 0 else { return nil }
+        return Int(max(Double(h), Double(w) * 9.0 / 16.0))
+    }
+
     /// User-Anfrage 2026-08-20: "zuletzt Abgespielt" fehlte als Sortierung für lokale
     /// Bibliotheken — es gab bisher gar keinen Zeitstempel dafür. Wird bei jedem echten
     /// Wiedergabe-Fortschritt gesetzt (`LocalLibraryManager.setResume`), nicht bei einem
@@ -73,6 +156,16 @@ public final class LocalLibraryManager: ObservableObject {
     private var allLibrariesOnDisk: [LocalLibrary] = []
     @Published public private(set) var items: [LocalItem] = []
     @Published public private(set) var scanningLibraryIds: Set<UUID> = []
+    /// Real bug hit 2026-08-26 (User: Ruckeln trotz aller Playback-Pause-Fixes; `lsof` zeigte
+    /// DREI gleichzeitig offene Dateien auf derselben SD-Karte): `scan()` feuerte bisher pro
+    /// Bibliothek einen EIGENEN, unabhängigen Thumbnail-/Auflösungs-Hintergrund-Task ab — bei
+    /// mehreren Bibliotheken (User hat zwei) konnte also jede Bibliothek gleichzeitig ihr
+    /// eigenes Item offen halten, selbst wenn jede einzelne Schleife für sich schon brav
+    /// `waitWhilePlaybackActive()` respektierte. Jetzt EINE geteilte Warteschlange über ALLE
+    /// Bibliotheken (gleiches Single-Worker-Muster wie `LocalTranscodeService.processQueue`),
+    /// garantiert höchstens EIN Hintergrund-Datei-Handle für Thumbnails/Auflösung insgesamt.
+    private var thumbnailQueue: [LocalItem] = []
+    private var isProcessingThumbnails = false
     @Published public var lastError: String?
     /// Bibliotheken, deren Wurzel-Ordner gerade nicht erreichbar ist — z.B. ein externer
     /// USB-Stick/SD-Karte, die abgezogen wurde. Statt hart zu fehlern (User-Anfrage
@@ -280,9 +373,19 @@ public final class LocalLibraryManager: ObservableObject {
     /// `!isConverted` guard naturally skips already-fixed files and retries anything not yet
     /// successfully converted), so this doubles as "retry all format fixes" without deleting
     /// and re-adding any library (User-Anfrage 2026-08-19).
+    /// User-Report 2026-08-24: "wenn ich auf 'Erneut prüfen' klicke, passiert nichts — aber
+    /// sobald ich [eine bestimmte, nicht angeschlossene] Platte einstecke, läuft es los." Bei
+    /// zwei lokalen Bibliotheken auf zwei verschiedenen externen Platten wartete die zweite
+    /// (angeschlossene, mit den eigentlich gewünschten Dateien) bisher darauf, dass die ERSTE
+    /// in der Liste fertig ist — sequenzielles `for … await scan(...)`. War Bibliothek 1 (nicht
+    /// angeschlossen) langsam oder blockierte am Auflösen ihres jetzt toten Bookmarks, kam
+    /// Bibliothek 2 nie an die Reihe, obwohl ihr Datenträger die ganze Zeit verfügbar war.
+    /// Fix: alle Bibliotheken parallel scannen, keine wartet mehr auf eine andere.
     public func rescanAllLibraries() async {
-        for library in libraries {
-            await scan(library)
+        await withTaskGroup(of: Void.self) { group in
+            for library in libraries {
+                group.addTask { await self.scan(library) }
+            }
         }
     }
 
@@ -320,7 +423,8 @@ public final class LocalLibraryManager: ObservableObject {
                     found.append(LocalItem(
                         id: UUID(), libraryId: library.id, relPath: relPath, fileName: name,
                         sizeBytes: Int64(values?.fileSize ?? 0),
-                        modifiedTime: values?.contentModificationDate ?? Date()
+                        modifiedTime: values?.contentModificationDate ?? Date(),
+                        addedAt: Date()
                     ))
                 }
             }
@@ -332,12 +436,11 @@ public final class LocalLibraryManager: ObservableObject {
 
         // Thumbnails happen after the scan reports done (UI already shows titles/sizes) —
         // one at a time in the background so a big library doesn't stall the scan itself.
-        let needThumbs = found.filter { $0.thumbnailPath == nil }
-        Task { [needThumbs] in
-            for item in needThumbs {
-                await generateThumbnailIfNeeded(for: item)
-            }
-        }
+        // Auch Bestandsdateien mit Thumbnail, aber ohne Auflösung (Feature nachträglich
+        // hinzugefügt, 2026-08-25) laufen hier mit durch — `generateThumbnailIfNeeded` probt
+        // die Auflösung unabhängig davon, ob das Thumbnail selbst schon existiert.
+        let needThumbs = found.filter { $0.thumbnailPath == nil || $0.width == nil }
+        enqueueThumbnailGeneration(needThumbs)
 
         // Same idea for playability: files AVFoundation can't natively decode (MKV/DTS, …)
         // get fixed proactively in the background instead of the user discovering it by
@@ -412,6 +515,30 @@ public final class LocalLibraryManager: ObservableObject {
     /// scan time the background conversion usually hasn't produced a copy yet anyway. Called
     /// again from `LocalTranscodeService`'s completion hook once a conversion finishes, so
     /// items that failed here on the first pass get a real thumbnail shortly after.
+    /// Sammelpunkt für ALLE Bibliotheken (siehe `thumbnailQueue`-Kommentar) — `scan()` ruft
+    /// das statt direkt einen eigenen Task zu starten, damit parallele Scans mehrerer
+    /// Bibliotheken sich nicht gegenseitig I/O-Bandbreite auf demselben externen Datenträger
+    /// wegnehmen.
+    private func enqueueThumbnailGeneration(_ items: [LocalItem]) {
+        thumbnailQueue.append(contentsOf: items)
+        processThumbnailQueue()
+    }
+
+    private func processThumbnailQueue() {
+        guard !isProcessingThumbnails else { return }
+        isProcessingThumbnails = true
+        Task {
+            while !thumbnailQueue.isEmpty {
+                #if os(macOS)
+                await LocalTranscodeService.shared.waitWhilePlaybackActive()
+                #endif
+                let item = thumbnailQueue.removeFirst()
+                await generateThumbnailIfNeeded(for: item)
+            }
+            isProcessingThumbnails = false
+        }
+    }
+
     public func generateThumbnailIfNeeded(for item: LocalItem) async {
         var url = fileURL(for: item)
         #if os(macOS)
@@ -419,13 +546,18 @@ public final class LocalLibraryManager: ObservableObject {
         if FileManager.default.fileExists(atPath: convertedURL.path) { url = convertedURL }
         #endif
         guard let url else { return }
+        let asset = AVURLAsset(url: url)
+
+        if item.width == nil || item.height == nil {
+            await probeResolutionIfNeeded(for: item, asset: asset)
+        }
+
         let dest = Self.thumbsDir.appendingPathComponent("\(item.id.uuidString).jpg")
         if FileManager.default.fileExists(atPath: dest.path) {
             setThumbnailPath(item, path: dest.path)
             return
         }
 
-        let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
 
@@ -443,14 +575,45 @@ public final class LocalLibraryManager: ObservableObject {
             try data.write(to: dest)
             setThumbnailPath(item, path: dest.path)
         } catch {
-            // Leave thumbnailPath nil — card falls back to a placeholder icon. Not worth
-            // surfacing per-file (some files are just undecodable, e.g. corrupt downloads).
+            // Real Fund 2026-08-26: AVFoundation demuxes the source itself (`url` above is only
+            // the converted copy if one ALREADY exists) — for a "fast" file (MKV+hevc/h264)
+            // that no longer gets pre-converted in the background at all (see
+            // `LocalTranscodeService.enqueueCompatibilityCheck`), this always fails here, same
+            // demux limitation that made playback fail in the first place. `ffmpeg` decodes far
+            // more containers than AVFoundation, so it can still pull a preview frame straight
+            // out of the untouched original — no container remux, nothing written to the
+            // transcode cache, just the one JPEG.
+            #if os(macOS)
+            if await LocalTranscodeService.shared.extractThumbnailViaFFmpeg(sourceURL: url, destJPEG: dest) {
+                setThumbnailPath(item, path: dest.path)
+            }
+            #endif
         }
     }
 
     private func setThumbnailPath(_ item: LocalItem, path: String) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].thumbnailPath = path
+        save()
+    }
+
+    /// Video-Track-`naturalSize` inkl. `preferredTransform` (rotierte Handy-Aufnahmen liefern
+    /// sonst vertauschte Breite/Höhe) — kein ffprobe nötig, funktioniert identisch auf iOS.
+    private func probeResolutionIfNeeded(for item: LocalItem, asset: AVURLAsset) async {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return }
+        guard let size = try? await track.load(.naturalSize),
+              let transform = try? await track.load(.preferredTransform) else { return }
+        let transformed = size.applying(transform)
+        let width = Int(abs(transformed.width))
+        let height = Int(abs(transformed.height))
+        guard width > 0, height > 0 else { return }
+        setResolution(item, width: width, height: height)
+    }
+
+    private func setResolution(_ item: LocalItem, width: Int, height: Int) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].width = width
+        items[idx].height = height
         save()
     }
 

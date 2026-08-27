@@ -45,6 +45,13 @@ struct LoginView: View {
                     .textFieldStyle(.roundedBorder)
             }
             .frame(maxWidth: 360)
+            // User-Anfrage 2026-08-24: "die Freigabetaste soll den Anmeldevorgang auslösen,
+            // sonst muss man extra mit der Maus klicken" — Enter/Return aus JEDEM der drei
+            // Felder löst jetzt denselben Login-Task aus wie ein Klick auf "Anmelden".
+            .onSubmit {
+                guard !serverURLString.isEmpty, !username.isEmpty, !password.isEmpty, !isLoading else { return }
+                Task { await login() }
+            }
 
             if let errorMessage {
                 Text(errorMessage)
@@ -65,6 +72,7 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
             .disabled(serverURLString.isEmpty || username.isEmpty || password.isEmpty || isLoading)
 
             Button {

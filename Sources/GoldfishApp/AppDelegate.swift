@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import GoldfishCore
 
 /// Real bug hit 2026-08-19 (User-Anfrage): closing the player window (now a genuine separate
 /// `WindowGroup(id: "player")`, see `GoldfishApp.swift`'s doc comment) left the app with no
@@ -120,6 +121,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         mainWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Real bug hit 2026-08-26 (User: "Videos stocken immer noch!") — siehe
+    /// `LocalTranscodeService.terminateAllActiveProcesses()`-Kommentar: ohne diesen Hook
+    /// überleben laufende ffmpeg-Re-Encodes einen App-Neustart als verwaiste Prozesse, die
+    /// unabhängig weiter von der externen Platte lesen und mit der nächsten Wiedergabe um
+    /// Bandbreite konkurrieren.
+    func applicationWillTerminate(_ notification: Notification) {
+        LocalTranscodeService.shared.terminateAllActiveProcesses()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

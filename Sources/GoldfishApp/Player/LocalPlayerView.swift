@@ -16,6 +16,10 @@ struct LocalPlayerView: View {
     /// `RandomContext`/`randomHistory`, just without a network round-trip since local items
     /// are already all in memory).
     let randomPool: [LocalItem]?
+    /// Set when the caller already asked "von Anfang oder von letzter Stelle" (see
+    /// `LocalLibraryItemsView`'s play-resume prompt) and the user chose to restart — skips
+    /// the resume-seek in `setUp()` entirely, same convention as `PlayerView.startFromBeginning`.
+    let startFromBeginning: Bool
 
     @State private var item: LocalItem
     @State private var queueIndex: Int
@@ -36,6 +40,12 @@ struct LocalPlayerView: View {
     @State private var duration: Double = 0
     @State private var isScrubbing = false
     @State private var volume: Float = 1.0
+    /// Tonspur-Wähler, siehe `PlayerView`s Pendant für Downloads — identisches Prinzip:
+    /// `AVMediaSelectionGroup(.audible)` auf der gerade abgespielten (ggf. konvertierten)
+    /// lokalen Datei, sichtbar nur wenn mehr als eine Spur existiert.
+    @State private var audioSelectionGroup: AVMediaSelectionGroup?
+    @State private var audioOptions: [AVMediaSelectionOption] = []
+    @State private var selectedAudioOption: AVMediaSelectionOption?
     @State private var timeObserverToken: Any?
 
     @State private var controlsVisible = true
@@ -46,6 +56,10 @@ struct LocalPlayerView: View {
     // Surfaces the ACTUAL underlying NSError when AVFoundation can't play a file — AVKit's
     // own glyph for this is a silent gray "can't play" icon with no text at all.
     @State private var diagnosticError: String?
+    // User-Anfrage 2026-08-26: "bei den lokalen Bibliotheken hätte ich gerne die
+    // Möglichkeit, Dateien zu löschen" — Bestätigungs-Dialog, da destruktiv (löscht die
+    // echte Datei vom Datenträger, nicht rückgängig zu machen).
+    @State private var showingDeleteConfirm = false
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
     @State private var isConverting = false
@@ -55,10 +69,11 @@ struct LocalPlayerView: View {
     @State private var hasSizedWindowToVideo = false
     #endif
 
-    init(item: LocalItem, queue: [LocalItem] = [], randomPool: [LocalItem]? = nil) {
+    init(item: LocalItem, queue: [LocalItem] = [], randomPool: [LocalItem]? = nil, startFromBeginning: Bool = false) {
         _item = State(initialValue: item)
         self.queue = queue
         self.randomPool = randomPool
+        self.startFromBeginning = startFromBeginning
         _queueIndex = State(initialValue: queue.firstIndex(where: { $0.id == item.id }) ?? 0)
         _randomHistory = State(initialValue: randomPool != nil ? [item] : [])
     }
@@ -178,7 +193,11 @@ struct LocalPlayerView: View {
                             onNext: { jump(by: 1) },
                             isFullScreen: fullScreenStateForControlsBar,
                             onToggleFullScreen: fullScreenToggleForControlsBar,
-                            onClose: { teardown(); closePlayer() }
+                            onClose: { teardown(); closePlayer() },
+                            onDelete: { showingDeleteConfirm = true },
+                            audioOptions: audioOptions,
+                            selectedAudioOption: selectedAudioOption,
+                            onSelectAudioOption: selectAudioOption
                         )
                     }
                     .padding(.bottom, 24)
@@ -188,21 +207,32 @@ struct LocalPlayerView: View {
             .animation(.easeInOut(duration: 0.25), value: controlsVisible)
         }
         .task(id: item.id) { await setUp() }
+        .confirmationDialog("\"\(item.displayTitle)\" wirklich von der Festplatte löschen?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Löschen", role: .destructive) {
+                teardown()
+                localLibrary.deleteItem(item)
+                closePlayer()
+            }
+            Button("Abbrechen", role: .cancel) {}
+        }
         .onDisappear {
             hideControlsTask?.cancel()
             #if os(macOS)
-            NSCursor.unhide()
+            NSCursor.setHiddenUntilMouseMoves(false)
             #endif
             teardown()
         }
         #if os(macOS)
         // Gleicher Fix wie PlayerView (User-Anfrage 2026-08-19: "Mauszeiger verschwindet
-        // nicht, wenn ich den Player vergrößere").
+        // nicht, wenn ich den Player vergrößere"), UND derselbe Refcount-Fix wie dort
+        // (User-Anfrage 2026-08-23: "Mauszeiger verschwindet öfters auf der Seite") —
+        // `setHiddenUntilMouseMoves` statt `hide()`/`unhide()`, siehe PlayerView-Kommentar
+        // für die volle Erklärung.
         .onContinuousHover { phase in
             if case .active = phase { resetAutoHide() }
         }
         .onChange(of: controlsVisible) { visible in
-            if visible { NSCursor.unhide() } else { NSCursor.hide() }
+            if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         }
         #endif
     }
@@ -238,6 +268,12 @@ struct LocalPlayerView: View {
             if PlayerLaunchCoordinator.shared.pendingLocalPlayer != nil {
                 PlayerLaunchCoordinator.shared.pendingLocalPlayer = nil
             }
+            // Real bug hit 2026-08-24, siehe `LocalTranscodeService.resetPlaybackActive()`
+            // Kommentar: dieser Notification-Handler ist der zuverlässige Fallback für den
+            // Fall, dass `onDisappear`/`teardown()` beim Schließen über den nativen roten
+            // Knopf nicht feuert — sonst bleibt die Formatanpassungs-Warteschlange für den
+            // Rest der Session eingefroren.
+            LocalTranscodeService.shared.resetPlaybackActive()
         }
     }
 
@@ -382,10 +418,35 @@ struct LocalPlayerView: View {
         }
         #endif
 
-        let p = AVPlayer(url: playURL)
+        #if os(macOS)
+        transcode.beginPlayback()
+        #endif
+        // User-Anfrage 2026-08-25: "Lesegeschwindigkeit meiner externen Quelle ist scheinbar
+        // zu langsam — kann man durch größeres Puffern flüssiger abspielen?" — `AVPlayer(url:)`
+        // lässt AVFoundation den Vorlaufpuffer selbst wählen (Default 0 = automatische
+        // Heuristik, für progressive Wiedergabe meist knapp bemessen). Über einen expliziten
+        // `AVPlayerItem` lässt sich `preferredForwardBufferDuration` vorgeben — mehr Vorlauf
+        // gibt einer langsamen externen Platte deutlich mehr Cushion gegen Aussetzer mitten in
+        // der Wiedergabe, kostet nur etwas mehr Wartezeit beim allerersten Start. Wert kommt
+        // jetzt aus dem Einstellungen-Regler (`LocalPlaybackSettings`/`SettingsView`), nicht
+        // mehr fest verdrahtet. `automaticallyWaitsToMinimizeStalling` (Default bereits true)
+        // sorgt zusätzlich dafür, dass der Player bei einem Puffer-Unterlauf lieber kurz
+        // pausiert/nachlädt statt zu ruckeln.
+        let playerItem = AVPlayerItem(url: playURL)
+        playerItem.preferredForwardBufferDuration = LocalPlaybackSettings.bufferSeconds
+        let p = AVPlayer(playerItem: playerItem)
+        p.automaticallyWaitsToMinimizeStalling = true
         player = p
         isPlaying = true
         p.volume = volume
+        audioSelectionGroup = nil
+        audioOptions = []
+        selectedAudioOption = nil
+        if let group = try? await playerItem.asset.loadMediaSelectionGroup(for: .audible) {
+            audioSelectionGroup = group
+            audioOptions = group.options
+            selectedAudioOption = playerItem.currentMediaSelection.selectedMediaOption(in: group) ?? group.defaultOption
+        }
 
         timeObserverToken = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak p] time in
             guard !isScrubbing, let p else { return }
@@ -403,7 +464,7 @@ struct LocalPlayerView: View {
             }
         }
 
-        if item.resumePosSec > 5 {
+        if !startFromBeginning, item.resumePosSec > 5 {
             await p.seek(to: CMTime(seconds: item.resumePosSec, preferredTimescale: 600))
         }
         p.play()
@@ -412,6 +473,12 @@ struct LocalPlayerView: View {
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
             Task { @MainActor in saveResume() }
         }
+    }
+
+    private func selectAudioOption(_ option: AVMediaSelectionOption) {
+        guard let group = audioSelectionGroup else { return }
+        player?.currentItem?.select(option, in: group)
+        selectedAudioOption = option
     }
 
     private func teardown() {
@@ -430,6 +497,9 @@ struct LocalPlayerView: View {
                     localLibrary.setResume(item, seconds: seconds)
                 }
             }
+            #if os(macOS)
+            transcode.endPlayback()
+            #endif
         }
         self.player = nil
     }
@@ -482,6 +552,15 @@ private struct LocalPlayerControlsBar: View {
     var isFullScreen: Bool = false
     var onToggleFullScreen: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
+    /// User-Anfrage 2026-08-26: "bei den lokalen Bibliotheken hätte ich gerne die
+    /// Möglichkeit, Dateien zu löschen" — Rechtsklick auf die Kachel konnte das schon
+    /// (`LocalLibraryItemsView`s `.contextMenu`), aber nicht während der Wiedergabe selbst.
+    var onDelete: (() -> Void)? = nil
+    /// User-Anfrage 2026-08-27: Tonspur wählbar machen (z. B. Deutsch/Englisch bei
+    /// Mehrsprachen-Rips). Button erscheint nur, wenn die Quelle mehr als eine Audiospur hat.
+    var audioOptions: [AVMediaSelectionOption] = []
+    var selectedAudioOption: AVMediaSelectionOption? = nil
+    var onSelectAudioOption: ((AVMediaSelectionOption) -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -540,14 +619,37 @@ private struct LocalPlayerControlsBar: View {
                         .opacity(hasNext ? 1 : 0.35)
                 }
                 Spacer(minLength: 12)
-                if let onToggleFullScreen {
-                    Button(action: onToggleFullScreen) {
-                        Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                HStack(spacing: 12) {
+                    if let onDelete {
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                        }
+                        .foregroundStyle(.red.opacity(0.85))
                     }
-                    .frame(width: 64, alignment: .trailing)
-                } else {
-                    Color.clear.frame(width: 64)
+                    if audioOptions.count > 1, let onSelectAudioOption {
+                        Menu {
+                            ForEach(audioOptions, id: \.self) { option in
+                                Button {
+                                    onSelectAudioOption(option)
+                                } label: {
+                                    if option == selectedAudioOption {
+                                        Label(option.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(option.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "waveform")
+                        }
+                    }
+                    if let onToggleFullScreen {
+                        Button(action: onToggleFullScreen) {
+                            Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        }
+                    }
                 }
+                .frame(minWidth: 64, alignment: .trailing)
             }
             .foregroundStyle(.white)
             .buttonStyle(.plain)

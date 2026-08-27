@@ -55,7 +55,7 @@ struct GoldfishApp: App {
 
         WindowGroup(id: "localPlayer") {
             if let request = playerLaunch.pendingLocalPlayer {
-                LocalPlayerView(item: request.item, queue: request.queue, randomPool: request.randomPool)
+                LocalPlayerView(item: request.item, queue: request.queue, randomPool: request.randomPool, startFromBeginning: request.startFromBeginning)
                     .environmentObject(localLibrary)
                     .environmentObject(transcode)
                     .frame(minWidth: 900, minHeight: 560)

@@ -51,6 +51,14 @@ struct PersonItemsView: View {
             // — diese Ansicht sortiert clientseitig eine bereits geladene Liste, kann also
             // nicht danach sortieren. Reihenfolge bleibt unverändert, kein Absturz/Crash.
             sorted = list
+        case .resolution:
+            // Gleiche `max(height, width*9/16)`-Formel wie der Server (`sort=resolution`,
+            // `internal/store/sqlite.go`) — hier clientseitig, da `items` schon geladen ist.
+            sorted = list.sorted { lhs, rhs in
+                let l = lhs.height.map { h in max(Double(h), Double(lhs.width ?? 0) * 9.0 / 16.0) } ?? 0
+                let r = rhs.height.map { h in max(Double(h), Double(rhs.width ?? 0) * 9.0 / 16.0) } ?? 0
+                return l < r
+            }
         }
         return ascending ? sorted : sorted.reversed()
     }

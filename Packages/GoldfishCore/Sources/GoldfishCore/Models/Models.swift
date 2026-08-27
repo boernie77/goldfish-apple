@@ -267,6 +267,13 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
     /// library-weite Sort-Modi"), war nur nie im Mac/iOS-Client verdrahtet. rawValue "played"
     /// matcht direkt den Server-Query-Parameter, kein zusätzliches Mapping nötig.
     case played
+    /// User-Anfrage 2026-08-25: "bei den normalen Bibliotheken fehlt die Auflösung im
+    /// Doppelpfeilmenü" — der Server unterstützt `sort=resolution` bereits lange
+    /// (`internal/store/sqlite.go`, `MAX(i.height, i.width*9/16)`, gleiche Formel wie der
+    /// Auflösungs-Filter/-Bucket), das fehlte nur im Mac-Client. Anders als bei lokalen
+    /// Bibliotheken ist HIER kein Rescan nötig — Server-Items haben Breite/Höhe schon seit
+    /// ihrem ursprünglichen Scan in der DB.
+    case resolution
 
     public var id: String { rawValue }
 
@@ -278,6 +285,7 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
         case .duration: return "Laufzeit"
         case .rating: return "Bewertung"
         case .played: return "Zuletzt abgespielt"
+        case .resolution: return "Auflösung"
         }
     }
 

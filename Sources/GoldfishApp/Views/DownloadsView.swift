@@ -14,6 +14,9 @@ import GoldfishCore
 struct DownloadsView: View {
     @EnvironmentObject var downloads: DownloadManager
     @EnvironmentObject var client: GoldfishClient
+    // User-Anfrage 2026-08-26: "bei den Downloads auch einen Button, der alle Downloads
+    // löscht" — Bestätigungs-Dialog, da destruktiv und nicht rückgängig zu machen.
+    @State private var showingDeleteAllConfirm = false
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
@@ -108,6 +111,22 @@ struct DownloadsView: View {
                 }
             }
             .navigationTitle("Downloads")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(role: .destructive) {
+                        showingDeleteAllConfirm = true
+                    } label: {
+                        Label("Alle löschen", systemImage: "trash")
+                    }
+                    .disabled(allRecords.isEmpty)
+                }
+            }
+            .confirmationDialog("Wirklich ALLE \(allRecords.count) Downloads löschen?", isPresented: $showingDeleteAllConfirm, titleVisibility: .visible) {
+                Button("Alle \(allRecords.count) Downloads löschen", role: .destructive) {
+                    downloads.deleteAllDownloads()
+                }
+                Button("Abbrechen", role: .cancel) {}
+            }
             // Real gap hit 2026-08-19: Downloads von VOR dem Kachel-Feature haben kein
             // gecachtes `itemData` und fielen deshalb dauerhaft in die alte Listen-Ansicht —
             // sah für den User aus, als hätte sich "nichts verändert". Holt bei vorhandener
@@ -118,6 +137,16 @@ struct DownloadsView: View {
                 for record in plainDoneRecords {
                     if let item = try? await client.fetchItem(id: record.itemId) {
                         downloads.backfillItemData(itemId: record.itemId, item: item)
+                    }
+                }
+                // User-Anfrage 2026-08-24: "wenn ich einen Film downloade und ihn dann auf dem
+                // Server richtig zuordne, soll der Download beim nächsten Online-Sein korrigiert
+                // werden" — gleiches Once-per-Öffnen-Muster wie oben (nur Metadaten, kein
+                // erneuter Video-Download), aber für Downloads, die BEREITS einen Snapshot haben
+                // (der obige Block deckt nur die ganz ohne `itemData` ab).
+                for record in doneRecords where record.cachedItem != nil {
+                    if let item = try? await client.fetchItem(id: record.itemId) {
+                        downloads.refreshCachedMetadataIfChanged(itemId: record.itemId, item: item)
                     }
                 }
             }
@@ -293,6 +322,14 @@ private struct DownloadGroupDetailView: View {
 private struct DownloadRow: View {
     let record: DownloadRecord
     @EnvironmentObject var downloads: DownloadManager
+    @EnvironmentObject var client: GoldfishClient
+
+    private static let speedFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useKB, .useMB, .useGB]
+        f.countStyle = .binary
+        return f
+    }()
 
     var body: some View {
         HStack {
@@ -301,6 +338,18 @@ private struct DownloadRow: View {
                 switch record.state {
                 case .downloading, .queued:
                     ProgressView(value: record.progress)
+                    HStack(spacing: 6) {
+                        Text("\(Int(record.progress * 100)) %")
+                        // User-Anfrage 2026-08-27: "kann man die Downloadgeschwindigkeit
+                        // neben der Prozentanzeige anzeigen" — `downloadSpeeds` ist rein
+                        // flüchtiger State in `DownloadManager` (siehe dort), existiert nur
+                        // während der Download wirklich läuft.
+                        if let speed = downloads.downloadSpeeds[record.itemId] {
+                            Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 case .done:
                     Text("Fertig heruntergeladen")
                         .font(.caption)
@@ -309,6 +358,19 @@ private struct DownloadRow: View {
                     Text(record.errorMessage.map { "Fehlgeschlagen: \($0)" } ?? "Fehlgeschlagen")
                         .font(.caption)
                         .foregroundStyle(.red)
+                    // User-Anfrage 2026-08-25: Downloads sollen nach Verbindungsverlust
+                    // fortsetzbar sein (`DownloadRecord.resumeData`) — bisher gab es in der
+                    // Downloads-Ansicht selbst gar keinen Retry-Weg, nur über den Umweg
+                    // "Item-Detailansicht öffnen". `record.resumeData != nil` im Label macht
+                    // sichtbar, ob es ein echtes Fortsetzen wird oder ein Neustart.
+                    if let item = record.cachedItem {
+                        Button(record.resumeData != nil ? "Fortsetzen" : "Erneut versuchen") {
+                            if let url = client.downloadFileURL(itemId: item.id) {
+                                downloads.startDownload(item: item, from: url)
+                            }
+                        }
+                        .font(.caption)
+                    }
                 }
             }
             Spacer()

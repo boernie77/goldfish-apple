@@ -68,5 +68,6 @@ struct LocalPlayerLaunchRequest: Identifiable {
     let item: LocalItem
     let queue: [LocalItem]
     let randomPool: [LocalItem]?
+    let startFromBeginning: Bool
 }
 #endif

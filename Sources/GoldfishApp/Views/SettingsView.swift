@@ -23,6 +23,11 @@ struct SettingsView: View {
     // binding's `set`, which cleared `folderPickerTarget`) BEFORE calling `onCompletion`,
     // so the completion closure always read `nil` and silently did nothing. `pickerTarget`
     // is now untouched by the presentation binding — only the completion closure clears it.
+    // User-Anfrage 2026-08-25: Regler für den Vorlaufpuffer der lokalen Wiedergabe — gilt für
+    // ALLE Accounts auf diesem Mac (siehe `LocalPlaybackSettings`-Kommentar), daher direkt über
+    // `@AppStorage` statt eines account-gescoped Settings-Objekts. Startwert = der feste Wert,
+    // der sich beim allerersten Test schon bewährt hat (`LocalPlaybackSettings.defaultBufferSeconds`).
+    @AppStorage(LocalPlaybackSettings.bufferSecondsKey) private var localBufferSeconds: Double = LocalPlaybackSettings.defaultBufferSeconds
     @State private var isPresentingFolderPicker = false
     @State private var pickerTarget: FolderPickerTarget?
     @State private var pickerError: String?
@@ -42,29 +47,26 @@ struct SettingsView: View {
     @State private var watchLinks: [WatchLink] = []
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
+    // User-Anfrage 2026-08-26: manueller Sofort-Cleanup für "schnelle" (reine Remux-)
+    // Konvertierungen, die vollen Speicher verursacht hatten — siehe
+    // `LocalTranscodeService.deleteAllFastConversions`-Kommentar.
 
     /// Per-User-Scoping für die "Formatanpassung"-Anzeige (siehe `LocalTranscodeService.
-    /// scopedCompletedCount`'s Doc-Kommentar) — `localLibrary.libraries`/`downloads.records`
+    /// scopedCompletedCount`'s Doc-Kommentar) — `localLibrary.libraries`/`localLibrary.items`
     /// sind beide bereits auf den aktuellen User gefiltert, hier nur noch auf IDs reduziert.
+    /// Downloads sind seit 2026-08-27 draußen — der Server liefert sie schon kompatibel aus
+    /// (`?compat=1`), `LocalTranscodeService` weiß von ihnen gar nichts mehr.
     private var ownedLocalItemIds: Set<UUID> {
         let ownedLibraryIds = Set(localLibrary.libraries.map(\.id))
         return Set(localLibrary.items.filter { ownedLibraryIds.contains($0.libraryId) }.map(\.id))
     }
-    private var ownedDownloadItemIds: Set<Int64> {
-        Set(downloads.records.keys)
-    }
-    private var ownedDownloadFailedItemIds: [Int64] {
-        Array(transcode.downloadFailedItems.keys.filter { ownedDownloadItemIds.contains($0) })
-    }
     // Sicherheits-Fix 2026-08-19 (User: "Benutzer müssen streng getrennt sein!!!!"):
     // `LocalTranscodeService` ist EIN Hintergrund-Worker für den ganzen App-Prozess, der
     // Jobs unabhängig davon abarbeitet, welcher Goldfish-User gerade eingeloggt ist — die
-    // Warteschlange/`currentItem`/`currentDownloadTitle` sind also KEINE per-User-Zustände.
-    // Ohne Filter sah Börnie live den Dateinamen von Christians laufender Konvertierung.
-    // `ownedLocalItemIds`/`ownedDownloadItemIds` sind bereits pro User gefiltert (siehe
-    // oben) — hier zusätzlich für `currentItem`/`currentDownload*`/`queuedItems` genutzt,
-    // damit nichts von einem fremden User sichtbar wird, weder Titel noch Fortschritt noch
-    // reine Zählung.
+    // Warteschlange/`currentItem` ist also KEIN per-User-Zustand. Ohne Filter sah Börnie live
+    // den Dateinamen von Christians laufender Konvertierung. `ownedLocalItemIds` ist bereits
+    // pro User gefiltert (siehe oben) — hier zusätzlich für `currentItem`/`queuedItems`
+    // genutzt, damit nichts von einem fremden User sichtbar wird.
     private var ownCurrentLocalItem: LocalItem? {
         guard let current = transcode.currentItem, ownedLocalItemIds.contains(current.id) else { return nil }
         return current
@@ -72,12 +74,8 @@ struct SettingsView: View {
     private var ownQueuedLocalCount: Int {
         transcode.queuedItems.filter { ownedLocalItemIds.contains($0.id) }.count
     }
-    private var ownCurrentDownloadItemId: Int64? {
-        guard let itemId = transcode.currentDownloadItemId, ownedDownloadItemIds.contains(itemId) else { return nil }
-        return itemId
-    }
     private var scopedCompletedCount: Int {
-        transcode.scopedCompletedCount(ownedLocalItemIds: ownedLocalItemIds, ownedDownloadItemIds: ownedDownloadItemIds)
+        transcode.scopedCompletedCount(ownedLocalItemIds: ownedLocalItemIds)
     }
     #endif
 
@@ -252,15 +250,25 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Vorlaufpuffer: \(Int(localBufferSeconds)) s")
+                        Slider(value: $localBufferSeconds, in: 5...180, step: 5)
+                    }
+                } header: {
+                    Text("Lokale Wiedergabe")
+                } footer: {
+                    Text("Wie viele Sekunden vorausgeladen werden, bevor mitten in der Wiedergabe nachgepuffert werden muss. Höhere Werte helfen bei langsamen externen Festplatten, verzögern aber den Start etwas. Gilt für alle Benutzer auf diesem Mac.")
+                }
+
                 #if os(macOS)
-                // Real bug hit 2026-08-19 (User: "beim Benutzer Börnie fehlt der Menüpunkt des
-                // Konvertierens"): dieser Abschnitt deckt sowohl lokale Bibliotheken ALS AUCH
-                // Server-Downloads ab (siehe `transcode.downloadFailedItems`/
-                // `currentDownloadTitle` unten), war aber komplett hinter "hat mindestens eine
-                // lokale Bibliothek" versteckt — ein User wie Börnie, der nur Server-Downloads
-                // nutzt und nie eine lokale Bibliothek angelegt hat, sah den ganzen Abschnitt
-                // nie, obwohl er für seine Downloads durchaus relevant ist.
-                if !localLibrary.libraries.isEmpty || !downloads.records.isEmpty {
+                // User-Anfrage 2026-08-27 ("wie löst Jellyfin das eigentlich"): Downloads
+                // werden jetzt VOM SERVER schon kompatibel ausgeliefert (`?compat=1`, siehe
+                // `internal/download` im Server-Repo) — diese Sektion deckt dadurch nur noch
+                // lokale/externe Bibliotheken ab, die keinen Server zum Fragen haben. Vorher
+                // war sie zusätzlich hinter "hat mindestens eine lokale Bibliothek ODER einen
+                // Download" versteckt; jetzt reicht "hat eine lokale Bibliothek".
+                if !localLibrary.libraries.isEmpty {
                     Section {
                         if let current = ownCurrentLocalItem {
                             VStack(alignment: .leading, spacing: 4) {
@@ -286,61 +294,24 @@ struct SettingsView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.red)
                         }
-                        // Real gap hit 2026-08-19: heruntergeladene Server-Dateien hatten
-                        // keinen Retry-Weg außer Löschen+Neu-Download, weil der Button hier
-                        // nur lokale Bibliotheken abklapperte. Nutzer-Wunsch (2026-08-19): EIN
-                        // Button für beides statt zwei getrennter — `isConverted`/
-                        // `isDownloadConverted` sorgen dafür, dass bereits fertige Dateien
-                        // ohnehin übersprungen werden, hier also kein unnötiges Neu-Konvertieren.
-                        if !ownedDownloadFailedItemIds.isEmpty || ownCurrentDownloadItemId != nil {
-                            ForEach(Array(ownedDownloadFailedItemIds), id: \.self) { id in
-                                Text("⚠ Download fehlgeschlagen: \(transcode.downloadFailedItems[id] ?? "")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.red)
-                            }
-                            // Nur anzeigen, wenn die AKTUELL konvertierte Download-Datei auch
-                            // dem eingeloggten User gehört (ownCurrentDownloadItemId) — sonst
-                            // liefe hier `transcode.currentDownloadTitle` ungefiltert mit, egal
-                            // wessen Konvertierung gerade läuft.
-                            if let itemId = ownCurrentDownloadItemId, let title = transcode.currentDownloadTitle {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Wird angepasst: \(title)")
-                                        .font(.caption)
-                                    // Bugfix 2026-08-20: `convertDownloadInPlace` läuft unter dem
-                                    // Cache-Key "dl-inplace-<id>" (siehe LocalTranscodeService-
-                                    // Kommentar), nicht mehr "dl-<id>" — die Progress-Anzeige
-                                    // zeigte seit dem In-Place-Umbau nur noch 0%, weil sie den
-                                    // alten Key abfragte, während der eigentliche Fortschritt
-                                    // unter dem neuen Key lief.
-                                    ProgressView(value: transcode.progress["dl-inplace-\(itemId)"] ?? 0)
-                                }
-                            }
-                            // `transcode.queuedDownloads` kommt bereits aus den per-User
-                            // gefilterten `downloads.records` (Aufrufer übergibt nur die
-                            // eigenen), keine zusätzliche Ownership-Prüfung nötig.
-                            if !transcode.queuedDownloads.isEmpty {
-                                Text("\(transcode.queuedDownloads.count) Download(s) in der Warteschlange")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
                         // Manuell erneut anstoßen, ohne die Bibliothek zu löschen/neu
                         // anzulegen (User-Anfrage 2026-08-19) — ein normaler Scan prüft
                         // ohnehin schon jede Datei neu, nicht nur neu hinzugekommene.
                         Button {
+                            // User-Anfrage 2026-08-26: alte Fehler sollen bei jedem Klick
+                            // verschwinden, damit man sieht ob NEUE dazukommen, statt Fehler
+                            // von schnellen Dateien für immer stehen zu lassen, die seit dem
+                            // Fast/Slow-Kurswechsel bewusst nie mehr angefasst werden.
+                            transcode.clearAllFailures()
                             Task { await localLibrary.rescanAllLibraries() }
-                            transcode.rescanDownloads(records: Array(downloads.records.values)) { itemId in
-                                downloads.localFileURL(itemId: itemId)
-                            }
-                            downloads.cacheAllDownloadPostersIfNeeded()
                         } label: {
-                            Label("Erneut prüfen (Bibliotheken + Downloads)", systemImage: "arrow.clockwise")
+                            Label("Erneut prüfen", systemImage: "arrow.clockwise")
                         }
-                        .disabled(!localLibrary.scanningLibraryIds.isEmpty || transcode.currentDownloadTitle != nil)
+                        .disabled(!localLibrary.scanningLibraryIds.isEmpty)
                     } header: {
                         Text("Formatanpassung")
                     } footer: {
-                        Text("Dateien, die macOS nicht direkt abspielen kann (z. B. MKV mit DTS-Ton), werden automatisch im Hintergrund einmalig für die Wiedergabe angepasst.")
+                        Text("Dateien, die macOS nicht direkt abspielen kann (z. B. MKV mit DTS-Ton), werden automatisch im Hintergrund einmalig für die Wiedergabe angepasst. Gilt nur für lokale/externe Bibliotheken — Downloads liefert der Server bereits passend aus.")
                     }
                 }
                 #endif

@@ -620,8 +620,18 @@ public final class GoldfishClient: ObservableObject {
         assetURL("/api/thumb/\(itemId)")
     }
 
+    /// `?compat=1`: der Server entscheidet jetzt selbst (analog zu Jellyfins
+    /// Geräteprofil-Direct-Play-Logik), ob die Datei schon abspielbar ist, und
+    /// liefert sonst eine einmalig serverseitig erzeugte, kompatible Kopie
+    /// (`internal/download` im Server-Repo) — ersetzt die frühere client-
+    /// seitige Nachbearbeitung per lokalem ffmpeg (`LocalTranscodeService`,
+    /// die jetzt nur noch für lokale/externe Bibliotheken ohne Server läuft).
+    /// Nützt auch iOS, das nie ein eigenes ffmpeg zur Nachbearbeitung hatte.
     public func downloadFileURL(itemId: Int64) -> URL? {
-        assetURL("/api/download/\(itemId)")
+        guard let base = assetURL("/api/download/\(itemId)") else { return nil }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        comps?.queryItems = [URLQueryItem(name: "compat", value: "1")]
+        return comps?.url ?? base
     }
 }
 

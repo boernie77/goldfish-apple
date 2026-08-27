@@ -2,7 +2,7 @@ import SwiftUI
 import GoldfishCore
 
 private enum LocalSort: String, CaseIterable, Identifiable {
-    case name, date, size, played
+    case name, date, size, played, resolution, added
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -10,6 +10,8 @@ private enum LocalSort: String, CaseIterable, Identifiable {
         case .date: return "Datum"
         case .size: return "Größe"
         case .played: return "Zuletzt abgespielt"
+        case .resolution: return "Auflösung"
+        case .added: return "Zuletzt hinzugefügt"
         }
     }
 }
@@ -70,10 +72,31 @@ struct LocalLibraryItemsView: View {
     #endif
     @State private var playingItem: LocalItem?
     @State private var playFromShuffle = false
+    // User-Report 2026-08-23: "werde ich nicht gefragt, ob ich von vorne oder der letzten
+    // Stelle schauen möchte" — anders als `ItemDetailView` (Server-Items) sprang dieser
+    // Tap-Handler direkt in den Player, las `item.resumePosSec` nur lautlos in
+    // `LocalPlayerView.setUp()`. Gleicher Dialog + gleiche State-Namen wie dort.
+    @State private var showResumePrompt = false
+    @State private var startFromBeginning = false
+    @State private var pendingPlayItem: LocalItem?
     @State private var search = ""
     @State private var sort: LocalSort = .name
     @State private var ascending = true
     @State private var watchedFilter: LocalWatchedFilter = .all
+    // User-Anfrage 2026-08-25: "als Filter möchte ich in allen Bibliotheken auch nach
+    // Auflösung filtern können" — gleicher `ResolutionBucket`-Typ + Multi-Select wie
+    // `ItemGridView` (Server-Bibliotheken), hier client-seitig statt per API-Query gefiltert,
+    // da lokale Items ohnehin komplett im Speicher sind.
+    @State private var selectedBuckets: Set<ResolutionBucket> = []
+    // User-Anfrage 2026-08-25: "neben der Anzahl an Dateien auch immer die Gesamtgröße in
+    // GB, deaktivierbar im Menü" — gemeinsamer Schalter mit `ItemGridView`
+    // (`DisplaySettings.showTotalSizeKey`), ein Toggle gilt für beide Bibliotheks-Arten.
+    @AppStorage(DisplaySettings.showTotalSizeKey) private var showTotalSize = true
+
+    private var totalSizeLabel: String {
+        let bytes = displayedItems.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
+    }
 
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
@@ -106,6 +129,12 @@ struct LocalLibraryItemsView: View {
         case .unwatched: result = result.filter { !$0.watched }
         case .watched: result = result.filter { $0.watched }
         }
+        if !selectedBuckets.isEmpty {
+            result = result.filter { item in
+                guard let bucket = item.resolutionBucket else { return false }
+                return selectedBuckets.contains(bucket)
+            }
+        }
         switch sort {
         case .name:
             result.sort { $0.displayTitle.localizedStandardCompare($1.displayTitle) == (ascending ? .orderedAscending : .orderedDescending) }
@@ -125,6 +154,28 @@ struct LocalLibraryItemsView: View {
                 case let (l?, r?): return ascending ? l < r : l > r
                 }
             }
+        case .resolution:
+            // Gleiches Nil-Handling wie `.played` — Items ohne (noch nicht geprobte)
+            // Auflösung fallen ans Ende, unabhängig von der Richtung.
+            result.sort { lhs, rhs in
+                switch (lhs.effectiveResolution, rhs.effectiveResolution) {
+                case (nil, nil): return false
+                case (nil, _): return false
+                case (_, nil): return true
+                case let (l?, r?): return ascending ? l < r : l > r
+                }
+            }
+        case .added:
+            // User-Anfrage 2026-08-27: "der Filter bei externen Bibliotheken 'zuletzt
+            // Hinzugefügt' fehlt mir noch" — analog zum Server-Sort `added`
+            // (`items.added_at`). Alt-Items ohne `addedAt` (vor diesem Feature gescannt)
+            // fallen auf `modifiedTime` zurück statt ans Ende zu rutschen — für Bestandsdateien
+            // ist "wann zuletzt verändert" die beste verfügbare Näherung an "wann hinzugefügt".
+            result.sort { lhs, rhs in
+                let l = lhs.addedAt ?? lhs.modifiedTime
+                let r = rhs.addedAt ?? rhs.modifiedTime
+                return ascending ? l < r : l > r
+            }
         }
         return result
     }
@@ -135,7 +186,7 @@ struct LocalLibraryItemsView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(displayName)
                         .font(.title2.bold())
-                    Text("(\(displayedItems.count))")
+                    Text(showTotalSize ? "(\(displayedItems.count) · \(totalSizeLabel))" : "(\(displayedItems.count))")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
@@ -165,7 +216,7 @@ struct LocalLibraryItemsView: View {
                         ForEach(items) { item in
                             Button {
                                 playFromShuffle = false
-                                playingItem = item
+                                startPlayback(item)
                             } label: {
                                 LocalItemCard(item: item)
                                     .frame(width: cardWidth)
@@ -224,6 +275,7 @@ struct LocalLibraryItemsView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     playFromShuffle = true
+                    startFromBeginning = false
                     playingItem = displayedItems.randomElement()
                 } label: {
                     Label("Zufällig", systemImage: "shuffle")
@@ -260,8 +312,26 @@ struct LocalLibraryItemsView: View {
                             Label(option.label, systemImage: watchedFilter == option ? "checkmark" : "")
                         }
                     }
+                    Divider()
+                    ForEach(ResolutionBucket.allCases) { bucket in
+                        Button {
+                            if selectedBuckets.contains(bucket) {
+                                selectedBuckets.remove(bucket)
+                            } else {
+                                selectedBuckets.insert(bucket)
+                            }
+                        } label: {
+                            Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark" : "")
+                        }
+                    }
+                    Divider()
+                    Button {
+                        showTotalSize.toggle()
+                    } label: {
+                        Label("Gesamtgröße anzeigen", systemImage: showTotalSize ? "checkmark" : "")
+                    }
                 } label: {
-                    Label("Filter", systemImage: watchedFilter != .all ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Label("Filter", systemImage: (watchedFilter != .all || !selectedBuckets.isEmpty) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
 
                 Button {
@@ -278,13 +348,25 @@ struct LocalLibraryItemsView: View {
         .onChange(of: ascending) { newValue in
             UserDefaults.standard.set(newValue, forKey: sortStorageKey + ".asc")
         }
+        .confirmationDialog("Wiedergabe fortsetzen?", isPresented: $showResumePrompt, titleVisibility: .visible) {
+            Button("Von letzter Stelle fortsetzen") {
+                startFromBeginning = false
+                confirmPlayback()
+            }
+            Button("Von Anfang abspielen") {
+                startFromBeginning = true
+                confirmPlayback()
+            }
+            Button("Abbrechen", role: .cancel) { pendingPlayItem = nil }
+        }
         #if os(macOS)
         .onChange(of: playingItem) { newValue in
             guard let newValue else { return }
             PlayerLaunchCoordinator.shared.present(LocalPlayerLaunchRequest(
                 item: newValue,
                 queue: playFromShuffle ? [] : displayedItems,
-                randomPool: playFromShuffle ? displayedItems : nil
+                randomPool: playFromShuffle ? displayedItems : nil,
+                startFromBeginning: startFromBeginning
             ), openWindow: openWindow)
             playingItem = nil
         }
@@ -292,13 +374,31 @@ struct LocalLibraryItemsView: View {
         .fullScreenCoverCompat(isPresented: Binding(get: { playingItem != nil }, set: { if !$0 { playingItem = nil } })) {
             if let playingItem {
                 if playFromShuffle {
-                    LocalPlayerView(item: playingItem, randomPool: displayedItems)
+                    LocalPlayerView(item: playingItem, randomPool: displayedItems, startFromBeginning: startFromBeginning)
                 } else {
-                    LocalPlayerView(item: playingItem, queue: displayedItems)
+                    LocalPlayerView(item: playingItem, queue: displayedItems, startFromBeginning: startFromBeginning)
                 }
             }
         }
         #endif
+    }
+
+    /// Skips the dialog for items with no meaningful resume position (≤5s), same threshold
+    /// `LocalPlayerView.setUp()`/`ItemDetailView.startPlayback()` already use.
+    private func startPlayback(_ item: LocalItem) {
+        if item.resumePosSec > 5 {
+            pendingPlayItem = item
+            showResumePrompt = true
+        } else {
+            startFromBeginning = false
+            playingItem = item
+        }
+    }
+
+    private func confirmPlayback() {
+        guard let item = pendingPlayItem else { return }
+        pendingPlayItem = nil
+        playingItem = item
     }
 }
 
@@ -323,6 +423,20 @@ private struct LocalItemCard: View {
                         .background(.black.opacity(0.6), in: Capsule())
                         .foregroundStyle(.white)
                         .padding(6)
+                }
+                // User-Anfrage 2026-08-25: "bei den lokalen Dateien hätte ich gerne in den
+                // Kacheln noch die Auflösung" — gleiche Position wie der Browser-`.res-badge`
+                // (unten links, CLAUDE.md "Kachel-Overlay-Positionen"), leer wenn (noch) keine
+                // Auflösung geprobt wurde.
+                .overlay(alignment: .bottomLeading) {
+                    if !item.resolutionLabel.isEmpty {
+                        Text(item.resolutionLabel)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
                 }
 
             Text(item.displayTitle)
