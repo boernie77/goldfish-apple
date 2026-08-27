@@ -28,6 +28,18 @@ public struct DownloadRecord: Codable, Identifiable, Equatable {
     /// all when everyone on the Mac shares the default downloads folder. Optional only so
     /// downloads persisted before this field existed still decode.
     public var ownerUsername: String?
+    /// User-Anfrage 2026-08-25: "wenn er die Internetverbindung verliert, soll er das, was
+    /// bereits runtergeladen ist, speichern und dann da weitermachen, wo er abgebrochen hat —
+    /// jetzt beginnt er immer von vorne." `URLSession`s Standard-Mechanismus dafür: bei einem
+    /// Verbindungsabbruch liefert der `NSError` (falls der Server Range-Requests unterstützt,
+    /// was Goldfishs Download-Endpoint tut) `resumeData` — ein Foundation-verwaltetes Paket,
+    /// das den bereits heruntergeladenen Teil referenziert. Persistiert im Record (nicht nur
+    /// im Speicher), damit ein Resume auch nach einem App-Neustart noch funktioniert, nicht
+    /// nur solange der Task-Objekt-Verweis im Speicher lebt. Wird bei erfolgreichem Abschluss
+    /// UND beim expliziten Abbrechen (`cancelDownload`, der den ganzen Record löscht) wieder
+    /// verworfen — nur ein durch NETZWERKFEHLER unterbrochener Download soll fortsetzbar
+    /// bleiben.
+    public var resumeData: Data?
 
     public enum State: String, Codable {
         case queued, downloading, done, failed
@@ -58,6 +70,18 @@ public final class DownloadManager: NSObject, ObservableObject {
     @Published public private(set) var downloadsDir: URL
     /// True once a folder the user picked is in use (vs. the app-private default).
     @Published public private(set) var usesCustomDirectory = false
+    /// Bytes/Sekunde, geglättet (EMA) aus den `didWriteData`-Deltas — User-Anfrage
+    /// 2026-08-27: "kann man die Downloadgeschwindigkeit neben der Prozentanzeige
+    /// anzeigen". Rein flüchtig (kein Persistieren nötig, ergibt über App-Neustarts
+    /// hinweg ohnehin keinen Sinn) — Eintrag verschwindet, sobald der Download endet
+    /// (fertig, fehlgeschlagen, abgebrochen), damit die UI nicht eine eingefrorene
+    /// letzte Geschwindigkeit weiter anzeigt.
+    @Published public private(set) var downloadSpeeds: [Int64: Double] = [:]
+    /// Letzter Sample-Zeitpunkt + -Byte-Stand pro Item, um die Rate zwischen zwei
+    /// `didWriteData`-Aufrufen zu berechnen. Gedrosselt auf min. 0.3s Abstand, sonst
+    /// würde bei sehr häufigen kleinen Callbacks (schnelles LAN) die Rate zu stark
+    /// zwischen einzelnen Chunks springen.
+    private var lastSpeedSample: [Int64: (time: Date, bytes: Int64)] = [:]
 
     private var session: URLSession!
     private var tasks: [Int64: URLSessionDownloadTask] = [:]
@@ -81,6 +105,17 @@ public final class DownloadManager: NSObject, ObservableObject {
 
         let config = URLSessionConfiguration.default
         config.httpCookieStorage = .shared
+        // `?compat=1`: der Server prüft die Datei und remuxt/transkodiert sie bei
+        // Bedarf per ffmpeg, BEVOR das erste Byte fließt (siehe Server-Package
+        // `internal/download`). Bei großen Dateien dauert dieses Vorbereiten
+        // länger als die 60-Sekunden-Default von `timeoutIntervalForRequest`
+        // ("wie lange auf weitere Daten warten") — der Task lief dann in einen
+        // Timeout und wurde per `resumeData` neu gestartet, was serverseitig
+        // eine NEUE Konvertierung auslöste: der Download blieb endlos bei 99 %.
+        // Großzügig anheben. Der Server führt die Konvertierung inzwischen auch
+        // dann zu Ende, wenn wir hier abbrechen (wärmt den Cache), aber mit dem
+        // höheren Timeout kommt der Normalfall in einem Rutsch durch.
+        config.timeoutIntervalForRequest = 600
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
 
         loadIndex()
@@ -93,41 +128,14 @@ public final class DownloadManager: NSObject, ObservableObject {
         // launch instead of waiting for the first download to hit it mid-transfer.
         ensureWritableDownloadsDir()
 
-        #if os(macOS)
-        // User-Anfrage 2026-08-20: Downloads werden jetzt an Ort und Stelle konvertiert
-        // (siehe `autoConvertIfNeeded` unten) statt in einen separaten Cache zu dupliziert
-        // zu werden — die rohe Originaldatei wird dabei durch die konvertierte mp4 ersetzt,
-        // `filePath`/`fileName` im Record müssen also nachgezogen werden, sonst zeigt der
-        // Index weiter auf eine bereits gelöschte Datei.
-        LocalTranscodeService.shared.onDownloadConverted = { [weak self] itemId, newURL in
-            self?.updateFilePathAfterConversion(itemId: itemId, newURL: newURL)
-        }
-        // User-Anfrage 2026-08-20 ("werden die bisherigen Downloads bereits konvertiert?"):
-        // Downloads von VOR diesem Umbau liegen noch im alten Zustand (rohes Original +
-        // ggf. eine separate, jetzt redundante Cache-Kopie aus dem Notfallpfad). Statt
-        // darauf zu warten, dass der User manuell "Erneut prüfen" klickt, läuft dieselbe
-        // Prüfung jetzt automatisch bei jedem App-Start — über `allRecordsOnDisk`
-        // (nicht das per-User gefilterte `records`), da hier vor einem abgeschlossenen
-        // Login noch niemand feststeht. Selbstheilend/idempotent: eine bereits migrierte
-        // Datei ist beim nächsten Start schon direkt `isPlayable` und wird sofort
-        // übersprungen, kostet also nur einen schnellen Playability-Probe pro Download.
-        LocalTranscodeService.shared.rescanDownloads(records: Array(allRecordsOnDisk.values)) { [weak self] itemId in
-            guard let rec = self?.allRecordsOnDisk[itemId], rec.state == .done else { return nil }
-            let url = URL(fileURLWithPath: rec.filePath)
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
-        }
-        #endif
+        // User-Anfrage 2026-08-27 ("wie löst Jellyfin das eigentlich"): Downloads werden
+        // jetzt VOM SERVER schon kompatibel ausgeliefert (`?compat=1` an `/api/download`,
+        // siehe `GoldfishClient.downloadFileURL` + Server-Package `internal/download`) —
+        // keine client-seitige Nachbearbeitung per lokalem ffmpeg mehr nötig. Die frühere
+        // `LocalTranscodeService`-Anbindung hier (`onDownloadConverted`, `rescanDownloads`,
+        // In-Place-Konvertierung) ist komplett entfernt; `LocalTranscodeService` bleibt nur
+        // noch für lokale/externe Bibliotheken zuständig, die keinen Server zum Fragen haben.
     }
-
-    #if os(macOS)
-    private func updateFilePathAfterConversion(itemId: Int64, newURL: URL) {
-        guard var rec = allRecordsOnDisk[itemId] else { return }
-        rec.filePath = newURL.path
-        rec.fileName = newURL.lastPathComponent
-        setRecord(rec)
-        saveIndex()
-    }
-    #endif
 
     private static func defaultDirectory() -> URL {
         let fm = FileManager.default
@@ -320,6 +328,28 @@ public final class DownloadManager: NSObject, ObservableObject {
         saveIndex()
     }
 
+    /// User-Anfrage 2026-08-24: "wenn ich einen Film downloade, und dann feststelle er ist
+    /// falsch zugeordnet, und ihn auf dem Server richtig zuordne — kann der Download beim
+    /// nächsten Online-Sein korrigiert werden?" — nur die METADATEN (Titel/Poster/Jahr/etc.)
+    /// werden aktualisiert, die heruntergeladene Videodatei selbst bleibt unangetastet (ein
+    /// Re-Match ändert nie die Datei, nur ihre TMDB-Zuordnung). No-op, wenn sich
+    /// `metadataId` nicht geändert hat — verhindert unnötiges Poster-Neuladen bei jedem
+    /// Online-Check. Aufgerufen von `DownloadsView` mit einem frisch von
+    /// `client.fetchItem` geholten `Item`, gleiches Muster wie `backfillItemData`.
+    public func refreshCachedMetadataIfChanged(itemId: Int64, item: Item) {
+        guard var rec = records[itemId], rec.cachedItem?.metadataId != item.metadataId else { return }
+        rec.itemData = try? JSONEncoder().encode(item)
+        setRecord(rec)
+        saveIndex()
+        // `force: true` — die alte Poster-Datei liegt schon unter demselben `<itemId>.jpg`-
+        // Pfad und würde sonst von `cachePosterIfNeeded`s "schon vorhanden"-Guard für immer
+        // stehen bleiben, obwohl sie jetzt zum FALSCHEN Film gehört.
+        cachePosterIfNeeded(for: item, force: true)
+        if let parentId = item.metadata?.parentId {
+            cacheShowPosterIfNeeded(parentId: parentId)
+        }
+    }
+
     public func localFileURL(itemId: Int64) -> URL? {
         guard let rec = records[itemId], rec.state == .done else { return nil }
         let url = URL(fileURLWithPath: rec.filePath)
@@ -364,6 +394,25 @@ public final class DownloadManager: NSObject, ObservableObject {
     public func startDownload(item: Item, from remoteURL: URL) {
         guard tasks[item.id] == nil else { return }
         ensureWritableDownloadsDir()
+
+        // User-Anfrage 2026-08-25: bei einem "Erneut versuchen" nach Verbindungsverlust nicht
+        // stumpf neu von vorne anfangen, wenn Foundation uns `resumeData` für genau diesen
+        // Download aufgehoben hat — gleiche Ziel-Datei/gleicher Dateiname wie beim
+        // ursprünglichen Versuch (KEINE neue `resolveFilenameConflict`-Runde, die würde sonst
+        // fälschlich eine " (2)"-Datei neben der nie geschriebenen Zieldatei planen).
+        if var rec = records[item.id], rec.state == .failed, let resumeData = rec.resumeData {
+            rec.state = .downloading
+            rec.errorMessage = nil
+            rec.resumeData = nil
+            setRecord(rec)
+            saveIndex()
+            let task = session.downloadTask(withResumeData: resumeData)
+            task.taskDescription = String(item.id)
+            tasks[item.id] = task
+            task.resume()
+            return
+        }
+
         let ext = (item.container?.lowercased()).flatMap { $0.isEmpty ? nil : $0 } ?? (item.path as NSString?)?.pathExtension ?? "mp4"
         // Named after the title shown in Goldfish (User-Anfrage 2026-08-19) instead of the
         // bare numeric item ID — mirrors the server's auto-rename convention (CLAUDE.md
@@ -421,8 +470,8 @@ public final class DownloadManager: NSObject, ObservableObject {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    private func cachePosterIfNeeded(for item: Item) {
-        guard cachedPosterURL(itemId: item.id) == nil else { return }
+    private func cachePosterIfNeeded(for item: Item, force: Bool = false) {
+        guard force || cachedPosterURL(itemId: item.id) == nil else { return }
         // User-Anfrage 2026-08-19 (Folgerunde): "klappt das nur für Filme und Serien, nicht
         // für Private Dateien wie YouTube" — Privat-Bibliotheks-Items haben (fast) nie ein
         // TMDB-Poster (`metadataId`/`posterPath` fehlen), der bisherige Code brach dafür
@@ -506,6 +555,7 @@ public final class DownloadManager: NSObject, ObservableObject {
     public func cancelDownload(itemId: Int64) {
         tasks[itemId]?.cancel()
         tasks[itemId] = nil
+        clearSpeedSample(itemId: itemId)
         removeRecord(itemId: itemId)
         saveIndex()
     }
@@ -517,11 +567,26 @@ public final class DownloadManager: NSObject, ObservableObject {
         if let cachedPoster = cachedPosterURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: cachedPoster)
         }
-        #if os(macOS)
-        LocalTranscodeService.shared.deleteCachedConversion(downloadItemId: itemId)
-        #endif
+        clearSpeedSample(itemId: itemId)
         removeRecord(itemId: itemId)
         saveIndex()
+    }
+
+    /// User-Anfrage 2026-08-26: "bei den Downloads auch einen Button, der alle Downloads
+    /// löscht" — nur die aktuell sichtbaren (per-User-gefilterten) `records`, nicht
+    /// `allRecordsOnDisk` direkt, damit ein geteilter Downloads-Ordner nicht versehentlich
+    /// die Downloads eines ANDEREN Accounts auf diesem Mac mitlöscht. Bricht laufende
+    /// Downloads direkt ab (nicht über `cancelDownload` — das löscht den Record selbst
+    /// schon, `deleteDownload` unten würde die zugehörige Datei dann nicht mehr finden)
+    /// und räumt danach für JEDES Item einheitlich über `deleteDownload` auf (Datei +
+    /// Poster + Formatanpassungs-Cache + Record), egal ob es fertig, laufend oder
+    /// fehlgeschlagen war.
+    public func deleteAllDownloads() {
+        for itemId in Array(records.keys) {
+            tasks[itemId]?.cancel()
+            tasks[itemId] = nil
+            deleteDownload(itemId: itemId)
+        }
     }
 }
 
@@ -546,7 +611,36 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
             rec.bytesWritten = totalBytesWritten
             if totalBytesExpectedToWrite > 0 { rec.bytesExpected = totalBytesExpectedToWrite }
             self.setRecord(rec)
+            self.updateSpeedSample(itemId: itemId, bytes: totalBytesWritten)
         }
+    }
+
+    /// Berechnet die geglättete Downloadrate aus dem Byte-Delta seit dem letzten Sample.
+    /// Gedrosselt auf min. 0.3s zwischen zwei Berechnungen (siehe `lastSpeedSample`-Kommentar).
+    private func updateSpeedSample(itemId: Int64, bytes: Int64) {
+        let now = Date()
+        guard let last = lastSpeedSample[itemId] else {
+            lastSpeedSample[itemId] = (now, bytes)
+            return
+        }
+        let elapsed = now.timeIntervalSince(last.time)
+        guard elapsed >= 0.3 else { return }
+        let deltaBytes = bytes - last.bytes
+        lastSpeedSample[itemId] = (now, bytes)
+        guard deltaBytes >= 0 else { return }
+        let instantRate = Double(deltaBytes) / elapsed
+        // Exponentiell geglättet statt der reinen Momentan-Rate — sonst hüpft die Anzeige
+        // bei jedem Callback sichtbar, weil einzelne TCP-Chunks unterschiedlich groß ankommen.
+        if let existing = downloadSpeeds[itemId] {
+            downloadSpeeds[itemId] = existing * 0.7 + instantRate * 0.3
+        } else {
+            downloadSpeeds[itemId] = instantRate
+        }
+    }
+
+    private func clearSpeedSample(itemId: Int64) {
+        lastSpeedSample[itemId] = nil
+        downloadSpeeds[itemId] = nil
     }
 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
@@ -567,6 +661,7 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
 
         // Stage 2 — back on MainActor for everything that touches `records`/`tasks`.
         Task { @MainActor in
+            self.clearSpeedSample(itemId: itemId)
             guard var rec = self.records[itemId] else { return }
             // HTTP-level failures (401/404/500/...) land here too, not in didCompleteWithError
             // — the download "succeeds" as far as URLSession is concerned, it just downloaded
@@ -618,33 +713,26 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
             self.setRecord(rec)
             self.tasks[itemId] = nil
             self.saveIndex()
-            if rec.state == .done {
-                self.autoConvertIfNeeded(itemId: itemId, title: rec.title, fileURL: dest)
-            }
+            // Kein Aufruf einer Formatanpassung mehr nötig — der Server liefert die Datei
+            // bereits kompatibel aus (`?compat=1`, siehe `GoldfishClient.downloadFileURL`).
         }
-    }
-
-    /// User-Anfrage 2026-08-19: "Auch nach einem Download soll die Formatanpassung
-    /// automatisch starten" — bisher lief der Kompatibilitäts-Fix für Downloads nur
-    /// on-demand beim ersten Abspielversuch (PlayerView) oder über den manuellen
-    /// "Erneut prüfen"-Button. Jetzt zusätzlich direkt nach jedem einzelnen Download,
-    /// gleiches Muster wie `LocalLibraryManager.scan()`'s automatischer
-    /// `enqueueCompatibilityCheck`-Aufruf nach dem Einlesen.
-    private func autoConvertIfNeeded(itemId: Int64, title: String, fileURL: URL) {
-        #if os(macOS)
-        Task {
-            await LocalTranscodeService.shared.autoConvertDownloadIfNeeded(itemId: itemId, title: title, sourceURL: fileURL)
-        }
-        #endif
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let idStr = task.taskDescription, let itemId = Int64(idStr), let error else { return }
         Task { @MainActor in
+            self.clearSpeedSample(itemId: itemId)
             guard var rec = self.records[itemId] else { return }
             if (error as NSError).code != NSURLErrorCancelled {
                 rec.state = .failed
                 rec.errorMessage = error.localizedDescription
+                // User-Anfrage 2026-08-25: Verbindungsabbruch soll den Download fortsetzbar
+                // machen statt komplett von vorne — Foundation packt den bereits
+                // heruntergeladenen Teil in `resumeData`, wenn der Server (wie Goldfishs
+                // Download-Endpoint) Range-Requests unterstützt. Nicht jeder Fehler liefert
+                // das (z.B. wenn der Server selbst Range gar nicht erst zulässt) — dann bleibt
+                // `resumeData` nil und "Erneut versuchen" startet ganz normal neu.
+                rec.resumeData = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data
                 self.setRecord(rec)
                 self.saveIndex()
             }
