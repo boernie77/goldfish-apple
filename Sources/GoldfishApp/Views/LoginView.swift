@@ -39,9 +39,14 @@ struct LoginView: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
+                    // Ohne .textContentType erkennt das OS (und damit auch der
+                    // Bitwarden-AutoFill-Provider / die QuickType-Leiste) diese
+                    // Felder nicht als Login-Felder → keine Ausfüll-Vorschläge.
+                    .textContentType(.username)
                     .textFieldStyle(.roundedBorder)
 
                 SecureField("Passwort", text: $password)
+                    .textContentType(.password)
                     .textFieldStyle(.roundedBorder)
             }
             .frame(maxWidth: 360)
