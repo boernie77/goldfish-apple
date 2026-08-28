@@ -9,6 +9,13 @@ import GoldfishCore
 ///   - lands on "/login.html?sso_error=..."  → login failed, show the message
 struct OIDCLoginView: View {
     let baseURL: URL
+    /// Wenn true, wird VOR dem Laden der SSO-Seite der komplette Cookie-/
+    /// Storage-Bestand des eingebetteten WKWebViews gelöscht. Damit meldet
+    /// Authentik NICHT stillschweigend den zuletzt benutzten Account wieder an,
+    /// sondern zeigt seine Login-Maske → man kann ein ANDERES Konto wählen
+    /// (User-Anfrage 2026-08-28: Admin-Konto und normales Benutzerkonto per SSO
+    /// wechseln können).
+    var clearSessionFirst: Bool = false
     var onSuccess: () -> Void
     var onFailure: (String) -> Void
 
@@ -16,7 +23,7 @@ struct OIDCLoginView: View {
 
     var body: some View {
         NavigationStack {
-            OIDCWebViewRepresentable(baseURL: baseURL) { result in
+            OIDCWebViewRepresentable(baseURL: baseURL, clearSessionFirst: clearSessionFirst) { result in
                 switch result {
                 case .success:
                     onSuccess()
@@ -31,7 +38,7 @@ struct OIDCLoginView: View {
             // die Authentik-Seite bekam keinen Platz und blieb unsichtbar. Genau
             // das Muster, das ShuffleScopeSheet in LibrariesView schon hatte.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Anmelden mit SSO")
+            .navigationTitle(clearSessionFirst ? "Mit anderem Konto anmelden" : "Anmelden mit SSO")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -52,11 +59,28 @@ enum OIDCResult {
     case failure(String)
 }
 
+/// Löscht Cookies + lokalen Storage des `.default()`-WKWebsiteDataStore (den ein
+/// per `WKWebView()` ohne eigene Config erzeugter WebView nutzt) und lädt danach
+/// die SSO-Login-URL. Ohne den Reset überspringt Authentik dank seiner eigenen
+/// Session-Cookie die Anmeldemaske.
+private func startOIDCLoad(_ webView: WKWebView, baseURL: URL, clearFirst: Bool) {
+    let loginURL = baseURL.appendingPathComponent("api/auth/oidc/login")
+    guard clearFirst else {
+        webView.load(URLRequest(url: loginURL))
+        return
+    }
+    let types = WKWebsiteDataStore.allWebsiteDataTypes()
+    WKWebsiteDataStore.default().removeData(ofTypes: types, modifiedSince: .distantPast) {
+        webView.load(URLRequest(url: loginURL))
+    }
+}
+
 #if os(iOS)
 import UIKit
 
 struct OIDCWebViewRepresentable: UIViewRepresentable {
     let baseURL: URL
+    var clearSessionFirst: Bool = false
     let onFinish: (OIDCResult) -> Void
 
     func makeCoordinator() -> OIDCWebCoordinator {
@@ -66,7 +90,7 @@ struct OIDCWebViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
         webView.navigationDelegate = context.coordinator
-        webView.load(URLRequest(url: baseURL.appendingPathComponent("api/auth/oidc/login")))
+        startOIDCLoad(webView, baseURL: baseURL, clearFirst: clearSessionFirst)
         return webView
     }
 
@@ -77,6 +101,7 @@ import AppKit
 
 struct OIDCWebViewRepresentable: NSViewRepresentable {
     let baseURL: URL
+    var clearSessionFirst: Bool = false
     let onFinish: (OIDCResult) -> Void
 
     func makeCoordinator() -> OIDCWebCoordinator {
@@ -86,7 +111,7 @@ struct OIDCWebViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let webView = WKWebView()
         webView.navigationDelegate = context.coordinator
-        webView.load(URLRequest(url: baseURL.appendingPathComponent("api/auth/oidc/login")))
+        startOIDCLoad(webView, baseURL: baseURL, clearFirst: clearSessionFirst)
         return webView
     }
 

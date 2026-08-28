@@ -10,6 +10,9 @@ struct LoginView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var showingOIDC = false
+    /// true → der SSO-WebView löscht vorher seine Authentik-Sitzung, sodass die
+    /// Anmeldemaske erscheint und man ein anderes Konto wählen kann.
+    @State private var oidcClearSession = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -81,12 +84,24 @@ struct LoginView: View {
             .disabled(serverURLString.isEmpty || username.isEmpty || password.isEmpty || isLoading)
 
             Button {
-                startOIDC()
+                startOIDC(clearSession: false)
             } label: {
                 Text("Mit SSO anmelden (Authentik)")
                     .frame(maxWidth: 200)
             }
             .buttonStyle(.bordered)
+            .disabled(serverURLString.isEmpty || isLoading)
+
+            // Erzwingt die Authentik-Anmeldemaske (WebView-Sitzung wird vorher
+            // geleert) — für den Wechsel zwischen z. B. Admin- und Benutzerkonto.
+            Button {
+                startOIDC(clearSession: true)
+            } label: {
+                Text("Mit anderem Konto anmelden")
+                    .font(.callout)
+                    .frame(maxWidth: 200)
+            }
+            .buttonStyle(.borderless)
             .disabled(serverURLString.isEmpty || isLoading)
         }
         .padding(40)
@@ -97,7 +112,7 @@ struct LoginView: View {
         }
         .sheet(isPresented: $showingOIDC) {
             if let url = client.baseURL {
-                OIDCLoginView(baseURL: url) {
+                OIDCLoginView(baseURL: url, clearSessionFirst: oidcClearSession) {
                     Task { await refreshAfterOIDC() }
                 } onFailure: { message in
                     errorMessage = message
@@ -106,13 +121,14 @@ struct LoginView: View {
         }
     }
 
-    private func startOIDC() {
+    private func startOIDC(clearSession: Bool) {
         errorMessage = nil
         guard let url = URL(string: serverURLString), url.scheme != nil else {
             errorMessage = "Bitte eine vollständige URL mit https:// eingeben."
             return
         }
         client.configure(serverURL: url)
+        oidcClearSession = clearSession
         showingOIDC = true
     }
 
