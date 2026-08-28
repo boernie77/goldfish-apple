@@ -223,11 +223,23 @@ struct LibrariesView: View {
         if libraries.isEmpty, let cached = loadCachedLibraries() {
             libraries = cached
         }
+        // Vorschaubilder IMMER zuerst aus dem Platten-Cache vorbelegen — UNABHÄNGIG
+        // davon, ob der fetchLibraries()-Call unten klappt. Der bisher einzige
+        // Code, der `previewURLs` aus `GoldfishLibraryPreviews/*.jpg` füllt, saß
+        // ausschließlich in `loadPreviews()`, und das lief NUR im Erfolgsfall.
+        // Offline blieb `previewURLs` deshalb leer → jede `LibraryCard` fiel auf
+        // den farbigen Gradienten-Kreis ohne Bild zurück (wiederkehrender
+        // User-Bericht: "sobald Goldfish offline ist, nur noch farbige runde
+        // Kacheln ohne Hintergrundbild"). Die früheren Fixes (Offline-Lib-Liste,
+        // eigener Preview-Cache-Ordner, file://-Handling in PosterImage) waren
+        // alle nötig, aber keiner hat den Cache-Read in den Offline-Zweig gehängt.
+        hydratePreviewsFromCache()
         do {
             libraries = try await client.fetchLibraries()
             errorMessage = nil
             isOffline = false
             saveCachedLibraries(libraries)
+            hydratePreviewsFromCache() // frisch dazugekommene Libs sofort aus Cache zeigen
             await loadPreviews()
         } catch {
             // Kein harter Fehlerzustand mehr (siehe body-Kommentar) — nur wenn wir NICHTS
@@ -267,17 +279,47 @@ struct LibrariesView: View {
         Self.libraryPreviewCacheDir.appendingPathComponent("\(key.replacingOccurrences(of: ":", with: "_")).jpg")
     }
 
+    /// Belegt `previewURLs` für alle aktuell bekannten Bibliotheken aus lokalen
+    /// Quellen vor (Platten-Cache bei Server-Libs, Thumbnail-Datei bei lokalen
+    /// Libs). Rein lokal, kein Netzwerk — funktioniert damit auch komplett offline.
+    /// Überschreibt nie einen bereits gesetzten Wert (ein erfolgreicher
+    /// `loadPreviews()`-Reload gewinnt).
+    private func hydratePreviewsFromCache() {
+        for lib in libraries {
+            let key = "server:\(lib.id)"
+            guard previewURLs[key] == nil else { continue }
+            let file = cachedPreviewFile(key: key)
+            if FileManager.default.fileExists(atPath: file.path) {
+                previewURLs[key] = file
+            }
+        }
+        for lib in localLibrary.libraries {
+            let key = "local:\(lib.id)"
+            guard previewURLs[key] == nil else { continue }
+            if let url = localLibrary.itemsFor(lib.id).lazy.compactMap({ localLibrary.thumbnailURL(for: $0) }).first {
+                previewURLs[key] = url
+            }
+        }
+    }
+
     private func loadPreviews() async {
         for lib in libraries {
             let key = "server:\(lib.id)"
             let cacheFile = cachedPreviewFile(key: key)
-            // Sofort das gecachte Bild zeigen (funktioniert offline) — wird unten bei
-            // erfolgreichem Reload einfach überschrieben, bei fehlgeschlagenem bleibt es stehen.
-            if previewURLs[key] == nil, FileManager.default.fileExists(atPath: cacheFile.path) {
-                previewURLs[key] = cacheFile
+            // Ist für diese Bibliothek schon ein Vorschaubild gecacht, wird es
+            // BEHALTEN — kein neuer Netzwerk-Fetch. User-Anfrage 2026-08-28:
+            // "genau die aktuellen Bilder sollen gespeichert werden". Vorher hat
+            // `loadPreviews()` bei JEDEM Öffnen ein NEUES Zufalls-Item gezogen und
+            // die Cache-Datei überschrieben — das gerade sichtbare Bild war also
+            // nie stabil und stimmte offline nicht mit dem zuletzt online
+            // gezeigten überein. Jetzt: einmal geholt = dauerhaft dieses Bild
+            // (online wie offline), bis die Cache-Datei gelöscht wird.
+            if FileManager.default.fileExists(atPath: cacheFile.path) {
+                if previewURLs[key] == nil { previewURLs[key] = cacheFile }
+                continue
             }
-            // A random item's poster is a cheap, representative cover — avoids fetching
-            // (and discarding) the library's entire item list just to grab one image.
+            // Noch kein Bild vorhanden: EINMALIG das Poster eines Zufalls-Items als
+            // repräsentatives Cover holen und dauerhaft ablegen.
             guard let item = try? await client.randomItem(libraryId: lib.id) else { continue }
             let networkURL: URL?
             if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId) {
