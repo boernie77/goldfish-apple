@@ -22,6 +22,7 @@ struct LibrariesView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var localLibrary: LocalLibraryManager
     @EnvironmentObject var shuffleScope: ShuffleScope
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -66,16 +67,33 @@ struct LibrariesView: View {
                 } else if libraries.isEmpty && localLibrary.libraries.isEmpty {
                     // Nur wenn WIRKLICH nichts da ist (weder Server-Cache noch lokale Libs)
                     // zeigen wir eine Vollbild-Meldung — ein reiner Netzwerkfehler mit noch
-                    // leerem Cache landet hier zwangsläufig auch, ist aber der einzige Fall,
-                    // in dem es tatsächlich nichts zum Anzeigen gibt.
-                    ContentUnavailableMessage(text: errorMessage ?? "Keine Bibliotheken verfügbar.")
+                    // leerem Cache landet hier zwangsläufig auch. Anders als früher gibt es
+                    // jetzt einen "Erneut versuchen"-Button — vorher war der User in diesem
+                    // Zustand bis zum App-Neustart gefangen (keine Pull-to-Refresh-Geste
+                    // ohne ScrollView, kein Retry-Knopf).
+                    VStack(spacing: 16) {
+                        ContentUnavailableMessage(text: errorMessage ?? "Keine Bibliotheken verfügbar.")
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            Label("Erneut versuchen", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isLoading)
+                    }
                 } else {
                     ScrollView {
                         if isOffline {
-                            Label("Offline — zeige zuletzt geladene Bibliotheken", systemImage: "wifi.slash")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal)
+                            Button {
+                                Task { await load() }
+                            } label: {
+                                Label(isLoading ? "Verbinde…" : "Offline — zuletzt geladene Bibliotheken · erneut versuchen", systemImage: "wifi.slash")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isLoading)
                         }
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(libraries) { lib in
@@ -190,6 +208,13 @@ struct LibrariesView: View {
             #endif
             .task { await load() }
             .refreshable { await load() }
+            // Zurück im Vordergrund (typisch: war offline, jetzt wieder online) →
+            // Bibliotheken + Vorschaubilder neu laden. Ohne das kam die Ansicht
+            // nach einer Offline-Phase nie von selbst zurück, selbst wenn die
+            // Verbindung längst wieder stand.
+            .onChange(of: scenePhase) { phase in
+                if phase == .active, !isLoading { Task { await load() } }
+            }
         }
     }
 
@@ -242,12 +267,28 @@ struct LibrariesView: View {
             hydratePreviewsFromCache() // frisch dazugekommene Libs sofort aus Cache zeigen
             await loadPreviews()
         } catch {
-            // Kein harter Fehlerzustand mehr (siehe body-Kommentar) — nur wenn wir NICHTS
-            // haben (weder frisch noch aus dem Cache), bleibt errorMessage als letzter Ausweg
-            // für die Vollbild-Meldung stehen.
-            isOffline = true
-            if libraries.isEmpty {
-                errorMessage = error.localizedDescription
+            // 401 vom Server = Session serverseitig tot (nicht "offline" — der
+            // Server hat ja geantwortet). NICHT als isOffline tarnen und NICHT die
+            // rohe Server-Meldung "Session abgelaufen" als Vollbild-Fehler zeigen,
+            // aus dem es kein Zurück gab. Stattdessen lokalen Login verwerfen →
+            // RootView zeigt LoginView, dort kann der User sich (auch per SSO) neu
+            // anmelden.
+            if GoldfishClient.isAuthError(error) {
+                client.markSessionInvalid()
+                return
+            }
+            if GoldfishClient.isConnectivityError(error) {
+                isOffline = true
+                if libraries.isEmpty {
+                    errorMessage = "Keine Verbindung zum Server — die zuletzt geladenen Bibliotheken werden angezeigt, sobald welche gecacht sind."
+                }
+            } else {
+                // Irgendein anderer Server-/Decoding-Fehler — nicht als "offline"
+                // labeln, aber die Meldung zeigen (mit Retry-Button im body).
+                isOffline = false
+                if libraries.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

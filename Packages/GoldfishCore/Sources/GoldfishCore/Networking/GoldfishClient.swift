@@ -210,6 +210,32 @@ public final class GoldfishClient: ObservableObject {
         }
     }
 
+    /// True wenn der Server MIT einer Antwort abgelehnt hat, weil die Session
+    /// ungültig ist (401 "nicht angemeldet" / "Session abgelaufen") — im
+    /// Unterschied zu einem reinen Verbindungsproblem (`isConnectivityError`).
+    /// Ein 401 beweist, dass der Server erreichbar ist — die App darf das NICHT
+    /// als "offline" behandeln, sondern muss zurück auf den Login.
+    public static func isAuthError(_ error: Error) -> Bool {
+        if case GoldfishError.server(401, _) = error { return true }
+        return false
+    }
+
+    /// Aufrufen, wenn ein normaler API-Request 401 liefert, obwohl der Server
+    /// erreichbar ist: der lokal gemerkte Login ist tot. Lokalen Zustand +
+    /// Cookies für diesen Host wegräumen, damit `RootView` den Login-Screen
+    /// zeigt statt endlos weiter 401 zu kassieren. War der eigentliche Grund
+    /// für "offline → online → Bibliotheken kommen nicht wieder, Fehler
+    /// Session abgelaufen": nichts hat diesen Zustand je aufgelöst.
+    public func markSessionInvalid() {
+        currentUsername = nil
+        isAdmin = false
+        isLoggedIn = false
+        UserDefaults.standard.removeObject(forKey: "goldfish.username")
+        if let base = baseURL, let cookies = HTTPCookieStorage.shared.cookies(for: base) {
+            cookies.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+        }
+    }
+
     // MARK: - Gemerkte Konten (Offline-Benutzerwechsel)
 
     public struct RememberedAccount: Codable, Identifiable, Equatable {

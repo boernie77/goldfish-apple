@@ -6,6 +6,7 @@ struct HomeView: View {
     @State private var sections: [HomeSection] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -13,7 +14,16 @@ struct HomeView: View {
                 if isLoading {
                     ProgressView()
                 } else if let errorMessage {
-                    ContentUnavailableMessage(text: errorMessage)
+                    VStack(spacing: 16) {
+                        ContentUnavailableMessage(text: errorMessage)
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            Label("Erneut versuchen", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isLoading)
+                    }
                 } else if sections.isEmpty {
                     ContentUnavailableMessage(text: "Keine Bibliotheken auf der Startseite sichtbar.")
                 } else {
@@ -40,6 +50,9 @@ struct HomeView: View {
             .navigationTitle("Goldfish")
             .task { await load() }
             .refreshable { await load() }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active, !isLoading { Task { await load() } }
+            }
         }
     }
 
@@ -51,6 +64,12 @@ struct HomeView: View {
             sections = response.sections
             errorMessage = nil
         } catch {
+            // 401 = tote Session, nicht "offline": lokalen Login verwerfen, RootView
+            // schwenkt auf LoginView statt "Session abgelaufen" als Sackgasse zu zeigen.
+            if GoldfishClient.isAuthError(error) {
+                client.markSessionInvalid()
+                return
+            }
             errorMessage = error.localizedDescription
         }
     }

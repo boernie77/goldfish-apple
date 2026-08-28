@@ -6,6 +6,7 @@ struct RootView: View {
     @EnvironmentObject var localLibrary: LocalLibraryManager
     @EnvironmentObject var downloads: DownloadManager
     @EnvironmentObject var shuffleScope: ShuffleScope
+    @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSession = false
 
     var body: some View {
@@ -20,6 +21,21 @@ struct RootView: View {
         }
         .task {
             await refreshSessionStatus()
+        }
+        // Beim Zurückkehren in den Vordergrund (typisch: der User war offline und
+        // ist wieder online) die Session gegen den Server abgleichen. `authStatus`
+        // ist ein öffentlicher Endpoint (kein 401) und wirft nur bei echtem
+        // Verbindungsproblem — dann bleibt `isLoggedIn` unverändert (kein
+        // Fehlalarm-Logout). Ist die Session serverseitig tot, kippt
+        // `applySessionStatus` auf `isLoggedIn = false` → LoginView statt einer
+        // in `MainTabView` festhängenden App, die jeden Request mit 401 quittiert.
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, checkedSession, client.baseURL != nil else { return }
+            Task {
+                if let status = try? await client.authStatus() {
+                    client.applySessionStatus(status)
+                }
+            }
         }
         // Real bug hit 2026-08-19: local libraries AND downloads had no per-user isolation —
         // every account logged into this Mac/app saw every other account's local content.
