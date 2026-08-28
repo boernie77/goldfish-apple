@@ -112,8 +112,23 @@ struct LoginView: View {
     }
 
     private func refreshAfterOIDC() async {
+        // Nach dem Cookie-Sync aus dem WKWebView kann `URLSession` den frisch
+        // gesetzten Cookie minimal verzögert übernehmen — ein paar Mal kurz
+        // nachfassen, bevor wir aufgeben.
+        for attempt in 0..<5 {
+            if let status = try? await client.authStatus(), status.loggedIn {
+                client.applySessionStatus(status)
+                return
+            }
+            if attempt < 4 { try? await Task.sleep(nanoseconds: 400_000_000) }
+        }
+        // Auch ein negatives Endergebnis anwenden, damit die UI nicht im
+        // Unklaren hängt, und dem User sagen, was Sache ist.
         if let status = try? await client.authStatus() {
             client.applySessionStatus(status)
+        }
+        if !client.isLoggedIn {
+            errorMessage = "SSO-Anmeldung war erfolgreich, aber die App konnte die Sitzung nicht übernehmen. Bitte die SSO-Anmeldung noch einmal starten."
         }
     }
 

@@ -109,21 +109,46 @@ final class OIDCWebCoordinator: NSObject, WKNavigationDelegate {
 
         if url.path == "/" || url.path == "/index.html" {
             finished = true
-            syncCookies(from: webView) { [onFinish] in
-                onFinish(.success)
+            syncCookies(from: webView) { [onFinish] gotSession in
+                if gotSession {
+                    onFinish(.success)
+                } else {
+                    // Der `/` wurde erreicht (SSO lief also durch), aber es kam
+                    // KEIN goldfish_session-Cookie im WKWebView-Store an — dann
+                    // würde die App nach dem Schließen des Sheets sofort wieder
+                    // auf dem Login landen. Klar melden statt still zu scheitern.
+                    onFinish(.failure("SSO-Anmeldung lief durch, aber es kam kein Sitzungs-Cookie an. Bitte erneut versuchen."))
+                }
             }
         }
     }
 
-    /// WKWebView keeps its own cookie jar, separate from URLSession's shared storage —
-    /// copy the freshly-set session cookie over so subsequent API requests carry it.
-    private func syncCookies(from webView: WKWebView, completion: @escaping () -> Void) {
+    /// WKWebView hat einen EIGENEN Cookie-Jar, getrennt von `HTTPCookieStorage.shared`
+    /// (das `URLSession` nutzt) — der frisch gesetzte `goldfish_session`-Cookie muss
+    /// hinüberkopiert werden, damit die normalen API-Requests ihn tragen.
+    ///
+    /// Wichtig: das `Set-Cookie` aus der OIDC-Callback-Weiterleitung ist beim
+    /// `didFinish` für `/` oft NOCH NICHT im WKWebView-Cookie-Store gelandet
+    /// (bekanntes WKWebView-Timing) — ein einmaliges `getAllCookies` direkt hier
+    /// verfehlt es dann und die SSO-Anmeldung "funktioniert nicht". Deshalb bis zu
+    /// ~2,5 s (8 × 0,3 s) pollen, bis der Session-Cookie auftaucht.
+    private func syncCookies(from webView: WKWebView, attempt: Int = 0, completion: @escaping (_ gotSession: Bool) -> Void) {
         let host = baseURL.host ?? ""
-        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-            for cookie in cookies where cookie.domain.contains(host) {
-                HTTPCookieStorage.shared.setCookie(cookie)
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        store.getAllCookies { cookies in
+            let matching = cookies.filter { cookie in
+                let bare = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
+                return host == bare || host.hasSuffix("." + bare) || host.contains(bare) || bare.contains(host)
             }
-            DispatchQueue.main.async { completion() }
+            let hasSession = matching.contains { $0.name == "goldfish_session" && !$0.value.isEmpty }
+            if hasSession || attempt >= 8 {
+                for cookie in matching { HTTPCookieStorage.shared.setCookie(cookie) }
+                DispatchQueue.main.async { completion(hasSession) }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.syncCookies(from: webView, attempt: attempt + 1, completion: completion)
+                }
+            }
         }
     }
 }
