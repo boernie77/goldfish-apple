@@ -385,6 +385,13 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/libraries")
     }
 
+    /// Pollt den Fortschritt der server-seitigen Formatanpassung (`?compat=1`).
+    /// Stößt sie serverseitig an, falls nötig und noch nicht laufend/gecacht —
+    /// der Client muss also nur wiederholt aufrufen, bis `state == "ready"`.
+    public func compatDownloadStatus(itemId: Int64) async throws -> CompatPrep {
+        try await perform("/api/download/\(itemId)/compat-status")
+    }
+
     public func fetchHome() async throws -> HomeResponse {
         try await perform("/api/home")
     }

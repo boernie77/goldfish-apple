@@ -337,19 +337,26 @@ private struct DownloadRow: View {
                 Text(record.title)
                 switch record.state {
                 case .downloading, .queued:
-                    ProgressView(value: record.progress)
-                    HStack(spacing: 6) {
-                        Text("\(Int(record.progress * 100)) %")
-                        // User-Anfrage 2026-08-27: "kann man die Downloadgeschwindigkeit
-                        // neben der Prozentanzeige anzeigen" — `downloadSpeeds` ist rein
-                        // flüchtiger State in `DownloadManager` (siehe dort), existiert nur
-                        // während der Download wirklich läuft.
-                        if let speed = downloads.downloadSpeeds[record.itemId] {
-                            Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                    if let prep = downloads.prepProgress[record.itemId] {
+                        ProgressView(value: Double(prep), total: 100)
+                        Text("Wird vorbereitet … \(prep) %")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView(value: record.progress)
+                        HStack(spacing: 6) {
+                            Text("\(Int(record.progress * 100)) %")
+                            // User-Anfrage 2026-08-27: "kann man die Downloadgeschwindigkeit
+                            // neben der Prozentanzeige anzeigen" — `downloadSpeeds` ist rein
+                            // flüchtiger State in `DownloadManager` (siehe dort), existiert
+                            // nur während der Download wirklich läuft.
+                            if let speed = downloads.downloadSpeeds[record.itemId] {
+                                Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                            }
                         }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 case .done:
                     Text("Fertig heruntergeladen")
                         .font(.caption)

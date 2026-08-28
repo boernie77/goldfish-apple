@@ -14,6 +14,14 @@ public struct LoginResponse: Decodable {
     public let isAdmin: Bool
 }
 
+/// Fortschritt der server-seitigen Formatanpassung eines Downloads
+/// (`GET /api/download/{id}/compat-status`). `state`: ready | preparing | error | idle.
+public struct CompatPrep: Decodable {
+    public let state: String
+    public let percent: Int
+    public let message: String?
+}
+
 // MARK: - Watch-Link (Gesehen-Sync zwischen zwei Usern, User-Anfrage 2026-08-19)
 
 public struct OtherUser: Decodable, Identifiable, Hashable {

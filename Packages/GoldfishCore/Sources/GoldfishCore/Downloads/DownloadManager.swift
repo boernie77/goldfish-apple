@@ -77,6 +77,11 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// (fertig, fehlgeschlagen, abgebrochen), damit die UI nicht eine eingefrorene
     /// letzte Geschwindigkeit weiter anzeigt.
     @Published public private(set) var downloadSpeeds: [Int64: Double] = [:]
+    /// Prozent-Fortschritt der server-seitigen Formatanpassung, solange die läuft
+    /// (`?compat=1`, siehe `GoldfishClient.compatDownloadStatus`). Rein flüchtig,
+    /// verschwindet sobald der eigentliche Byte-Download beginnt. Die UI zeigt
+    /// „Wird vorbereitet … X %" statt der Byte-Prozentzahl, wenn hier ein Wert steht.
+    @Published public private(set) var prepProgress: [Int64: Int] = [:]
     /// Letzter Sample-Zeitpunkt + -Byte-Stand pro Item, um die Rate zwischen zwei
     /// `didWriteData`-Aufrufen zu berechnen. Gedrosselt auf min. 0.3s Abstand, sonst
     /// würde bei sehr häufigen kleinen Callbacks (schnelles LAN) die Rate zu stark
@@ -303,6 +308,7 @@ public final class DownloadManager: NSObject, ObservableObject {
     private func removeRecord(itemId: Int64) {
         allRecordsOnDisk[itemId] = nil
         records[itemId] = nil
+        prepProgress[itemId] = nil
     }
 
     /// Fills in `itemData` for a download made before that field existed (real gap hit
@@ -442,10 +448,73 @@ public final class DownloadManager: NSObject, ObservableObject {
             cacheShowPosterIfNeeded(parentId: parentId)
         }
 
+        // `?compat=1`: der Server bereitet die Datei ggf. per ffmpeg vor (Remux/
+        // Transcode). Bei einem 13-GB-Blu-ray-Rip dauert das Minuten, in denen KEIN
+        // Byte fließt. Statt stumm zu warten (und nach 600 s in den Timeout zu
+        // laufen), pollen wir jetzt `compat-status` und zeigen „Wird vorbereitet …
+        // X %", bevor der eigentliche Download startet.
+        if remoteURL.query?.contains("compat=1") == true {
+            Task { @MainActor in await self.prepareThenTransfer(item: item, remoteURL: remoteURL) }
+            return
+        }
+        launchTransfer(item: item, remoteURL: remoteURL)
+    }
+
+    /// Startet den eigentlichen Byte-Download (nachdem eine ggf. nötige
+    /// Server-Formatanpassung fertig ist).
+    private func launchTransfer(item: Item, remoteURL: URL) {
+        guard tasks[item.id] == nil, records[item.id]?.state == .downloading else { return }
+        prepProgress[item.id] = nil
         let task = session.downloadTask(with: remoteURL)
         task.taskDescription = String(item.id)
         tasks[item.id] = task
         task.resume()
+    }
+
+    /// Pollt `compat-status`, bis der Server die Datei bereitgestellt hat, und
+    /// startet dann den Download. Bei Fehler wird der Record als fehlgeschlagen
+    /// markiert; ist der Endpoint nicht erreichbar (alter Server), wird einfach
+    /// direkt geladen.
+    @MainActor
+    private func prepareThenTransfer(item: Item, remoteURL: URL) async {
+        let id = item.id
+        let deadline = Date().addingTimeInterval(45 * 60)
+        while Date() < deadline {
+            // abgebrochen / Record weg?
+            guard records[id]?.state == .downloading, tasks[id] == nil else {
+                prepProgress[id] = nil
+                return
+            }
+            let status: CompatPrep
+            do {
+                status = try await GoldfishClient.shared.compatDownloadStatus(itemId: id)
+            } catch {
+                // Endpoint fehlt (alter Server) o. Ä. → einfach normal laden.
+                launchTransfer(item: item, remoteURL: remoteURL)
+                return
+            }
+            switch status.state {
+            case "ready":
+                launchTransfer(item: item, remoteURL: remoteURL)
+                return
+            case "error":
+                prepProgress[id] = nil
+                if var rec = records[id] {
+                    rec.state = .failed
+                    rec.errorMessage = (status.message?.isEmpty == false) ? status.message : "Formatanpassung auf dem Server fehlgeschlagen"
+                    setRecord(rec)
+                    saveIndex()
+                }
+                tasks[id] = nil
+                return
+            default: // "preparing" / "idle"
+                prepProgress[id] = max(0, min(99, status.percent))
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        // Zeitlimit erreicht — der Server rechnet evtl. noch, der Cache wird warm.
+        // Trotzdem einen Ladeversuch starten (klappt beim nächsten Mal spätestens).
+        launchTransfer(item: item, remoteURL: remoteURL)
     }
 
     // User-Anfrage 2026-08-19: "werden die [Poster] gespeichert für die Offlinenutzung oder
@@ -641,6 +710,7 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
     private func clearSpeedSample(itemId: Int64) {
         lastSpeedSample[itemId] = nil
         downloadSpeeds[itemId] = nil
+        prepProgress[itemId] = nil
     }
 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,

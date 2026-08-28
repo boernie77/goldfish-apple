@@ -288,15 +288,23 @@ struct DownloadButtonRow: View {
             if let record = downloads.records[item.id] {
                 switch record.state {
                 case .downloading, .queued:
-                    ProgressView(value: record.progress)
-                        .frame(maxWidth: 160)
-                    Text("\(Int(record.progress * 100))%")
-                        .font(.caption)
-                    // User-Anfrage 2026-08-27: Downloadgeschwindigkeit neben der Prozentanzeige.
-                    if let speed = downloads.downloadSpeeds[item.id] {
-                        Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                    if let prep = downloads.prepProgress[item.id] {
+                        ProgressView(value: Double(prep), total: 100)
+                            .frame(maxWidth: 160)
+                        Text("Wird vorbereitet … \(prep) %")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView(value: record.progress)
+                            .frame(maxWidth: 160)
+                        Text("\(Int(record.progress * 100))%")
+                            .font(.caption)
+                        // User-Anfrage 2026-08-27: Downloadgeschwindigkeit neben der Prozentanzeige.
+                        if let speed = downloads.downloadSpeeds[item.id] {
+                            Text("· \(Self.speedFormatter.string(fromByteCount: Int64(speed)))/s")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Button("Abbrechen") { downloads.cancelDownload(itemId: item.id) }
                         .font(.caption)
