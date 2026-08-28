@@ -25,6 +25,12 @@ struct OIDCLoginView: View {
                 }
                 dismiss()
             }
+            // Ohne das kollabiert der WKWebView auf macOS auf 0 Höhe (ein
+            // NSViewRepresentable hat keine intrinsische Größe) — das Sheet war
+            // dann nur ein schmaler Streifen mit "Anmelden mit SSO" + Abbrechen,
+            // die Authentik-Seite bekam keinen Platz und blieb unsichtbar. Genau
+            // das Muster, das ShuffleScopeSheet in LibrariesView schon hatte.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Anmelden mit SSO")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -35,6 +41,9 @@ struct OIDCLoginView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 720, idealWidth: 900, minHeight: 760, idealHeight: 900)
+        #endif
     }
 }
 
