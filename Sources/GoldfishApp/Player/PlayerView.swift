@@ -649,7 +649,16 @@ struct PlayerView: View {
             object: player.currentItem,
             queue: .main
         ) { _ in
-            Task { await markWatchedNow() }
+            Task {
+                await markWatchedNow()
+                // User-Wunsch 2026-08-28: im Zufallsmodus am Videoende automatisch
+                // das nächste Zufallsvideo starten (wie der Browser-Shuffle,
+                // player.js `vjs.on("ended", …)` → nächstes Item). jumpRandom(by:1)
+                // ist derselbe Pfad wie ein Klick auf ⏭.
+                if let ctx = randomContext {
+                    await jumpRandom(by: 1, context: ctx)
+                }
+            }
         }
     }
 

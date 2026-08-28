@@ -47,6 +47,7 @@ struct LocalPlayerView: View {
     @State private var audioOptions: [AVMediaSelectionOption] = []
     @State private var selectedAudioOption: AVMediaSelectionOption?
     @State private var timeObserverToken: Any?
+    @State private var didEndObserverToken: NSObjectProtocol?
 
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
@@ -448,6 +449,23 @@ struct LocalPlayerView: View {
             selectedAudioOption = playerItem.currentMediaSelection.selectedMediaOption(in: group) ?? group.defaultOption
         }
 
+        // User-Wunsch 2026-08-28: im Zufallsmodus am Videoende automatisch das
+        // nächste Zufallsvideo starten (analog PlayerView / Browser-Shuffle).
+        // Zusätzlich hier "gesehen" markieren, weil der 90-%-Check nur im
+        // teardown() beim Schließen läuft — bei Auto-Weiter würde er sonst
+        // übersprungen.
+        didEndObserverToken = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { _ in
+            localLibrary.setWatched(item, watched: true)
+            localLibrary.setResume(item, seconds: 0)
+            if let pool = randomPool, !pool.isEmpty {
+                jump(by: 1)
+            }
+        }
+
         timeObserverToken = p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak p] time in
             guard !isScrubbing, let p else { return }
             currentTime = time.seconds
@@ -486,6 +504,8 @@ struct LocalPlayerView: View {
         resumeTimer = nil
         if let token = timeObserverToken, let player { player.removeTimeObserver(token) }
         timeObserverToken = nil
+        if let token = didEndObserverToken { NotificationCenter.default.removeObserver(token) }
+        didEndObserverToken = nil
         if let player {
             let seconds = player.currentTime().seconds
             player.pause()
