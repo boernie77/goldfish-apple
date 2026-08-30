@@ -75,6 +75,13 @@ public struct LocalItem: Codable, Identifiable, Hashable {
     public var addedAt: Date? = nil
     public var resumePosSec: Double = 0
     public var watched = false
+    /// User-Anfrage 2026-08-30: "bei lokalen Bibliotheken eine Sternebewertung, maximal 3
+    /// Sterne, und danach filtern können". 0 = keine Bewertung, 1–3 = Sterne. Non-optional
+    /// mit Default, damit vor diesem Feature gescannte Indizes weiter dekodieren (Swift
+    /// synthetisiert `decodeIfPresent` für Properties mit Default-Wert). Bleibt bei einem
+    /// Rescan erhalten — `scan()` übernimmt bestehende Items komplett und überschreibt nur
+    /// Größe/mtime.
+    public var rating: Int = 0
     public var thumbnailPath: String?
     /// User-Anfrage 2026-08-25: "bei den lokalen Dateien hätte ich gerne in den Kacheln noch
     /// die Auflösung, und als Filter möchte ich auch nach Auflösung filtern können" — Server-
@@ -620,6 +627,14 @@ public final class LocalLibraryManager: ObservableObject {
     public func setWatched(_ item: LocalItem, watched: Bool) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].watched = watched
+        save()
+    }
+
+    /// User-Anfrage 2026-08-30: Sternebewertung für lokale Items, max. 3 Sterne. `rating`
+    /// wird auf 0…3 geklemmt; 0 hebt eine bestehende Bewertung wieder auf.
+    public func setRating(_ item: LocalItem, rating: Int) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].rating = max(0, min(3, rating))
         save()
     }
 

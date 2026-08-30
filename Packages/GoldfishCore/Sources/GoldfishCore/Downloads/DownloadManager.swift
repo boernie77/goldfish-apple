@@ -657,6 +657,23 @@ public final class DownloadManager: NSObject, ObservableObject {
             deleteDownload(itemId: itemId)
         }
     }
+
+    /// User-Anfrage 2026-08-30: neben „Alle löschen" auch „Alle gesehenen löschen" — räumt
+    /// nur fertige Downloads weg, deren gecachter `Item`-Snapshot als gesehen markiert ist
+    /// (`updateCachedWatched` hält den nach jedem `setWatched` aktuell). Laufende/
+    /// fehlgeschlagene Downloads bleiben unangetastet.
+    public func deleteWatchedDownloads() {
+        for itemId in Array(records.keys) {
+            guard let rec = records[itemId], rec.state == .done, rec.cachedItem?.watched == true else { continue }
+            deleteDownload(itemId: itemId)
+        }
+    }
+
+    /// Anzahl fertiger, als gesehen markierter Downloads des aktuellen Users — für die
+    /// UI (Button ausgrauen + Bestätigungstext).
+    public var watchedDownloadCount: Int {
+        records.values.filter { $0.state == .done && $0.cachedItem?.watched == true }.count
+    }
 }
 
 extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {

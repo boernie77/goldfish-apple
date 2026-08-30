@@ -17,6 +17,8 @@ struct DownloadsView: View {
     // User-Anfrage 2026-08-26: "bei den Downloads auch einen Button, der alle Downloads
     // löscht" — Bestätigungs-Dialog, da destruktiv und nicht rückgängig zu machen.
     @State private var showingDeleteAllConfirm = false
+    // User-Anfrage 2026-08-30: zusätzlich "Alle gesehenen löschen" als eigene Auswahl.
+    @State private var showingDeleteWatchedConfirm = false
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
@@ -113,10 +115,21 @@ struct DownloadsView: View {
             .navigationTitle("Downloads")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button(role: .destructive) {
-                        showingDeleteAllConfirm = true
+                    Menu {
+                        Button(role: .destructive) {
+                            showingDeleteWatchedConfirm = true
+                        } label: {
+                            Label("Alle gesehenen löschen", systemImage: "checkmark.circle")
+                        }
+                        .disabled(downloads.watchedDownloadCount == 0)
+
+                        Button(role: .destructive) {
+                            showingDeleteAllConfirm = true
+                        } label: {
+                            Label("Alle löschen", systemImage: "trash")
+                        }
                     } label: {
-                        Label("Alle löschen", systemImage: "trash")
+                        Label("Downloads löschen", systemImage: "trash")
                     }
                     .disabled(allRecords.isEmpty)
                 }
@@ -124,6 +137,12 @@ struct DownloadsView: View {
             .confirmationDialog("Wirklich ALLE \(allRecords.count) Downloads löschen?", isPresented: $showingDeleteAllConfirm, titleVisibility: .visible) {
                 Button("Alle \(allRecords.count) Downloads löschen", role: .destructive) {
                     downloads.deleteAllDownloads()
+                }
+                Button("Abbrechen", role: .cancel) {}
+            }
+            .confirmationDialog("Alle \(downloads.watchedDownloadCount) gesehenen Downloads löschen?", isPresented: $showingDeleteWatchedConfirm, titleVisibility: .visible) {
+                Button("\(downloads.watchedDownloadCount) gesehene Downloads löschen", role: .destructive) {
+                    downloads.deleteWatchedDownloads()
                 }
                 Button("Abbrechen", role: .cancel) {}
             }

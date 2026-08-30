@@ -28,6 +28,30 @@ private enum LocalWatchedFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// User-Anfrage 2026-08-30: nach der Sternebewertung (0–3) filtern können.
+private enum LocalRatingFilter: String, CaseIterable, Identifiable {
+    case all, unrated, min1, min2, exact3
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .all: return "Alle Bewertungen"
+        case .unrated: return "Ohne Bewertung"
+        case .min1: return "★ und mehr"
+        case .min2: return "★★ und mehr"
+        case .exact3: return "★★★"
+        }
+    }
+    func matches(_ rating: Int) -> Bool {
+        switch self {
+        case .all: return true
+        case .unrated: return rating == 0
+        case .min1: return rating >= 1
+        case .min2: return rating >= 2
+        case .exact3: return rating >= 3
+        }
+    }
+}
+
 struct LocalLibraryItemsView: View {
     /// Meist genau eine Bibliothek — mehr als eine, wenn der User in den Einstellungen
     /// lokale Bibliotheken "zusammengelegt" hat (`LocalLibraryManager.mergedLibraryIds`);
@@ -83,6 +107,7 @@ struct LocalLibraryItemsView: View {
     @State private var sort: LocalSort = .name
     @State private var ascending = true
     @State private var watchedFilter: LocalWatchedFilter = .all
+    @State private var ratingFilter: LocalRatingFilter = .all
     // User-Anfrage 2026-08-25: "als Filter möchte ich in allen Bibliotheken auch nach
     // Auflösung filtern können" — gleicher `ResolutionBucket`-Typ + Multi-Select wie
     // `ItemGridView` (Server-Bibliotheken), hier client-seitig statt per API-Query gefiltert,
@@ -128,6 +153,9 @@ struct LocalLibraryItemsView: View {
         case .all: break
         case .unwatched: result = result.filter { !$0.watched }
         case .watched: result = result.filter { $0.watched }
+        }
+        if ratingFilter != .all {
+            result = result.filter { ratingFilter.matches($0.rating) }
         }
         if !selectedBuckets.isEmpty {
             result = result.filter { item in
@@ -229,6 +257,16 @@ struct LocalLibraryItemsView: View {
                                 Button(item.watched ? "Als ungesehen markieren" : "Als gesehen markieren") {
                                     localLibrary.setWatched(item, watched: !item.watched)
                                 }
+                                Menu("Bewertung") {
+                                    ForEach(0...3, id: \.self) { stars in
+                                        Button {
+                                            localLibrary.setRating(item, rating: stars)
+                                        } label: {
+                                            Label(stars == 0 ? "Keine" : String(repeating: "★", count: stars),
+                                                  systemImage: item.rating == stars ? "checkmark" : "")
+                                        }
+                                    }
+                                }
                                 Button("Löschen", role: .destructive) {
                                     localLibrary.deleteItem(item)
                                 }
@@ -313,6 +351,14 @@ struct LocalLibraryItemsView: View {
                         }
                     }
                     Divider()
+                    ForEach(LocalRatingFilter.allCases) { option in
+                        Button {
+                            ratingFilter = option
+                        } label: {
+                            Label(option.label, systemImage: ratingFilter == option ? "checkmark" : "")
+                        }
+                    }
+                    Divider()
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
@@ -331,7 +377,7 @@ struct LocalLibraryItemsView: View {
                         Label("Gesamtgröße anzeigen", systemImage: showTotalSize ? "checkmark" : "")
                     }
                 } label: {
-                    Label("Filter", systemImage: (watchedFilter != .all || !selectedBuckets.isEmpty) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Label("Filter", systemImage: (watchedFilter != .all || ratingFilter != .all || !selectedBuckets.isEmpty) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
 
                 Button {
@@ -415,6 +461,23 @@ private struct LocalItemCard: View {
                         localLibrary.setWatched(item, watched: !item.watched)
                     }
                     .padding(6)
+                }
+                // User-Anfrage 2026-08-30: Sternebewertung (max. 3) sichtbar auf der Kachel.
+                // Gesetzt/geändert wird sie über das Kontextmenü (Rechtsklick/Long-Press) —
+                // gleiche Overlay-Ecke wie der Rating-Stern im Browser (oben rechts).
+                .overlay(alignment: .topTrailing) {
+                    if item.rating > 0 {
+                        HStack(spacing: 1) {
+                            ForEach(0..<item.rating, id: \.self) { _ in
+                                Image(systemName: "star.fill")
+                            }
+                        }
+                        .font(.system(size: 9))
+                        .foregroundStyle(.yellow)
+                        .padding(.horizontal, 5).padding(.vertical, 3)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .padding(6)
+                    }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     Text(fmtSize(item.sizeBytes))

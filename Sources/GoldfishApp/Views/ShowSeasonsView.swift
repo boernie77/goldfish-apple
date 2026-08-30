@@ -136,11 +136,31 @@ private struct ShowCastStrip: View {
 private struct SeasonCard: View {
     let season: SeasonOut
     @EnvironmentObject var client: GoldfishClient
+    @EnvironmentObject var downloads: DownloadManager
+    // User-Anfrage 2026-08-30: "bei Staffeln den gesehen Button haben" — markiert ALLE
+    // vorhandenen Folgen der Staffel auf einmal als gesehen/ungesehen. @State für sofortiges
+    // UI-Feedback, mirrors EpisodeTile.watched. Startwert: alle vorhandenen Folgen gesehen?
+    @State private var watchedAll: Bool
+    @State private var busy = false
+
+    init(season: SeasonOut) {
+        self.season = season
+        _watchedAll = State(initialValue: season.ownedCount > 0 && season.watchedCount >= season.ownedCount)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             PosterImage(url: tmdbImageURL(season.posterPath), placeholderSystemImage: "tv")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .topLeading) {
+                    if season.ownedCount > 0 {
+                        PosterToggleBadge(isOn: watchedAll, onSymbol: "checkmark.circle.fill", offSymbol: "checkmark.circle", tint: .green) {
+                            toggleSeasonWatched()
+                        }
+                        .padding(6)
+                        .disabled(busy)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     Text("\(season.ownedCount)/\(season.total)")
                         .font(.caption2.bold())
@@ -153,6 +173,20 @@ private struct SeasonCard: View {
             Text(season.name ?? "Staffel \(season.seasonNumber)")
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
+        }
+    }
+
+    private func toggleSeasonWatched() {
+        let newValue = !watchedAll
+        watchedAll = newValue
+        busy = true
+        Task {
+            for episode in season.episodes where episode.owned {
+                guard let itemId = episode.itemId else { continue }
+                try? await client.setWatched(itemId: itemId, watched: newValue)
+                downloads.updateCachedWatched(itemId: itemId, watched: newValue)
+            }
+            busy = false
         }
     }
 }
