@@ -257,16 +257,23 @@ struct LocalLibraryItemsView: View {
                                 Button(item.watched ? "Als ungesehen markieren" : "Als gesehen markieren") {
                                     localLibrary.setWatched(item, watched: !item.watched)
                                 }
-                                Menu("Bewertung") {
-                                    ForEach(0...3, id: \.self) { stars in
-                                        Button {
-                                            localLibrary.setRating(item, rating: stars)
-                                        } label: {
-                                            Label(stars == 0 ? "Keine" : String(repeating: "★", count: stars),
-                                                  systemImage: item.rating == stars ? "checkmark" : "")
-                                        }
+                                Divider()
+                                // FLACHE Buttons statt `Menu("Bewertung") { … }` — ein
+                                // verschachteltes `Menu` in einem `.contextMenu` öffnet
+                                // auf macOS nicht (nur Chevron, kein Panel), dieselbe
+                                // SwiftUI-macOS-Einschränkung wie „Picker in Menu", die
+                                // im Filter-Menü oben schon per Kommentar dokumentiert ist
+                                // (User: „es erscheint Bewerten mit Pfeil, aber es öffnet
+                                // sich nichts", 2026-08-30).
+                                ForEach(0...3, id: \.self) { stars in
+                                    Button {
+                                        localLibrary.setRating(item, rating: stars)
+                                    } label: {
+                                        Label(stars == 0 ? "Bewertung: keine" : "Bewertung: " + String(repeating: "★", count: stars),
+                                              systemImage: item.rating == stars ? "checkmark" : "")
                                     }
                                 }
+                                Divider()
                                 Button("Löschen", role: .destructive) {
                                     localLibrary.deleteItem(item)
                                 }
