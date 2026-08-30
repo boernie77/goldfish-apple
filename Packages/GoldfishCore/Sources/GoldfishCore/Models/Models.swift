@@ -430,6 +430,23 @@ public struct PlaybackResponse: Decodable {
     public let reason: String?
     public let item: Item
     public let url: String
+    /// Alle Streams der Quelldatei (Video/Audio/Untertitel), wie der Server sie
+    /// in `/api/playback/{id}` mitliefert — Browser-Pendant `info.streams`.
+    /// Wird für die Tonspur-Auswahl bei Server-Transcode-Sessions gebraucht
+    /// (dort entscheidet der Server per `&audio=<index>`-Query, es gibt keine
+    /// lokale `AVMediaSelectionGroup` zum Umschalten).
+    public let streams: [MediaStream]?
+}
+
+/// Ein einzelner Stream aus `PlaybackResponse.streams` (`internal/model` `ItemStream`).
+public struct MediaStream: Decodable, Hashable {
+    public let index: Int
+    public let type: String          // "video" | "audio" | "subtitle"
+    public let codec: String?
+    public let language: String?     // ISO 639-2, z.B. "eng", "ger"
+    public let title: String?
+    public let channels: Int?        // nur Audio
+    public let isDefault: Bool?
 }
 
 // MARK: - Home

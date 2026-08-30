@@ -7,3 +7,4 @@ Packages/GoldfishCore/.build/
 Packages/GoldfishCore/.swiftpm/
 # Von xcodegen aus project.yml generiert — nicht committen, immer `xcodegen generate` nach Checkout.
 GoldfishApple.xcodeproj/
+build/

@@ -94,6 +94,16 @@ struct PlayerView: View {
     @State private var audioOptions: [AVMediaSelectionOption] = []
     @State private var selectedAudioOption: AVMediaSelectionOption?
 
+    /// Tonspur-Auswahl bei einer Server-Transcode-Session: hier gibt es KEINE
+    /// lokale `AVMediaSelectionGroup` (der HLS-Stream enthält nur die eine vom
+    /// Server gewählte Spur). Stattdessen listet der Server alle Quell-Audiospuren
+    /// in `PlaybackResponse.streams`; ein Wechsel hängt `&audio=<index>` an die
+    /// Transcode-URL und startet die ffmpeg-Session neu (Browser-Pendant: das
+    /// Audio-Dropdown im Player-Dialog). `nil` = Server-Default (erste/als default
+    /// markierte Spur).
+    @State private var transcodeAudioTracks: [MediaStream] = []
+    @State private var selectedTranscodeAudioIndex: Int?
+
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     /// User-Anfrage 2026-08-19: Favoriten- und Playlist-Symbol auch im Steuerfeld —
@@ -244,7 +254,10 @@ struct PlayerView: View {
                             onClose: { teardown(); closePlayer() },
                             audioOptions: audioOptions,
                             selectedAudioOption: selectedAudioOption,
-                            onSelectAudioOption: selectAudioOption
+                            onSelectAudioOption: selectAudioOption,
+                            transcodeAudioTracks: transcodeAudioTracks,
+                            selectedTranscodeAudioIndex: selectedTranscodeAudioIndex,
+                            onSelectTranscodeAudio: selectTranscodeAudio
                         )
                     }
                     .padding(.bottom, 24)
@@ -503,6 +516,25 @@ struct PlayerView: View {
         selectedAudioOption = option
     }
 
+    /// Hängt `&audio=<index>` an eine Transcode-URL, wenn eine Nicht-Default-Spur
+    /// gewählt ist. Der Server-Session-Key enthält den Audio-Index (`a%d`), ein
+    /// Wechsel erzeugt also serverseitig eine eigene ffmpeg-Session.
+    private func appendAudioParam(_ path: String) -> String {
+        guard let idx = selectedTranscodeAudioIndex else { return path }
+        let sep = path.contains("?") ? "&" : "?"
+        return "\(path)\(sep)audio=\(idx)"
+    }
+
+    /// Transcode-Tonspur umschalten: Auswahl merken und die ffmpeg-Session an der
+    /// aktuellen Position mit dem neuen `audio=`-Parameter neu starten. Browser-
+    /// Pendant: `applySubtitleChoice`/Audio-`change`-Handler in `player.js`, die
+    /// `applyPlayback` mit neuem Query erneut aufrufen.
+    private func selectTranscodeAudio(_ index: Int) {
+        guard isTranscode, index != selectedTranscodeAudioIndex else { return }
+        selectedTranscodeAudioIndex = index
+        restartTranscodeSession(atAbsolute: currentTime)
+    }
+
     private func setUp() async {
         errorMessage = nil
         isTranscode = false
@@ -515,6 +547,11 @@ struct PlayerView: View {
         hasMarkedWatchedThisSession = false
         trickplayCues = []
         trickplaySprite = nil
+        // Bei jedem Item-Wechsel (⏮/⏭) zurück auf Server-Default; sonst würde die
+        // Audiospur-Wahl vom vorigen Video auf ein Item mit ganz anderer
+        // Stream-Reihenfolge übertragen.
+        transcodeAudioTracks = []
+        selectedTranscodeAudioIndex = nil
         if item.trickplayStatus == "done" {
             Task { await loadTrickplay() }
         }
@@ -550,6 +587,14 @@ struct PlayerView: View {
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
 
+            // Tonspur-Auswahl (nur Transcode): alle Quell-Audiospuren vom Server
+            // übernehmen; Startwahl = die als default markierte, sonst die erste.
+            if isTranscode {
+                transcodeAudioTracks = (playback.streams ?? []).filter { $0.type == "audio" }
+                selectedTranscodeAudioIndex = transcodeAudioTracks.first(where: { $0.isDefault == true })?.index
+                    ?? transcodeAudioTracks.first?.index
+            }
+
             let startAt = resumeSec > 5 ? resumeSec : 0
             // Real bug hit 2026-08-19 (User: "hatten wir schon im Browser") — same root
             // cause as DECISIONS.md "„Von Anfang" startet mitten im Film": the server caches
@@ -561,7 +606,8 @@ struct PlayerView: View {
             // whenever the resume position is 0, which makes the server force-stop any
             // existing session and start a clean one; `_t=<timestamp>` cache-busts so the
             // player doesn't reuse anything from its own memory for an identical URL either.
-            let requestURL = isTranscode ? transcodeURLWithParams(playback.url, start: startAt) : playback.url
+            let audioBase = isTranscode ? appendAudioParam(playback.url) : playback.url
+            let requestURL = isTranscode ? transcodeURLWithParams(audioBase, start: startAt) : playback.url
             guard let streamURL = client.resolvedURL(forServerPath: requestURL) else {
                 errorMessage = "Stream-URL konnte nicht ermittelt werden."
                 return
@@ -729,7 +775,7 @@ struct PlayerView: View {
 
     private func restartTranscodeSession(atAbsolute target: Double) {
         guard let template = transcodeURLTemplate,
-              let url = client.resolvedURL(forServerPath: urlWithStart(template, start: target)) else { return }
+              let url = client.resolvedURL(forServerPath: urlWithStart(appendAudioParam(template), start: target)) else { return }
         let wasPlaying = isPlaying
 
         // Explicitly silence + release the outgoing session — swapping `self.player` alone
@@ -838,6 +884,11 @@ private struct PlayerControlsBar: View {
     var audioOptions: [AVMediaSelectionOption] = []
     var selectedAudioOption: AVMediaSelectionOption? = nil
     var onSelectAudioOption: ((AVMediaSelectionOption) -> Void)? = nil
+    /// Tonspur-Auswahl bei Server-Transcode (parallel zu `audioOptions`, das nur
+    /// für lokale/Direct-Play-Quellen greift). Menü erscheint bei >1 Spur.
+    var transcodeAudioTracks: [MediaStream] = []
+    var selectedTranscodeAudioIndex: Int? = nil
+    var onSelectTranscodeAudio: ((Int) -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -940,6 +991,22 @@ private struct PlayerControlsBar: View {
                         } label: {
                             Image(systemName: "waveform")
                         }
+                    } else if transcodeAudioTracks.count > 1, let onSelectTranscodeAudio {
+                        Menu {
+                            ForEach(transcodeAudioTracks, id: \.index) { track in
+                                Button {
+                                    onSelectTranscodeAudio(track.index)
+                                } label: {
+                                    if track.index == selectedTranscodeAudioIndex {
+                                        Label(Self.audioTrackLabel(track), systemImage: "checkmark")
+                                    } else {
+                                        Text(Self.audioTrackLabel(track))
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "waveform")
+                        }
                     }
                     if let onToggleFullScreen {
                         Button(action: onToggleFullScreen) {
@@ -968,6 +1035,17 @@ private struct PlayerControlsBar: View {
         let m = (total % 3600) / 60
         let s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+
+    /// „DEU · Directors Cut · ac3 · 5.1" — gleiche Bestandteile wie das
+    /// Audio-Dropdown im Browser (`player.js`).
+    static func audioTrackLabel(_ s: MediaStream) -> String {
+        var parts: [String] = []
+        if let l = s.language, !l.isEmpty { parts.append(l.uppercased()) }
+        if let t = s.title, !t.isEmpty { parts.append(t) }
+        if let c = s.codec, !c.isEmpty { parts.append(c) }
+        if let ch = s.channels, ch > 0 { parts.append(ch == 6 ? "5.1" : (ch == 8 ? "7.1" : "\(ch)ch")) }
+        return parts.isEmpty ? "Spur \(s.index)" : parts.joined(separator: " · ")
     }
 }
 
