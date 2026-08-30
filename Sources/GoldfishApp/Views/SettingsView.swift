@@ -518,50 +518,58 @@ private struct AddLocalLibrarySheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Button {
-                        showingFolderPicker = true
-                    } label: {
-                        Label(rootURL?.path ?? "Ordner wählen…", systemImage: "folder")
-                            .lineLimit(1)
-                    }
+            // Bewusst KEIN `Form` — auf macOS rechnet `Form` seine Zeilen-Einrückung
+            // aus dem gesamten Label-Kontext und legt bei einer einzelnen Zeile
+            // (nur der Ordner-Button) ein anderes Layout an als sobald weitere
+            // Zeilen dazukommen: nach der Ordner-Auswahl "rutschte alles nach
+            // links" (User-Screenshot 2026-08-30, schon der zweite Anlauf an
+            // genau diesem Dialog). Ein simpler zentrierter `VStack` mit fixem
+            // Padding ist über beide Zustände (Ordner gewählt / noch nicht)
+            // identisch positioniert.
+            VStack(spacing: 18) {
+                Button {
+                    showingFolderPicker = true
+                } label: {
+                    Label(rootURL?.path ?? "Ordner wählen…", systemImage: "folder")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+
                 if rootURL != nil {
-                    Section {
-                        // Explicit stacked labels instead of `TextField("Name", ...)`/
-                        // `Picker("Art", ...)`'s implicit inline label — real bug hit
-                        // 2026-08-19 (User-Screenshot: "Zeilen verschoben" in this exact
-                        // dialog): on macOS, a `Form` lays labeled controls out as two
-                        // fixed-width columns computed from ALL labels in the surrounding
-                        // context, which can misalign/overflow in a narrow sheet — same root
-                        // cause already documented + fixed once for `SettingsInfoRow`
-                        // elsewhere in this file. Stacked labels sidestep the shared-column
-                        // computation entirely.
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Name").font(.caption).foregroundStyle(.secondary)
-                            TextField("Name", text: $name)
-                                .labelsHidden()
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Art").font(.caption).foregroundStyle(.secondary)
-                            Picker("Art", selection: $kind) {
-                                Text("Filme").tag("movies")
-                                Text("Serien").tag("tv")
-                                Text("Privat").tag("private")
-                            }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Name").font(.caption).foregroundStyle(.secondary)
+                        TextField("Name", text: $name)
                             .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .frame(maxWidth: 320)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Art").font(.caption).foregroundStyle(.secondary)
+                        Picker("Art", selection: $kind) {
+                            Text("Filme").tag("movies")
+                            Text("Serien").tag("tv")
+                            Text("Privat").tag("private")
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxWidth: 320)
                 }
+
                 if let lastError = localLibrary.lastError {
-                    Section {
-                        Text(lastError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: 320)
                 }
+
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity)
+            .padding(24)
             .navigationTitle("Lokale Bibliothek")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
