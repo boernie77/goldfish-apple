@@ -192,7 +192,46 @@ public final class DownloadManager: NSObject, ObservableObject {
            let list = try? JSONDecoder().decode([DownloadRecord].self, from: data) {
             for rec in list { allRecordsOnDisk[rec.itemId] = rec }
         }
+        migrateMisnamedCompatDownloads()
         refreshVisibleRecords()
+    }
+
+    /// Fertige Downloads, die als `.mkv` o. ä. gespeichert wurden, deren Inhalt
+    /// aber in Wahrheit ein ISO-BMFF-MP4 ist (compat-Download vor dem
+    /// `?compat=1` → immer `.mp4`-Fix, 2026-08-30 „Kill Bill kam als valides
+    /// MP4 mit avc1/aac an, aber .mkv benannt → AVPlayer verweigert die
+    /// Wiedergabe allein wegen der Endung"), werden hier einmalig zu `.mp4`
+    /// umbenannt — spart dem User einen mehrere GB großen Neu-Download.
+    private func migrateMisnamedCompatDownloads() {
+        let friendly: Set<String> = ["mp4", "mov", "m4v"]
+        var changed = false
+        for (id, rec) in allRecordsOnDisk where rec.state == .done {
+            let url = URL(fileURLWithPath: rec.filePath)
+            let ext = url.pathExtension.lowercased()
+            guard !friendly.contains(ext),
+                  FileManager.default.fileExists(atPath: url.path),
+                  Self.fileLooksLikeISOBMFF(url) else { continue }
+            let newURL = url.deletingPathExtension().appendingPathExtension("mp4")
+            guard !FileManager.default.fileExists(atPath: newURL.path) else { continue }
+            do {
+                try FileManager.default.moveItem(at: url, to: newURL)
+                var r = rec
+                r.filePath = newURL.path
+                r.fileName = newURL.lastPathComponent
+                allRecordsOnDisk[id] = r
+                changed = true
+            } catch { /* Datei bleibt wie sie ist, kein Drama */ }
+        }
+        if changed { saveIndex() }
+    }
+
+    /// Sniff: ISO Base Media File Format (mp4/mov/m4v) hat ab Byte 4 die
+    /// Box-Signatur „ftyp". MKV/WebM beginnen mit dem EBML-Magic 0x1A45DFA3.
+    private static func fileLooksLikeISOBMFF(_ url: URL) -> Bool {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? fh.close() }
+        guard let head = try? fh.read(upToCount: 12), head.count >= 8 else { return false }
+        return head[4] == 0x66 && head[5] == 0x74 && head[6] == 0x79 && head[7] == 0x70
     }
 
     /// Call when the logged-in account changes (login/logout/switch) — recomputes the
@@ -419,7 +458,18 @@ public final class DownloadManager: NSObject, ObservableObject {
             return
         }
 
-        let ext = (item.container?.lowercased()).flatMap { $0.isEmpty ? nil : $0 } ?? (item.path as NSString?)?.pathExtension ?? "mp4"
+        // Bei `?compat=1` liefert der Server IMMER eine .mp4 aus (entweder das
+        // unveränderte Original, falls es schon mp4/mov+h264+aac war, oder eine
+        // serverseitig remuxte/transkodierte Kopie). Die Datei MUSS dann auch
+        // `.mp4` heißen — AVFoundation/AVPlayer weigert sich, eine Datei mit
+        // `.mkv`-Endung abzuspielen, selbst wenn der Inhalt ein sauberes MP4 ist
+        // (real: Kill Bill kam als valides MP4 mit avc1/aac an, aber als
+        // "Kill Bill (2003).mkv" gespeichert → "nicht abspielbar"-Symbol,
+        // 2026-08-30). Ohne compat behält der Download die Original-Endung.
+        let isCompat = remoteURL.query?.contains("compat=1") == true
+        let ext = isCompat
+            ? "mp4"
+            : ((item.container?.lowercased()).flatMap { $0.isEmpty ? nil : $0 } ?? (item.path as NSString?)?.pathExtension ?? "mp4")
         // Named after the title shown in Goldfish (User-Anfrage 2026-08-19) instead of the
         // bare numeric item ID — mirrors the server's auto-rename convention (CLAUDE.md
         // "Auto-Rename bestätigter Filme"): "<Title> (<Year>).<ext>", same sanitize rules

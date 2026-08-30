@@ -25,6 +25,10 @@ struct ItemDetailView: View {
     // Dropdown (CLAUDE.md "Merge-Duplikate"). Defaults to the representative tile's item.
     @State private var selectedItem: Item
     @State private var variants: [Item] = []
+    /// Ton-/Untertitel-Spuren der aktuell gewählten Datei — separat nachgeladen,
+    /// weil die Grid-Liste (`fetchItems`) keine `streams` mitliefert, nur
+    /// `GET /api/items/{id}` (Server: `GetItemFor` → `ItemStreams`).
+    @State private var streams: [MediaStream] = []
 
     init(item: Item, queue: [Item] = []) {
         self.item = item
@@ -104,6 +108,32 @@ struct ItemDetailView: View {
                         .font(.body)
                 }
 
+                let audioStreams = streams.filter { $0.type == "audio" }
+                let subStreams = streams.filter { $0.type == "subtitle" }
+                if !audioStreams.isEmpty || !subStreams.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !audioStreams.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("🔊 Tonspuren (\(audioStreams.count))")
+                                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                                ForEach(audioStreams, id: \.index) { s in
+                                    Text(s.detailLabel).font(.caption)
+                                }
+                            }
+                        }
+                        if !subStreams.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("💬 Untertitel (\(subStreams.count))")
+                                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                                ForEach(subStreams, id: \.index) { s in
+                                    Text(s.detailLabel).font(.caption)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 if variants.count > 1 {
                     Menu {
                         ForEach(variants) { variant in
@@ -173,6 +203,10 @@ struct ItemDetailView: View {
         #endif
         .task {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
+            await loadStreams(for: selectedItem.id)
+        }
+        .onChange(of: selectedItem.id) { newID in
+            Task { await loadStreams(for: newID) }
         }
         #if os(macOS)
         .onChange(of: showPlayer) { newValue in
@@ -268,6 +302,12 @@ struct ItemDetailView: View {
         isWatched = newValue
         try? await client.setWatched(itemId: selectedItem.id, watched: newValue)
         downloads.updateCachedWatched(itemId: selectedItem.id, watched: newValue)
+    }
+
+    private func loadStreams(for id: Int64) async {
+        if let full = try? await client.fetchItem(id: id) {
+            streams = full.streams ?? []
+        }
     }
 }
 

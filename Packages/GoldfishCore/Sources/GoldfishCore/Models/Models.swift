@@ -114,6 +114,10 @@ public struct Item: Codable, Identifiable, Hashable {
     public let variantSplit: Bool?
     public let introStartSec: Double?
     public let introEndSec: Double?
+    /// Video-/Audio-/Untertitel-Streams der Quelldatei. Nur von `GET
+    /// /api/items/{id}` befüllt (Server: `GetItemFor` → `ItemStreams`), NICHT
+    /// in der Grid-Liste — daher optional + Default nil.
+    public var streams: [MediaStream]? = nil
 
     public var displayTitle: String {
         metadata?.title ?? title
@@ -439,7 +443,7 @@ public struct PlaybackResponse: Decodable {
 }
 
 /// Ein einzelner Stream aus `PlaybackResponse.streams` (`internal/model` `ItemStream`).
-public struct MediaStream: Decodable, Hashable {
+public struct MediaStream: Codable, Hashable {
     public let index: Int
     public let type: String          // "video" | "audio" | "subtitle"
     public let codec: String?
@@ -447,6 +451,49 @@ public struct MediaStream: Decodable, Hashable {
     public let title: String?
     public let channels: Int?        // nur Audio
     public let isDefault: Bool?
+    public let isForced: Bool?       // nur Untertitel
+
+    /// ISO-639-2-Code → deutscher Sprachname (kleine Tabelle, sonst Code groß).
+    public var languageLabel: String {
+        let c = (language ?? "").lowercased()
+        let m: [String: String] = [
+            "deu": "Deutsch", "ger": "Deutsch", "eng": "Englisch", "fra": "Französisch",
+            "fre": "Französisch", "spa": "Spanisch", "ita": "Italienisch", "jpn": "Japanisch",
+            "rus": "Russisch", "nld": "Niederländisch", "dut": "Niederländisch", "por": "Portugiesisch",
+            "pol": "Polnisch", "tur": "Türkisch", "ces": "Tschechisch", "cze": "Tschechisch",
+            "hun": "Ungarisch", "kor": "Koreanisch", "zho": "Chinesisch", "chi": "Chinesisch",
+            "ara": "Arabisch", "swe": "Schwedisch", "dan": "Dänisch", "fin": "Finnisch",
+            "nor": "Norwegisch", "ell": "Griechisch", "gre": "Griechisch", "heb": "Hebräisch",
+            "hin": "Hindi", "ukr": "Ukrainisch", "ron": "Rumänisch", "rum": "Rumänisch",
+        ]
+        return m[c] ?? (c.isEmpty ? "Sprache unbekannt" : c.uppercased())
+    }
+
+    /// „Stereo" / „5.1" / „7.1" / „3ch" — leer wenn `channels` fehlt.
+    public var channelsLabel: String {
+        guard let n = channels, n > 0 else { return "" }
+        switch n {
+        case 1: return "Mono"
+        case 2: return "Stereo"
+        case 6: return "5.1"
+        case 7: return "6.1"
+        case 8: return "7.1"
+        default: return "\(n)ch"
+        }
+    }
+
+    /// Kompakte Beschriftung wie im Browser-Detail-Dialog:
+    /// „Deutsch · Directors Cut · AC3 · 5.1 · Standard".
+    public var detailLabel: String {
+        var parts = [languageLabel]
+        if let t = title, !t.isEmpty { parts.append(t) }
+        if let c = codec, !c.isEmpty { parts.append(c.uppercased()) }
+        let ch = channelsLabel
+        if !ch.isEmpty { parts.append(ch) }
+        if isDefault == true { parts.append("Standard") }
+        if isForced == true { parts.append("Forced") }
+        return parts.joined(separator: " · ")
+    }
 }
 
 // MARK: - Home
