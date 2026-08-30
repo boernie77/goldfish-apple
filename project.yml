@@ -31,7 +31,7 @@ targets:
         # "1" zurück (2026-08-28 passiert). Bump-Punkt für den informellen
         # Build-Zähler ist ab jetzt diese Zeile.
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "175"
+        CFBundleVersion: "176"
     # App Sandbox intentionally OFF (2026-08-19) — see GoldfishMac.entitlements for the
     # full story: Security-Scoped-Bookmarks failed unpredictably even for internal APFS
     # folders under a free "Personal Team" signature, not just exFAT USB-sticks. Goldfish
@@ -72,7 +72,7 @@ targets:
       properties:
         CFBundleDisplayName: Goldfish
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "175"
+        CFBundleVersion: "176"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

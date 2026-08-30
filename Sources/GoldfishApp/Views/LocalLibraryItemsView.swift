@@ -359,6 +359,16 @@ struct LocalLibraryItemsView: View {
                         }
                     }
                     Divider()
+                    // "Alle Auflösungen"-Reset-Eintrag: sorgt außerdem dafür, dass diese
+                    // Menü-Gruppe IMMER mindestens ein Häkchen hat — sonst reserviert
+                    // SwiftUI auf macOS keine Icon-Spalte und die 4K/2K/1080p-Zeilen
+                    // stehen bündig links statt eingerückt wie die anderen Gruppen
+                    // (User-Screenshot 2026-08-30).
+                    Button {
+                        selectedBuckets.removeAll()
+                    } label: {
+                        Label("Alle Auflösungen", systemImage: selectedBuckets.isEmpty ? "checkmark" : "")
+                    }
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
