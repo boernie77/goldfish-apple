@@ -472,6 +472,12 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/metadata/\(metadataId)/cast")
     }
 
+    /// Bio-Daten + volle Filmografie einer Person (live von TMDB, serverseitig
+    /// gecacht). Gegenstück zum Browser `GET /api/person/{tmdbId}`.
+    public func fetchPersonDetails(tmdbId: Int64) async throws -> PersonDetails {
+        try await perform("/api/person/\(tmdbId)")
+    }
+
     public func fetchFolders(libraryId: Int64, parent: String? = nil) async throws -> [FolderTile] {
         var query: [URLQueryItem] = []
         if let parent, !parent.isEmpty { query.append(URLQueryItem(name: "parent", value: parent)) }

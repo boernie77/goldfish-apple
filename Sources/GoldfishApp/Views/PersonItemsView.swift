@@ -16,8 +16,12 @@ struct PersonItemsView: View {
 
     @EnvironmentObject var client: GoldfishClient
     @State private var items: [Item] = []
+    @State private var personDetails: PersonDetails?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    /// „Nur Treffer": blendet die nicht vorhandenen Filmografie-Einträge aus.
+    /// Persistiert global (analog Browser `state.personOwnedOnly`).
+    @AppStorage("personOwnedOnly") private var ownedOnly = false
     // User-Anfrage 2026-08-19: "Sortierfeld nicht sichtbar" + "sehe nicht, nach welchem
     // Schauspieler gefiltert wurde" — `.navigationTitle` allein rendert auf macOS keinen
     // sichtbaren Text (nur der Fenstertitel wird gesetzt, gleiche bereits bekannte Falle wie
@@ -87,6 +91,26 @@ struct PersonItemsView: View {
         return relPath.components(separatedBy: "/").first ?? relPath
     }
 
+    /// Vorhandene Filme nach TMDB-ID (erste Variante gewinnt).
+    private var ownedMovieByTmdb: [Int64: Item] {
+        var m: [Int64: Item] = [:]
+        for it in movies {
+            guard let tid = it.metadata?.tmdbId else { continue }
+            if m[tid] == nil { m[tid] = it }
+        }
+        return m
+    }
+
+    /// Vorhandene Serien-Sammelkacheln nach Show-TMDB-ID (`parentId`).
+    private var ownedShowByTmdb: [Int64: PersonShowGroup] {
+        var m: [Int64: PersonShowGroup] = [:]
+        for g in showGroups {
+            guard let pid = g.parentId else { continue }
+            if m[pid] == nil { m[pid] = g }
+        }
+        return m
+    }
+
     var body: some View {
         Group {
             if isLoading {
@@ -115,37 +139,11 @@ struct PersonItemsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal)
-                        if !movies.isEmpty {
-                            Text("🎬 Filme")
-                                .font(.headline)
-                                .padding(.horizontal)
-                            LazyVGrid(columns: columns, spacing: 16) {
-                                ForEach(movies) { item in
-                                    NavigationLink(destination: ItemDetailView(item: item, queue: movies)) {
-                                        ItemCard(item: item)
-                                            .frame(width: cardWidth)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .focusableCompat(false)
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                        if !showGroups.isEmpty {
-                            Text("📺 Serien")
-                                .font(.headline)
-                                .padding(.horizontal)
-                            LazyVGrid(columns: columns, spacing: 16) {
-                                ForEach(showGroups) { group in
-                                    NavigationLink(destination: PersonShowEpisodesView(group: group, personName: personName)) {
-                                        PersonShowCard(group: group)
-                                            .frame(width: cardWidth)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .focusableCompat(false)
-                                }
-                            }
-                            .padding(.horizontal)
+
+                        if let filmography = personDetails?.filmography, !filmography.isEmpty {
+                            filmographySection(filmography)
+                        } else {
+                            ownedOnlySection
                         }
                     }
                     .padding(.vertical)
@@ -155,6 +153,13 @@ struct PersonItemsView: View {
         .navigationTitle(personName)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if let f = personDetails?.filmography, !f.isEmpty {
+                    Button {
+                        ownedOnly.toggle()
+                    } label: {
+                        Label("Nur Treffer", systemImage: ownedOnly ? "checkmark.square.fill" : "square")
+                    }
+                }
                 Menu {
                     ForEach(ItemSort.allCases) { option in
                         Button {
@@ -185,7 +190,138 @@ struct PersonItemsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+        personDetails = try? await client.fetchPersonDetails(tmdbId: personTmdbId)
         isLoading = false
+    }
+
+    // MARK: - Filmografie (owned + ausgegraut, wie im Browser)
+
+    @ViewBuilder
+    private func filmographySection(_ filmography: [PersonCredit]) -> some View {
+        let byMovie = ownedMovieByTmdb
+        let byShow = ownedShowByTmdb
+        Text("🎞 Filmografie · \(filmography.count)")
+            .font(.headline)
+            .padding(.horizontal)
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(filmography) { cr in
+                if cr.mediaType == "movie", let owned = byMovie[cr.tmdbId] {
+                    NavigationLink(destination: ItemDetailView(item: owned, queue: movies)) {
+                        ItemCard(item: owned).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                } else if cr.mediaType == "tv", let owned = byShow[cr.tmdbId] {
+                    NavigationLink(destination: PersonShowEpisodesView(group: owned, personName: personName)) {
+                        PersonShowCard(group: owned).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                } else if !ownedOnly {
+                    PersonMissingCard(credit: cr).frame(width: cardWidth)
+                }
+            }
+            // Vorhandenes, das TMDB nicht in der Filmografie listet, nie verstecken.
+            ForEach(leftoverOwnedMovies(filmography)) { item in
+                NavigationLink(destination: ItemDetailView(item: item, queue: movies)) {
+                    ItemCard(item: item).frame(width: cardWidth)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+            }
+            ForEach(leftoverOwnedShows(filmography)) { group in
+                NavigationLink(destination: PersonShowEpisodesView(group: group, personName: personName)) {
+                    PersonShowCard(group: group).frame(width: cardWidth)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func leftoverOwnedMovies(_ filmography: [PersonCredit]) -> [Item] {
+        let known = Set(filmography.filter { $0.mediaType == "movie" }.map(\.tmdbId))
+        return movies.filter { it in
+            guard let tid = it.metadata?.tmdbId else { return true }
+            return !known.contains(tid)
+        }
+    }
+
+    private func leftoverOwnedShows(_ filmography: [PersonCredit]) -> [PersonShowGroup] {
+        let known = Set(filmography.filter { $0.mediaType == "tv" }.map(\.tmdbId))
+        return showGroups.filter { g in
+            guard let pid = g.parentId else { return true }
+            return !known.contains(pid)
+        }
+    }
+
+    @ViewBuilder
+    private var ownedOnlySection: some View {
+        if !movies.isEmpty {
+            Text("🎬 Filme").font(.headline).padding(.horizontal)
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(movies) { item in
+                    NavigationLink(destination: ItemDetailView(item: item, queue: movies)) {
+                        ItemCard(item: item).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                }
+            }
+            .padding(.horizontal)
+        }
+        if !showGroups.isEmpty {
+            Text("📺 Serien").font(.headline).padding(.horizontal)
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(showGroups) { group in
+                    NavigationLink(destination: PersonShowEpisodesView(group: group, personName: personName)) {
+                        PersonShowCard(group: group).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+/// Ausgegraute Kachel für einen Filmografie-Eintrag, den der Nutzer NICHT besitzt
+/// (Poster direkt von TMDB). Gegenstück zu `renderPersonFilmCard` im Browser.
+private struct PersonMissingCard: View {
+    let credit: PersonCredit
+
+    private var posterURL: URL? {
+        guard let p = credit.posterPath, !p.isEmpty else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/w342\(p)")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            PosterImage(url: posterURL, placeholderSystemImage: credit.mediaType == "tv" ? "tv" : "film")
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .top) {
+                    Text("nicht vorhanden")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(6)
+                }
+            Text(credit.title)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(2)
+            if let y = credit.year, y > 0 {
+                Text(String(y)).font(.caption).foregroundStyle(.secondary)
+            }
+            if let c = credit.character, !c.isEmpty {
+                Text(c).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .opacity(0.5)
+        .grayscale(0.6)
+        .contentShape(Rectangle())
     }
 }
 

@@ -351,6 +351,32 @@ public struct CastMember: Decodable, Identifiable, Hashable {
     public var id: Int64 { personId }
 }
 
+/// Bio-Daten + volle Filmografie einer Person (`GET /api/person/{tmdbId}`,
+/// serverseitig aus TMDB `combined_credits` zusammengesetzt).
+public struct PersonDetails: Decodable {
+    public let tmdbId: Int64
+    public let name: String
+    public let biography: String?
+    public let birthday: String?
+    public let deathday: String?
+    public let placeOfBirth: String?
+    public let knownForDepartment: String?
+    public let profilePath: String?
+    public let filmography: [PersonCredit]
+}
+
+public struct PersonCredit: Decodable, Identifiable, Hashable {
+    public let tmdbId: Int64
+    public let mediaType: String   // "movie" | "tv"
+    public let title: String
+    public let year: Int?
+    public let character: String?
+    public let posterPath: String?
+    public let popularity: Double?
+
+    public var id: String { "\(mediaType):\(tmdbId)" }
+}
+
 // MARK: - Collections
 
 public struct Collection: Decodable, Identifiable, Hashable {
