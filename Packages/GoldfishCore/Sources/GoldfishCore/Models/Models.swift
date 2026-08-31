@@ -487,12 +487,47 @@ public struct MediaStream: Codable, Hashable {
     public var detailLabel: String {
         var parts = [languageLabel]
         if let t = title, !t.isEmpty { parts.append(t) }
-        if let c = codec, !c.isEmpty { parts.append(c.uppercased()) }
+        if let c = codec, !c.isEmpty, c != "webvtt-ocr", c != "webvtt-generated" { parts.append(c.uppercased()) }
         let ch = channelsLabel
         if !ch.isEmpty { parts.append(ch) }
         if isDefault == true { parts.append("Standard") }
         if isForced == true { parts.append("Forced") }
         return parts.joined(separator: " · ")
+    }
+
+    /// Nur unsere serverseitig erzeugten, einblendbaren Text-Untertitel
+    /// (📝 OCR / 🎤 KI) — Bild-Untertitel (PGS/VOBSUB) sind nicht darstellbar.
+    public var isDisplayableGeneratedSub: Bool {
+        codec == "webvtt-ocr" || codec == "webvtt-generated"
+    }
+
+    /// Als `PreferredSubtitle` für die Player-Vorwahl. nil, wenn kein
+    /// einblendbarer erzeugter Untertitel.
+    public var asPreferredSubtitle: PreferredSubtitle? {
+        guard isDisplayableGeneratedSub else { return nil }
+        return PreferredSubtitle(
+            streamIndex: index,
+            kind: codec == "webvtt-ocr" ? "ocr" : "generated",
+            language: language ?? "de"
+        )
+    }
+}
+
+/// Untertitel-Vorwahl aus dem Detail-Dialog, an den Player durchgereicht.
+public struct PreferredSubtitle: Equatable, Hashable {
+    public let streamIndex: Int
+    public let kind: String   // "ocr" | "generated"
+    public let language: String
+    public init(streamIndex: Int, kind: String, language: String) {
+        self.streamIndex = streamIndex
+        self.kind = kind
+        self.language = language
+    }
+    /// Server-Pfad zur WebVTT-Datei.
+    public func vttPath(itemID: Int64) -> String {
+        kind == "ocr"
+            ? "/api/ocr-subtitle/\(itemID)/\(language).vtt"
+            : "/api/generated-subtitle/\(itemID)/\(language).vtt"
     }
 }
 

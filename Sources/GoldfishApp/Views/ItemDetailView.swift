@@ -29,6 +29,9 @@ struct ItemDetailView: View {
     /// weil die Grid-Liste (`fetchItems`) keine `streams` mitliefert, nur
     /// `GET /api/items/{id}` (Server: `GetItemFor` → `ItemStreams`).
     @State private var streams: [MediaStream] = []
+    /// Ton-/Untertitel-Vorwahl aus den Dropdowns oben — an den Player weitergereicht.
+    @State private var pickedAudioIndex: Int? = nil
+    @State private var pickedSubtitle: PreferredSubtitle? = nil
 
     init(item: Item, queue: [Item] = []) {
         self.item = item
@@ -109,26 +112,32 @@ struct ItemDetailView: View {
                 }
 
                 let audioStreams = streams.filter { $0.type == "audio" }
-                let subStreams = streams.filter { $0.type == "subtitle" }
+                // Nur einblendbare Untertitel (von uns erzeugt: 📝 OCR / 🎤 KI) —
+                // Bitmap-Spuren (PGS/VOBSUB) kann der Player nicht darstellen.
+                let subStreams = streams.filter { $0.type == "subtitle" && $0.isDisplayableGeneratedSub }
                 if !audioStreams.isEmpty || !subStreams.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if !audioStreams.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("🔊 Tonspuren (\(audioStreams.count))")
-                                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if audioStreams.count > 1 {
+                            Picker("🔊 Tonspur", selection: $pickedAudioIndex) {
                                 ForEach(audioStreams, id: \.index) { s in
-                                    Text(s.detailLabel).font(.caption)
+                                    Text(s.detailLabel).tag(Int?.some(s.index))
                                 }
                             }
+                            .font(.caption)
+                        } else if let only = audioStreams.first {
+                            Text("🔊 \(only.detailLabel)")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         if !subStreams.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("💬 Untertitel (\(subStreams.count))")
-                                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                            Picker("💬 Untertitel", selection: $pickedSubtitle) {
+                                Text("— Aus —").tag(PreferredSubtitle?.none)
                                 ForEach(subStreams, id: \.index) { s in
-                                    Text(s.detailLabel).font(.caption)
+                                    if let ps = s.asPreferredSubtitle {
+                                        Text(s.detailLabel).tag(PreferredSubtitle?.some(ps))
+                                    }
                                 }
                             }
+                            .font(.caption)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,12 +220,12 @@ struct ItemDetailView: View {
         #if os(macOS)
         .onChange(of: showPlayer) { newValue in
             guard newValue else { return }
-            PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning), openWindow: openWindow)
+            PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle), openWindow: openWindow)
             showPlayer = false
         }
         #else
         .fullScreenCoverCompat(isPresented: $showPlayer) {
-            PlayerView(item: selectedItem, queue: queue, startFromBeginning: startFromBeginning)
+            PlayerView(item: selectedItem, queue: queue, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle)
         }
         #endif
         .confirmationDialog("Wiedergabe fortsetzen?", isPresented: $showResumePrompt, titleVisibility: .visible) {
@@ -305,9 +314,17 @@ struct ItemDetailView: View {
     }
 
     private func loadStreams(for id: Int64) async {
-        if let full = try? await client.fetchItem(id: id) {
+        // `/api/playback/{id}` statt `/api/items/{id}` — nur der Playback-Endpoint
+        // liefert auch die von uns erzeugten Untertitel (📝 OCR / 🎤 KI) mit,
+        // gleiches Verhalten wie der Browser-Detail-Dialog.
+        if let pb = try? await client.playback(itemId: id) {
+            streams = pb.streams ?? []
+        } else if let full = try? await client.fetchItem(id: id) {
             streams = full.streams ?? []
         }
+        pickedSubtitle = nil
+        let audio = streams.filter { $0.type == "audio" }
+        pickedAudioIndex = audio.first(where: { $0.isDefault == true })?.index ?? audio.first?.index
     }
 }
 

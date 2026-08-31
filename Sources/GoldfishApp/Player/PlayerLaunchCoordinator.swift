@@ -61,6 +61,9 @@ struct PlayerLaunchRequest: Identifiable {
     let queueIndex: Int?
     let randomContext: RandomContext?
     let startFromBeginning: Bool
+    /// Ton-/Untertitel-Vorwahl aus dem Detail-Dialog.
+    var preferredAudioIndex: Int? = nil
+    var preferredSubtitle: PreferredSubtitle? = nil
 }
 
 struct LocalPlayerLaunchRequest: Identifiable {

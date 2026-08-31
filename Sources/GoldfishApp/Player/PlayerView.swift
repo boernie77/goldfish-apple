@@ -22,6 +22,13 @@ struct RandomContext {
     let search: String?
 }
 
+/// Ein Untertitel-Cue aus einer WebVTT-Datei (absolute Filmzeit in Sekunden).
+struct SubtitleCue: Equatable {
+    let start: Double
+    let end: Double
+    let text: String
+}
+
 struct PlayerView: View {
     /// Optional sibling list the item was opened from (a folder's items, a season's
     /// episodes, a home row, …) — powers the ⏮/⏭ buttons. Empty/absent when opened
@@ -32,6 +39,9 @@ struct PlayerView: View {
     /// `ItemDetailView`'s play-resume prompt) and the user chose to restart — skips the
     /// resume-position lookup in `setUp()` entirely instead of fetching it and ignoring it.
     let startFromBeginning: Bool
+    /// Ton-/Untertitel-Vorwahl aus dem Detail-Dialog (Dropdowns dort).
+    let preferredAudioIndex: Int?
+    let preferredSubtitle: PreferredSubtitle?
     @State private var queueIndex: Int
     @State private var item: Item
     // History of visited items while in random mode — mirrors the web app's
@@ -104,6 +114,12 @@ struct PlayerView: View {
     @State private var transcodeAudioTracks: [MediaStream] = []
     @State private var selectedTranscodeAudioIndex: Int?
 
+    /// Untertitel-Overlay: geparste Cues aus der erzeugten WebVTT (📝 OCR /
+    /// 🎤 KI). Der Server liefert absolute Filmzeit-Stempel; `currentTime` ist
+    /// hier ebenfalls absolut (virtualOffset schon eingerechnet) → kein Shift.
+    @State private var subtitleCues: [SubtitleCue] = []
+    @State private var subtitlesOn = false
+
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
     /// User-Anfrage 2026-08-19: Favoriten- und Playlist-Symbol auch im Steuerfeld —
@@ -133,11 +149,14 @@ struct PlayerView: View {
     @State private var hasSizedWindowToVideo = false
     #endif
 
-    init(item: Item, queue: [Item] = [], queueIndex: Int? = nil, randomContext: RandomContext? = nil, startFromBeginning: Bool = false) {
+    init(item: Item, queue: [Item] = [], queueIndex: Int? = nil, randomContext: RandomContext? = nil, startFromBeginning: Bool = false,
+         preferredAudioIndex: Int? = nil, preferredSubtitle: PreferredSubtitle? = nil) {
         _item = State(initialValue: item)
         self.queue = queue
         self.randomContext = randomContext
         self.startFromBeginning = startFromBeginning
+        self.preferredAudioIndex = preferredAudioIndex
+        self.preferredSubtitle = preferredSubtitle
         _queueIndex = State(initialValue: queueIndex ?? queue.firstIndex(where: { $0.id == item.id }) ?? 0)
         _randomHistory = State(initialValue: randomContext != nil ? [item] : [])
     }
@@ -192,6 +211,25 @@ struct PlayerView: View {
                 ProgressView().tint(.white)
             }
             #endif
+
+            // Untertitel-Overlay (WebVTT-Cues, siehe loadSubtitleCues). Rückt
+            // hoch, wenn die Steuerleiste sichtbar ist, damit sie nicht überdeckt.
+            if let cue = activeSubtitleText {
+                VStack {
+                    Spacer()
+                    Text(cue)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .shadow(color: .black.opacity(0.9), radius: 3, x: 0, y: 1)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.bottom, controlsVisible ? 96 : 44)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
 
             VStack {
                 // Real bug hit 2026-08-19 (User-Anfrage): das obere Schließen-Kreuz ist jetzt
@@ -257,7 +295,10 @@ struct PlayerView: View {
                             onSelectAudioOption: selectAudioOption,
                             transcodeAudioTracks: transcodeAudioTracks,
                             selectedTranscodeAudioIndex: selectedTranscodeAudioIndex,
-                            onSelectTranscodeAudio: selectTranscodeAudio
+                            onSelectTranscodeAudio: selectTranscodeAudio,
+                            hasSubtitles: !subtitleCues.isEmpty,
+                            subtitlesOn: subtitlesOn,
+                            onToggleSubtitles: { subtitlesOn.toggle(); resetAutoHide() }
                         )
                     }
                     .padding(.bottom, 24)
@@ -535,6 +576,60 @@ struct PlayerView: View {
         restartTranscodeSession(atAbsolute: currentTime)
     }
 
+    // MARK: - Untertitel-Overlay (WebVTT)
+
+    /// Der aktuell aktive Untertitel-Text (Cue mit start ≤ currentTime ≤ end).
+    private var activeSubtitleText: String? {
+        guard subtitlesOn, !subtitleCues.isEmpty else { return nil }
+        return subtitleCues.first(where: { currentTime >= $0.start && currentTime <= $0.end })?.text
+    }
+
+    /// Lädt die erzeugte WebVTT (📝 OCR / 🎤 KI), parst sie und aktiviert das Overlay.
+    private func loadSubtitleCues(_ pref: PreferredSubtitle) async {
+        let path = pref.vttPath(itemID: item.id)
+        guard let vtt = try? await client.fetchText(serverPath: path) else {
+            subtitleCues = []
+            subtitlesOn = false
+            return
+        }
+        let cues = Self.parseVTT(vtt)
+        subtitleCues = cues
+        subtitlesOn = !cues.isEmpty
+    }
+
+    static func parseVTT(_ raw: String) -> [SubtitleCue] {
+        var text = raw
+        if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
+        text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var out: [SubtitleCue] = []
+        for block in text.components(separatedBy: "\n\n") {
+            let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            guard let tIdx = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let parts = lines[tIdx].components(separatedBy: "-->")
+            guard parts.count == 2,
+                  let start = parseVTTTimestamp(parts[0]),
+                  let end = parseVTTTimestamp(parts[1]) else { continue }
+            let body = lines[(tIdx + 1)...]
+                .joined(separator: "\n")
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !body.isEmpty {
+                out.append(SubtitleCue(start: start, end: end, text: body))
+            }
+        }
+        return out
+    }
+
+    static func parseVTTTimestamp(_ s: String) -> Double? {
+        let token = s.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) ?? ""
+        let comps = token.replacingOccurrences(of: ",", with: ".").split(separator: ":").map { Double($0) ?? 0 }
+        switch comps.count {
+        case 3: return comps[0] * 3600 + comps[1] * 60 + comps[2]
+        case 2: return comps[0] * 60 + comps[1]
+        default: return nil
+        }
+    }
+
     private func setUp() async {
         errorMessage = nil
         isTranscode = false
@@ -547,6 +642,8 @@ struct PlayerView: View {
         hasMarkedWatchedThisSession = false
         trickplayCues = []
         trickplaySprite = nil
+        subtitleCues = []
+        subtitlesOn = false
         // Bei jedem Item-Wechsel (⏮/⏭) zurück auf Server-Default; sonst würde die
         // Audiospur-Wahl vom vorigen Video auf ein Item mit ganz anderer
         // Stream-Reihenfolge übertragen.
@@ -588,11 +685,20 @@ struct PlayerView: View {
             transcodeURLTemplate = isTranscode ? playback.url : nil
 
             // Tonspur-Auswahl (nur Transcode): alle Quell-Audiospuren vom Server
-            // übernehmen; Startwahl = die als default markierte, sonst die erste.
+            // übernehmen; Startwahl = Vorwahl aus dem Detail-Dialog, sonst die
+            // als default markierte, sonst die erste.
             if isTranscode {
                 transcodeAudioTracks = (playback.streams ?? []).filter { $0.type == "audio" }
-                selectedTranscodeAudioIndex = transcodeAudioTracks.first(where: { $0.isDefault == true })?.index
-                    ?? transcodeAudioTracks.first?.index
+                if let pref = preferredAudioIndex, transcodeAudioTracks.contains(where: { $0.index == pref }) {
+                    selectedTranscodeAudioIndex = pref
+                } else {
+                    selectedTranscodeAudioIndex = transcodeAudioTracks.first(where: { $0.isDefault == true })?.index
+                        ?? transcodeAudioTracks.first?.index
+                }
+            }
+            // Untertitel-Vorwahl aus dem Detail-Dialog laden (WebVTT-Overlay).
+            if let ps = preferredSubtitle {
+                await loadSubtitleCues(ps)
             }
 
             let startAt = resumeSec > 5 ? resumeSec : 0
@@ -889,6 +995,11 @@ private struct PlayerControlsBar: View {
     var transcodeAudioTracks: [MediaStream] = []
     var selectedTranscodeAudioIndex: Int? = nil
     var onSelectTranscodeAudio: ((Int) -> Void)? = nil
+    /// Untertitel-Einblendung (WebVTT-Overlay). Button erscheint nur, wenn Cues
+    /// geladen sind (Vorwahl aus dem Detail-Dialog, siehe `PlayerView.loadSubtitleCues`).
+    var hasSubtitles: Bool = false
+    var subtitlesOn: Bool = false
+    var onToggleSubtitles: (() -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -1006,6 +1117,12 @@ private struct PlayerControlsBar: View {
                             }
                         } label: {
                             Image(systemName: "waveform")
+                        }
+                    }
+                    if hasSubtitles, let onToggleSubtitles {
+                        Button(action: onToggleSubtitles) {
+                            Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
                         }
                     }
                     if let onToggleFullScreen {

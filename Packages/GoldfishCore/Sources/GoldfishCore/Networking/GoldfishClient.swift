@@ -140,6 +140,13 @@ public final class GoldfishClient: ObservableObject {
         return data
     }
 
+    /// Roher Text einer Server-Ressource (authentifiziert) — z.B. eine
+    /// WebVTT-Untertitel-Datei für den Player-Overlay.
+    public func fetchText(serverPath: String) async throws -> String {
+        let data = try await performRaw(serverPath)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     private func performVoid(_ path: String, method: String = "PUT", query: [URLQueryItem] = [], jsonBody: Data? = nil) async throws {
         var req = URLRequest(url: try makeURL(path, query: query))
         req.httpMethod = method
