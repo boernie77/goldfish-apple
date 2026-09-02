@@ -30,8 +30,12 @@ targets:
         # `xcodegen generate` setzt CFBundleVersion in der plist-Datei sonst auf
         # "1" zurück (2026-08-28 passiert). Bump-Punkt für den informellen
         # Build-Zähler ist ab jetzt diese Zeile.
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "180"
+        # User-Anfrage 2026-09-02: "ab sofort eine Versionsnummer im Menü ...
+        # bei jedem Build um x.1 erhöhen" — ersetzt den bisherigen informellen
+        # "Build NNNN"-Zähler (siehe Memory feedback_apple_versioning). Nächster
+        # Bump: 0.1 → 0.2 → 0.3 … Sichtbar in Settings → Account → "Version".
+        CFBundleShortVersionString: "0.8"
+        CFBundleVersion: "181"
     # App Sandbox intentionally OFF (2026-08-19) — see GoldfishMac.entitlements for the
     # full story: Security-Scoped-Bookmarks failed unpredictably even for internal APFS
     # folders under a free "Personal Team" signature, not just exFAT USB-sticks. Goldfish
@@ -44,7 +48,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.mac
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "0.8"
         CURRENT_PROJECT_VERSION: "155"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
@@ -55,7 +59,7 @@ targets:
         # xcodebuild-CLI kann mit dieser Free-Personal-Team-ID trotzdem nicht
         # automatisch signieren (kein Account-Zugriff außerhalb der Xcode-GUI) —
         # der signierte Build läuft über Xcode (⌘R / Product ▸ Archive).
-        DEVELOPMENT_TEAM: F95969PBFU
+        DEVELOPMENT_TEAM: Y83997R5WL
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -71,8 +75,9 @@ targets:
       path: Sources/GoldfishApp/Resources/Info-iOS.plist
       properties:
         CFBundleDisplayName: Goldfish
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "180"
+        # Siehe Kommentar beim GoldfishMac-Target: 0.1 → 0.2 → 0.3 … bei jedem Build.
+        CFBundleShortVersionString: "0.8"
+        CFBundleVersion: "181"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -85,11 +90,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.ios
-        MARKETING_VERSION: "0.1"
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
+        MARKETING_VERSION: "0.8"
         CURRENT_PROJECT_VERSION: "155"
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: F95969PBFU  # siehe Kommentar beim GoldfishMac-Target
+        DEVELOPMENT_TEAM: Y83997R5WL  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"

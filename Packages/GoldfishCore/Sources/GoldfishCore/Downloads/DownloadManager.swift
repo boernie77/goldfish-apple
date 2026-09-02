@@ -124,6 +124,7 @@ public final class DownloadManager: NSObject, ObservableObject {
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
 
         loadIndex()
+        cleanupOrphanedStagedFiles()
 
         // A stored bookmark can resolve without throwing (`resolveBookmarkedDirectory`
         // above) yet still not be genuinely writable — e.g. after switching this build
@@ -686,9 +687,45 @@ public final class DownloadManager: NSObject, ObservableObject {
         if let cachedPoster = cachedPosterURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: cachedPoster)
         }
+        // Bug 2026-09-02 (User: "Downloads gelöscht, aber kaum Speicher frei"):
+        // ein fehlgeschlagener Download (Netzwerkabbruch) bekommt von Foundation
+        // `resumeData` mit — die referenziert eine vom SYSTEM verwaltete
+        // Teil-Datei irgendwo in den App-Caches (siehe `didCompleteWithError`).
+        // Wirft man nur das `Data`-Objekt weg (bisher: `removeRecord` +
+        // `saveIndex`), bleibt diese Teil-Datei für IMMER auf dem Gerät liegen
+        // — bei Videos potenziell hunderte MB bis mehrere GB PRO gelöschtem
+        // fehlgeschlagenen Download. Der einzige dokumentierte Weg, iOS zur
+        // Freigabe zu bewegen: die resumeData in einen neuen Task packen und
+        // den sofort wieder (ohne erneut resumeData zu erzeugen) abbrechen.
+        if let resumeData = records[itemId]?.resumeData {
+            session.downloadTask(withResumeData: resumeData).cancel()
+        }
         clearSpeedSample(itemId: itemId)
         removeRecord(itemId: itemId)
         saveIndex()
+    }
+
+    /// Räumt eigene, verwaiste Staging-Dateien (`goldfish-dl-<id>.tmp` in
+    /// `NSTemporaryDirectory()`) auf — bleiben liegen, wenn ein fertig
+    /// heruntergeladenes Video NICHT ins Zielverzeichnis verschoben werden
+    /// konnte (z.B. Custom-Ordner + Default-Fallback beide fehlgeschlagen,
+    /// siehe `didFinishDownloadingTo`-Catch-Block) und der User den
+    /// fehlgeschlagenen Download danach löscht statt erneut zu versuchen.
+    /// Läuft einmal beim App-Start; nur Dateien mit UNSEREM eigenen
+    /// Namensschema werden angefasst, nichts Systemfremdes.
+    private func cleanupOrphanedStagedFiles() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil) else { return }
+        for url in files where url.lastPathComponent.hasPrefix("goldfish-dl-") && url.pathExtension == "tmp" {
+            let idPart = url.lastPathComponent
+                .replacingOccurrences(of: "goldfish-dl-", with: "")
+                .replacingOccurrences(of: ".tmp", with: "")
+            // Nur löschen, wenn kein aktiver Task mehr für dieses Item existiert
+            // (Start läuft ohnehin vor jedem Netzwerk-Setup, `tasks` ist zu
+            // diesem Zeitpunkt immer leer — die Prüfung ist defensiv/zukunftssicher).
+            if let id = Int64(idPart), tasks[id] != nil { continue }
+            try? fm.removeItem(at: url)
+        }
     }
 
     /// User-Anfrage 2026-08-26: "bei den Downloads auch einen Button, der alle Downloads
@@ -841,10 +878,15 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
                     } else {
                         rec.state = .failed
                         rec.errorMessage = error.localizedDescription
+                        // Beide Ziele fehlgeschlagen — die VOLLSTÄNDIG heruntergeladene
+                        // Datei bliebe sonst für immer in NSTemporaryDirectory() liegen
+                        // (kein `resumeData`-Fall, das komplette Video liegt bereits da).
+                        try? fm.removeItem(at: stagedURL)
                     }
                 } else {
                     rec.state = .failed
                     rec.errorMessage = error.localizedDescription
+                    try? fm.removeItem(at: stagedURL)
                 }
             }
             self.setRecord(rec)

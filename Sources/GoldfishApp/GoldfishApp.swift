@@ -7,6 +7,11 @@ struct GoldfishApp: App {
     @StateObject private var downloads = DownloadManager.shared
     @StateObject private var localLibrary = LocalLibraryManager.shared
     @StateObject private var shuffleScope = ShuffleScope.shared
+    // User-Anfrage 2026-09-02: Dark-Mode-Wahlschalter im Settings-Menü — hier auf App-Ebene
+    // angewendet, damit er ausnahmslos jede Szene trifft (Haupt-Fenster UND die separaten
+    // Player-`WindowGroup`s auf macOS).
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
+    private var preferredColorScheme: ColorScheme? { AppAppearance(rawValue: appearanceRaw)?.colorScheme }
     #if os(macOS)
     @StateObject private var transcode = LocalTranscodeService.shared
     @StateObject private var playerLaunch = PlayerLaunchCoordinator.shared
@@ -23,6 +28,7 @@ struct GoldfishApp: App {
                 #if os(macOS)
                 .environmentObject(transcode)
                 #endif
+                .preferredColorScheme(preferredColorScheme)
         }
 
         // Real bug hit 2026-08-19: the player was presented as a `.sheet` on macOS, and
@@ -50,6 +56,7 @@ struct GoldfishApp: App {
                     .environmentObject(transcode)
                     .frame(minWidth: 900, minHeight: 560)
                     .id(request.id)
+                    .preferredColorScheme(preferredColorScheme)
             }
         }
 
@@ -60,6 +67,7 @@ struct GoldfishApp: App {
                     .environmentObject(transcode)
                     .frame(minWidth: 900, minHeight: 560)
                     .id(request.id)
+                    .preferredColorScheme(preferredColorScheme)
             }
         }
         #endif

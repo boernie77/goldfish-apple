@@ -508,6 +508,18 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/items/\(itemId)/favorite", method: "PUT", jsonBody: body)
     }
 
+    // MARK: - Eigenes Passwort ändern
+
+    /// Ändert das Passwort des aktuell angemeldeten Users. Der Server prüft
+    /// `oldPassword` gegen den gespeicherten Hash (403 bei falschem Passwort)
+    /// und verlangt `newPassword` >= 6 Zeichen (400 sonst) — beide Fehler
+    /// kommen über `GoldfishError.server` mit dem Server-Text direkt
+    /// verwendbar in der UI an (siehe `errorDescription`).
+    public func changePassword(oldPassword: String, newPassword: String) async throws {
+        let body = try JSONEncoder().encode(["oldPassword": oldPassword, "newPassword": newPassword])
+        try await performVoid("/api/auth/password", method: "PUT", jsonBody: body)
+    }
+
     // MARK: - Trickplay (Hover-Vorschau im Player)
 
     /// Lädt + parst das VTT-Manifest. Wirft nicht bei fehlenden Trickplay-Daten (404 vom

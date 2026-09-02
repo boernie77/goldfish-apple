@@ -111,7 +111,7 @@ struct ItemGridView: View {
                 .focusableCompat(false)
             }
             ForEach(displayedItems) { item in
-                NavigationLink(destination: ItemDetailView(item: item, queue: items)) {
+                NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
                     ItemCard(item: item)
                         .frame(width: cardWidth)
                 }
@@ -171,6 +171,9 @@ struct ItemGridView: View {
         .navigationTitle(folder?.components(separatedBy: "/").last ?? library.name)
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(item: item)
+        }
+        .navigationDestination(for: ItemNavTarget.self) { target in
+            ItemDetailView(item: target.item, queue: target.queue)
         }
         .navigationDestination(for: FolderDestination.self) { dest in
             destinationView(for: dest)
@@ -264,6 +267,15 @@ struct ItemGridView: View {
                         Label("Nur Favoriten", systemImage: favoritesOnly ? "heart.fill" : "heart")
                     }
                     Divider()
+                    // User-Anfrage 2026-09-02: "Auflösungen müssen eingerückt werden, damit
+                    // es zum Rest passt" — `Label(_, systemImage: "")` (leerer String bei
+                    // nicht ausgewählten Buckets) reserviert bei iOS' Menu-Rendering KEINEN
+                    // Icon-Platz, während Zeilen mit echtem "checkmark" eingerückt werden.
+                    // Ist zu Beginn (kein Bucket gewählt) KEIN einziger Eintrag markiert,
+                    // rutscht die GESAMTE Sektion bündig nach links, während Sortieren/
+                    // Gesehen-Filter (immer genau ein aktiver Eintrag) das Icon-Gutter schon
+                    // verankert haben. Fix: Checkmark-Icon bleibt immer im Layout, wird nur
+                    // per Opacity aus-/eingeblendet — reserviert den Platz garantiert.
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
@@ -272,7 +284,11 @@ struct ItemGridView: View {
                                 selectedBuckets.insert(bucket)
                             }
                         } label: {
-                            Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark" : "")
+                            HStack {
+                                Image(systemName: "checkmark")
+                                    .opacity(selectedBuckets.contains(bucket) ? 1 : 0)
+                                Text(bucket.label)
+                            }
                         }
                     }
                     Divider()

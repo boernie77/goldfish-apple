@@ -34,7 +34,7 @@ struct PlaylistsView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(filteredPlaylists) { playlist in
-                            NavigationLink(destination: PlaylistDetailView(playlist: playlist, onDeleted: { Task { await load() } })) {
+                            NavigationLink(value: playlist) {
                                 PlaylistCard(playlist: playlist)
                             }
                             .buttonStyle(.plain)
@@ -46,6 +46,12 @@ struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
+        .navigationDestination(for: Playlist.self) { playlist in
+            PlaylistDetailView(playlist: playlist, onDeleted: { Task { await load() } })
+        }
+        .navigationDestination(for: ItemNavTarget.self) { target in
+            ItemDetailView(item: target.item, queue: target.queue)
+        }
         #if os(iOS)
         .searchable(text: $search, prompt: "Suchen")
         #endif
@@ -199,7 +205,7 @@ struct PlaylistDetailView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(items) { item in
-                            NavigationLink(destination: ItemDetailView(item: item, queue: items)) {
+                            NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
                                 ItemCard(item: item)
                                     .frame(width: cardWidth)
                             }

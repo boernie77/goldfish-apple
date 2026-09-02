@@ -29,7 +29,7 @@ struct CastStripView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(cast) { member in
-                                NavigationLink(destination: PersonItemsView(personTmdbId: member.tmdbId, personName: member.name)) {
+                                NavigationLink(value: PersonRef(tmdbId: member.tmdbId, name: member.name)) {
                                     VStack(spacing: 6) {
                                         PosterImage(url: tmdbImageURL(member.profilePath, size: "w185"), aspect: 1, placeholderSystemImage: "person.fill")
                                             .clipShape(Circle())

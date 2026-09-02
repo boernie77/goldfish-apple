@@ -136,6 +136,25 @@ struct MainTabView: View {
     // tab that's already active, which a plain `@State` + `.onChange` would miss (onChange
     // only fires when the new value actually differs from the old one).
     @State private var librariesPath = NavigationPath()
+    // User-Anfrage 2026-09-02: "wenn ich wo reingehe, komme ich nirgends zurück" — der
+    // Goldfish-Kopfbereich unten (`.safeAreaInset`) lag als eigene Ebene ÜBER dem TabView und
+    // hat auf dem iPhone offenbar die native Zurück-Leiste jeder gepushten Ansicht verdeckt
+    // (Home/Downloads/Settings hatten dafür bis eben nicht mal einen von außen sichtbaren
+    // Navigationspfad). Fix: jeder Tab bekommt jetzt einen eigenen `NavigationPath`, und der
+    // Kopfbereich blendet sich aus, sobald der aktive Tab nicht mehr an seiner Wurzel steht —
+    // dann ist der Weg für die normale System-Zurück-Leiste frei.
+    @State private var homePath = NavigationPath()
+    @State private var downloadsPath = NavigationPath()
+    @State private var settingsPath = NavigationPath()
+
+    private var isAtTabRoot: Bool {
+        switch selectedTab {
+        case .home: return homePath.isEmpty
+        case .libraries: return librariesPath.isEmpty
+        case .downloads: return downloadsPath.isEmpty
+        case .settings: return settingsPath.isEmpty
+        }
+    }
 
     var body: some View {
         // Explicit expansion: a TabView's tab content doesn't always stretch to fill the
@@ -149,7 +168,7 @@ struct MainTabView: View {
                 if newValue == .libraries { librariesPath = NavigationPath() }
             }
         )) {
-            HomeView()
+            HomeView(path: $homePath)
                 .tabItem { Label("Start", systemImage: "house") }
                 .tag(MainTab.home)
 
@@ -157,11 +176,11 @@ struct MainTabView: View {
                 .tabItem { Label("Bibliotheken", systemImage: "books.vertical") }
                 .tag(MainTab.libraries)
 
-            DownloadsView()
+            DownloadsView(path: $downloadsPath)
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
                 .tag(MainTab.downloads)
 
-            SettingsView()
+            SettingsView(path: $settingsPath)
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }
                 .tag(MainTab.settings)
         }
@@ -181,6 +200,25 @@ struct MainTabView: View {
             // the app actually HAS a real designed logo (`AppIcon.appiconset`), just never
             // exposed as a plain SwiftUI `Image` before now (`GoldfishLogo` imageset, same
             // artwork, added specifically for this header).
+            //
+            // User-Anfrage 2026-09-02 (iOS): dieser Kopfbereich sitzt als eigene Ebene ÜBER
+            // dem TabView und hat auf dem iPhone die native Zurück-Leiste jeder gepushten
+            // Ansicht verdeckt ("wenn ich wo reingehe, komme ich nirgends zurück") — deshalb
+            // NUR an der jeweiligen Tab-Wurzel zeigen, sobald navigiert wurde `EmptyView()`
+            // (Platz fällt weg, die System-Zurück-Leiste rutscht frei nach oben). Auf macOS
+            // gibt es dieses Bedienkonzept nicht (eigenes Fenster-Titelleisten-Verhalten,
+            // siehe Kommentar oben) — dort bleibt der Kopfbereich wie gehabt immer sichtbar.
+            #if os(iOS)
+            if isAtTabRoot {
+                goldfishHeader
+            }
+            #else
+            goldfishHeader
+            #endif
+        }
+    }
+
+    private var goldfishHeader: some View {
             HStack(spacing: 12) {
                 Image("GoldfishLogo")
                     .resizable()
@@ -194,17 +232,10 @@ struct MainTabView: View {
                     Text(username)
                         .font(.headline)
                         .foregroundStyle(.white)
-                    Button {
-                        Task { await client.logout() }
-                    } label: {
-                        Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .buttonStyle(.bordered)
                 }
             }
             .padding(.horizontal)
             .padding(.vertical, 14)
             .background(.bar)
-        }
     }
 }

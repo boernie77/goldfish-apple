@@ -232,43 +232,34 @@ struct PlayerView: View {
             }
 
             VStack {
-                // Real bug hit 2026-08-19 (User-Anfrage): das obere Schließen-Kreuz ist jetzt
-                // redundant (auch im Steuerfeld) — entfernt, die Top-Bar existiert nur noch
-                // als Platzhalter für den Titelbalken-Abstand.
-                Color.clear.frame(height: 1).padding(.top, 28)
+                // User-Anfrage 2026-09-02: Titel/Auflösung lagen unten links direkt neben
+                // dem Steuerfeld und kollidierten dort im Hochkantformat (schmale Breite)
+                // damit — jetzt eigener Block oben links, komplett getrennt vom Steuerfeld.
+                if player != nil {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let currentResolutionLabel {
+                                Text(currentResolutionLabel)
+                                    .font(.caption2.bold())
+                            }
+                            Text(item.displayTitle)
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 3)
+                        .frame(maxWidth: 320, alignment: .leading)
+                        Spacer()
+                    }
+                    .padding(.leading, 20)
+                    .padding(.top, 28)
+                } else {
+                    Color.clear.frame(height: 1).padding(.top, 28)
+                }
                 Spacer()
                 if player != nil {
-                    // Real bug hit 2026-08-19 (User-Anfrage): die vorherige Version schob
-                    // das GANZE Paar (Steuerfeld + Info) mit nur einem linken Spacer nach
-                    // rechts, statt das Steuerfeld selbst zentriert zu lassen — dadurch war
-                    // das Steuerfeld nicht mehr in der Bildschirmmitte, UND Auflösung/Titel
-                    // standen übereinander statt nebeneinander zu passen. Fix: `ZStack` mit
-                    // Standard-`.center`-Ausrichtung hält `PlayerControlsBar` exakt so
-                    // zentriert wie ursprünglich; der Info-Block liegt in einer EIGENEN,
-                    // volle-Breite-HStack-Schicht links verankert (`.padding(.leading, 40)`
-                    // + `frame(maxWidth: 320)`), kann das Steuerfeld dadurch nie überlappen,
-                    // egal wie breit das Fenster ist. Dateiname kürzt bei Überlänge mit "…"
-                    // (`lineLimit(1)` + `truncationMode(.tail)`) statt ins Steuerfeld zu ragen.
-                    ZStack {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let currentResolutionLabel {
-                                    Text(currentResolutionLabel)
-                                        .font(.caption2.bold())
-                                }
-                                Text(item.displayTitle)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.6), radius: 3)
-                            .frame(maxWidth: 320, alignment: .leading)
-                            .padding(.leading, 40)
-                            Spacer()
-                        }
-
-                        PlayerControlsBar(
+                    PlayerControlsBar(
                             isPlaying: $isPlaying,
                             currentTime: $currentTime,
                             duration: duration,
@@ -300,8 +291,7 @@ struct PlayerView: View {
                             subtitlesOn: subtitlesOn,
                             onToggleSubtitles: { subtitlesOn.toggle(); resetAutoHide() }
                         )
-                    }
-                    .padding(.bottom, 24)
+                        .padding(.bottom, 24)
                 }
             }
             .opacity(controlsVisible ? 1 : 0)
@@ -1003,6 +993,13 @@ private struct PlayerControlsBar: View {
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
+    // User-Anfrage 2026-09-02: im iPhone-Hochkantformat war die Leiste (fixe
+    // 40pt-Außenpolsterung + volle Lautstärke-Slider-Breite) zu breit fürs
+    // schmale Fenster und lief über/quetschte Icons. `horizontalSizeClass`
+    // ist auf iPhones in Hoch- UND Querformat `.compact`, auf iPad/Mac
+    // `.regular` — kompakte Werte greifen also gezielt auf dem iPhone.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -1022,8 +1019,8 @@ private struct PlayerControlsBar: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white)
 
-            HStack(spacing: 16) {
-                HStack(spacing: 12) {
+            HStack(spacing: isCompact ? 8 : 16) {
+                HStack(spacing: isCompact ? 6 : 12) {
                     if let onClose {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -1043,15 +1040,20 @@ private struct PlayerControlsBar: View {
                                 .font(.caption)
                         }
                         .buttonStyle(.plain)
-                        Slider(value: Binding(get: { volume }, set: { volume = $0; onVolumeChange($0) }), in: 0...1)
-                            .frame(width: 60)
+                        // Auf dem iPhone hat das Steuerfeld im Hochkantformat zu wenig Platz
+                        // für den Slider (iOS hat ohnehin Hardware-Lautstärketasten) — nur
+                        // der Mute-Button bleibt, Regler nur auf breiteren Screens (iPad/Mac).
+                        if !isCompact {
+                            Slider(value: Binding(get: { volume }, set: { volume = $0; onVolumeChange($0) }), in: 0...1)
+                                .frame(width: 60)
+                        }
                     }
                 }
                 .foregroundStyle(.white)
 
-                Spacer(minLength: 12)
+                Spacer(minLength: isCompact ? 6 : 12)
 
-                HStack(spacing: 18) {
+                HStack(spacing: isCompact ? 10 : 18) {
                     Button { onPrev() } label: {
                         Image(systemName: "backward.end.fill")
                     }.disabled(!hasPrev).opacity(hasPrev ? 1 : 0.35)
@@ -1073,8 +1075,8 @@ private struct PlayerControlsBar: View {
                 }
                 .font(.title3)
 
-                Spacer(minLength: 12)
-                HStack(spacing: 12) {
+                Spacer(minLength: isCompact ? 6 : 12)
+                HStack(spacing: isCompact ? 8 : 12) {
                     if let onToggleFavorite {
                         Button(action: onToggleFavorite) {
                             Image(systemName: isFavorite ? "heart.fill" : "heart")
@@ -1136,13 +1138,16 @@ private struct PlayerControlsBar: View {
             .foregroundStyle(.white)
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, isCompact ? 10 : 20)
         .padding(.vertical, 12)
         .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
         .fixedSize(horizontal: false, vertical: true) // guard against any accidental vertical stretch from the parent
         // User-Anfrage 2026-08-19: "Steuerfenster des Players ein klein wenig größer machen".
+        // User-Anfrage 2026-09-02: die feste 40pt-Außenpolsterung ließ auf dem iPhone im
+        // Hochkantformat zu wenig Breite für die Leiste übrig ("zu groß, passt nicht") —
+        // auf schmalen (compact) Screens deutlich reduziert.
         .frame(maxWidth: 560)
-        .padding(.horizontal, 40)
+        .padding(.horizontal, isCompact ? 8 : 40)
     }
 
     private func formatTime(_ seconds: Double) -> String {

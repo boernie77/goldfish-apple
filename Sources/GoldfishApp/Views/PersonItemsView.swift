@@ -151,6 +151,12 @@ struct PersonItemsView: View {
             }
         }
         .navigationTitle(personName)
+        .navigationDestination(for: ItemNavTarget.self) { target in
+            ItemDetailView(item: target.item, queue: target.queue)
+        }
+        .navigationDestination(for: PersonShowGroup.self) { group in
+            PersonShowEpisodesView(group: group, personName: personName)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if let f = personDetails?.filmography, !f.isEmpty {
@@ -206,13 +212,13 @@ struct PersonItemsView: View {
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(filmography) { cr in
                 if cr.mediaType == "movie", let owned = byMovie[cr.tmdbId] {
-                    NavigationLink(destination: ItemDetailView(item: owned, queue: movies)) {
+                    NavigationLink(value: ItemNavTarget(item: owned, queue: movies)) {
                         ItemCard(item: owned).frame(width: cardWidth)
                     }
                     .buttonStyle(.plain)
                     .focusableCompat(false)
                 } else if cr.mediaType == "tv", let owned = byShow[cr.tmdbId] {
-                    NavigationLink(destination: PersonShowEpisodesView(group: owned, personName: personName)) {
+                    NavigationLink(value: owned) {
                         PersonShowCard(group: owned).frame(width: cardWidth)
                     }
                     .buttonStyle(.plain)
@@ -223,14 +229,14 @@ struct PersonItemsView: View {
             }
             // Vorhandenes, das TMDB nicht in der Filmografie listet, nie verstecken.
             ForEach(leftoverOwnedMovies(filmography)) { item in
-                NavigationLink(destination: ItemDetailView(item: item, queue: movies)) {
+                NavigationLink(value: ItemNavTarget(item: item, queue: movies)) {
                     ItemCard(item: item).frame(width: cardWidth)
                 }
                 .buttonStyle(.plain)
                 .focusableCompat(false)
             }
             ForEach(leftoverOwnedShows(filmography)) { group in
-                NavigationLink(destination: PersonShowEpisodesView(group: group, personName: personName)) {
+                NavigationLink(value: group) {
                     PersonShowCard(group: group).frame(width: cardWidth)
                 }
                 .buttonStyle(.plain)
@@ -262,7 +268,7 @@ struct PersonItemsView: View {
             Text("🎬 Filme").font(.headline).padding(.horizontal)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(movies) { item in
-                    NavigationLink(destination: ItemDetailView(item: item, queue: movies)) {
+                    NavigationLink(value: ItemNavTarget(item: item, queue: movies)) {
                         ItemCard(item: item).frame(width: cardWidth)
                     }
                     .buttonStyle(.plain)
@@ -275,7 +281,7 @@ struct PersonItemsView: View {
             Text("📺 Serien").font(.headline).padding(.horizontal)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(showGroups) { group in
-                    NavigationLink(destination: PersonShowEpisodesView(group: group, personName: personName)) {
+                    NavigationLink(value: group) {
                         PersonShowCard(group: group).frame(width: cardWidth)
                     }
                     .buttonStyle(.plain)
@@ -325,7 +331,7 @@ private struct PersonMissingCard: View {
     }
 }
 
-struct PersonShowGroup: Identifiable {
+struct PersonShowGroup: Identifiable, Hashable {
     let key: String
     let folderName: String
     let parentId: Int64?
@@ -377,7 +383,7 @@ private struct PersonShowEpisodesView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(group.episodes) { item in
-                    NavigationLink(destination: ItemDetailView(item: item, queue: group.episodes)) {
+                    NavigationLink(value: ItemNavTarget(item: item, queue: group.episodes)) {
                         ItemCard(item: item)
                             .frame(width: cardWidth)
                     }

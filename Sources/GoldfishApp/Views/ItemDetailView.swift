@@ -116,28 +116,76 @@ struct ItemDetailView: View {
                 // Bitmap-Spuren (PGS/VOBSUB) kann der Player nicht darstellen.
                 let subStreams = streams.filter { $0.type == "subtitle" && $0.isDisplayableGeneratedSub }
                 if !audioStreams.isEmpty || !subStreams.isEmpty {
+                    // User-Anfrage 2026-09-02: "als schönes, abgegrenztes Dropdownmenü
+                    // gestalten ... Rahmen ... zwischen Tonspur und Untertitel linksbündig
+                    // ausgerichtet" — vorher waren das zwei nackte `Picker`s ohne Container,
+                    // deren blauer Menu-Style-Text mitten im Fließtext hing. `AVPickerRow`
+                    // gibt beiden Zeilen dieselbe feste Label-Breite (Icon+Titel), damit die
+                    // Werte-Spalte auf gleicher Höhe beginnt, plus einen gemeinsamen Rahmen.
                     VStack(alignment: .leading, spacing: 8) {
                         if audioStreams.count > 1 {
-                            Picker("🔊 Tonspur", selection: $pickedAudioIndex) {
-                                ForEach(audioStreams, id: \.index) { s in
-                                    Text(s.detailLabel).tag(Int?.some(s.index))
+                            AVPickerRow(icon: "🔊", label: "Tonspur") {
+                                // User-Anfrage 2026-09-02: der native `Picker` überließ die
+                                // Schriftgröße/Zeilenumbrüche iOS' Menu-Style-Rendering —
+                                // bei langen Tonspur-Labels (Sprache · Codec · Kanäle ·
+                                // Standard) brach der Text zweizeilig um und sprengte die
+                                // feste Zeilenhöhe der Reihe, dadurch stand die Beschriftung
+                                // sichtbar zu tief. Ein selbst gebautes `Menu` mit einzeiligem,
+                                // abschneidendem Label verhält sich exakt wie die (bereits
+                                // gut aussehende) Untertitel-Zeile darunter.
+                                Menu {
+                                    ForEach(audioStreams, id: \.index) { s in
+                                        Button {
+                                            pickedAudioIndex = s.index
+                                        } label: {
+                                            if s.index == pickedAudioIndex {
+                                                Label(s.detailLabel, systemImage: "checkmark")
+                                            } else {
+                                                Text(s.detailLabel)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    AVPickerValueLabel(text: selectedAudioLabel(audioStreams))
                                 }
                             }
-                            .font(.caption)
                         } else if let only = audioStreams.first {
-                            Text("🔊 \(only.detailLabel)")
-                                .font(.caption).foregroundStyle(.secondary)
+                            AVPickerRow(icon: "🔊", label: "Tonspur") {
+                                Text(only.detailLabel)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         if !subStreams.isEmpty {
-                            Picker("💬 Untertitel", selection: $pickedSubtitle) {
-                                Text("— Aus —").tag(PreferredSubtitle?.none)
-                                ForEach(subStreams, id: \.index) { s in
-                                    if let ps = s.asPreferredSubtitle {
-                                        Text(s.detailLabel).tag(PreferredSubtitle?.some(ps))
+                            AVPickerRow(icon: "💬", label: "Untertitel") {
+                                Menu {
+                                    Button {
+                                        pickedSubtitle = nil
+                                    } label: {
+                                        if pickedSubtitle == nil {
+                                            Label("— Aus —", systemImage: "checkmark")
+                                        } else {
+                                            Text("— Aus —")
+                                        }
                                     }
+                                    ForEach(subStreams, id: \.index) { s in
+                                        if let ps = s.asPreferredSubtitle {
+                                            Button {
+                                                pickedSubtitle = ps
+                                            } label: {
+                                                if ps == pickedSubtitle {
+                                                    Label(s.detailLabel, systemImage: "checkmark")
+                                                } else {
+                                                    Text(s.detailLabel)
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    AVPickerValueLabel(text: selectedSubtitleLabel(subStreams))
                                 }
                             }
-                            .font(.caption)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -210,6 +258,13 @@ struct ItemDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // Registriert hier statt an jedem einzelnen Aufrufort (Home/Bibliotheken/Downloads/
+        // Sammlungen/Playlists/Personen-Filter) — `CastStripView` (Schauspieler-Klick) sitzt
+        // in JEDEM `ItemDetailView`, egal von welchem Tab-Stack aus gepusht, und die
+        // Registrierung gilt für die gesamte aktive Push-Kette ab hier abwärts.
+        .navigationDestination(for: PersonRef.self) { ref in
+            PersonItemsView(personTmdbId: ref.tmdbId, personName: ref.name)
+        }
         .task {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
             await loadStreams(for: selectedItem.id)
@@ -326,6 +381,15 @@ struct ItemDetailView: View {
         let audio = streams.filter { $0.type == "audio" }
         pickedAudioIndex = audio.first(where: { $0.isDefault == true })?.index ?? audio.first?.index
     }
+
+    private func selectedAudioLabel(_ streams: [MediaStream]) -> String {
+        streams.first(where: { $0.index == pickedAudioIndex })?.detailLabel ?? streams.first?.detailLabel ?? "—"
+    }
+
+    private func selectedSubtitleLabel(_ streams: [MediaStream]) -> String {
+        guard let pickedSubtitle else { return "— Aus —" }
+        return streams.first(where: { $0.asPreferredSubtitle == pickedSubtitle })?.detailLabel ?? "— Aus —"
+    }
 }
 
 struct DownloadButtonRow: View {
@@ -395,5 +459,50 @@ struct DownloadButtonRow: View {
     private func startDownload() {
         guard let url = client.downloadFileURL(itemId: item.id) else { return }
         downloads.startDownload(item: item, from: url)
+    }
+}
+
+/// Eine Zeile "🔊 Tonspur  [Auswahl]" bzw. "💬 Untertitel  [Auswahl]" mit fester
+/// Label-Breite (siehe Aufrufer-Kommentar) und eigenem Rahmen statt frei stehendem
+/// `Picker`-Text.
+private struct AVPickerRow<Content: View>: View {
+    let icon: String
+    let label: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("\(icon) \(label)")
+                .font(.caption.weight(.semibold))
+                .frame(width: 100, alignment: .leading)
+            content()
+                .font(.caption)
+                .tint(.primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+        )
+    }
+}
+
+/// Der Wert-Teil einer `AVPickerRow` bei mehreren Optionen (`Menu`-Label) — erzwingt
+/// einzeilige, abschneidende Darstellung, damit lange Tonspur-Bezeichnungen
+/// (Sprache · Codec · Kanäle · Standard) nie umbrechen und die Zeilenhöhe sprengen.
+private struct AVPickerValueLabel: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 }

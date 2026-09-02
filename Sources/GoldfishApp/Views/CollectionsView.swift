@@ -36,7 +36,7 @@ struct CollectionsView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(filteredCollections) { collection in
-                            NavigationLink(destination: CollectionDetailView(collection: collection)) {
+                            NavigationLink(value: collection) {
                                 CollectionCard(collection: collection)
                                     .frame(width: cardWidth)
                             }
@@ -49,6 +49,12 @@ struct CollectionsView: View {
             }
         }
         .navigationTitle("Sammlungen")
+        .navigationDestination(for: Collection.self) { collection in
+            CollectionDetailView(collection: collection)
+        }
+        .navigationDestination(for: Item.self) { item in
+            ItemDetailView(item: item)
+        }
         #if os(iOS)
         .searchable(text: $search, prompt: "Suchen")
         #else
@@ -248,7 +254,7 @@ private struct CollectionPartCard: View {
                 // watched/favorite/rating/resolution/duration badges + year all show up
                 // exactly like everywhere else — a hand-rolled minimal card here was
                 // missing all of that (real bug hit 2026-08-19).
-                NavigationLink(destination: ItemDetailView(item: item)) {
+                NavigationLink(value: item) {
                     ItemCard(item: item)
                 }
                 .buttonStyle(.plain)

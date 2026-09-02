@@ -374,8 +374,15 @@ struct LocalLibraryItemsView: View {
                     Button {
                         selectedBuckets.removeAll()
                     } label: {
-                        Label("Alle Auflösungen", systemImage: selectedBuckets.isEmpty ? "checkmark" : "")
+                        HStack {
+                            Image(systemName: "checkmark")
+                                .opacity(selectedBuckets.isEmpty ? 1 : 0)
+                            Text("Alle Auflösungen")
+                        }
                     }
+                    // Siehe Kommentar in ItemGridView.swift: Checkmark-Icon bleibt immer im
+                    // Layout (nur Opacity togglet), sonst rutscht ein Eintrag ohne aktives
+                    // Icon bündig nach links statt eingerückt zu bleiben.
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
@@ -384,7 +391,11 @@ struct LocalLibraryItemsView: View {
                                 selectedBuckets.insert(bucket)
                             }
                         } label: {
-                            Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark" : "")
+                            HStack {
+                                Image(systemName: "checkmark")
+                                    .opacity(selectedBuckets.contains(bucket) ? 1 : 0)
+                                Text(bucket.label)
+                            }
                         }
                     }
                     Divider()

@@ -19,6 +19,13 @@ struct DownloadsView: View {
     @State private var showingDeleteAllConfirm = false
     // User-Anfrage 2026-08-30: zusätzlich "Alle gesehenen löschen" als eigene Auswahl.
     @State private var showingDeleteWatchedConfirm = false
+    /// User-Anfrage 2026-09-02: siehe `HomeView.path` — gleicher Zweck.
+    @Binding var path: NavigationPath
+    /// User-Anfrage 2026-09-02: "nach Bibliotheken trennen" — `Item` cached nur
+    /// `libraryId`, keinen Namen, daher einmalig die Bibliotheksliste laden und
+    /// lokal auflösen. Offline/Fehlerfall: `libraryName(for:)` fällt auf einen
+    /// generischen Platzhalter zurück statt die ganze Ansicht zu blockieren.
+    @State private var libraries: [Library] = []
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
@@ -34,20 +41,29 @@ struct DownloadsView: View {
     private var doneItems: [Item] { doneRecords.compactMap(\.cachedItem) }
     private var plainDoneRecords: [DownloadRecord] { doneRecords.filter { $0.cachedItem == nil } }
 
-    // User-Anfrage 2026-08-19: feste Sortierung statt der bisherigen alphabetischen
-    // Titel-Sortierung von `allRecords`, die für Episoden/Kanal-Videos innerhalb einer Gruppe
-    // gar nicht sinnvoll ist (Episodentitel sortieren nicht wie Folgenreihenfolge).
-    private var movieItems: [Item] {
-        doneItems.filter { !$0.isEpisode && !$0.isPrivateStyle }
-            .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    private func libraryName(for id: Int64) -> String {
+        libraries.first(where: { $0.id == id })?.name ?? "Bibliothek"
     }
-    private var seriesGroups: [DownloadGroup] {
-        DownloadGroup.grouped(doneItems.filter(\.isEpisode), key: { $0.showName }, sortItems: episodeOrder)
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
-    private var youtubeGroups: [DownloadGroup] {
-        DownloadGroup.grouped(doneItems.filter(\.isPrivateStyle), key: { $0.channelName }, sortItems: releaseDateOrder)
-            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+
+    /// User-Anfrage 2026-09-02: "nach Bibliotheken trennen, so wie in der Mac App" — gab
+    /// es zu dem Zeitpunkt auf KEINER der beiden Plattformen im Code (nur Gruppierung nach
+    /// Medientyp Filme/Serien/YouTube, library-übergreifend). Jede Bibliothek bekommt jetzt
+    /// ihren eigenen Abschnitt (analog `HomeView`s Library-Blöcke), darunter weiterhin die
+    /// bekannte Filme/Serien/YouTube-Unterteilung — nur eben pro Bibliothek statt global.
+    private var librarySections: [LibraryDownloadSection] {
+        let byLibrary = Dictionary(grouping: doneItems, by: \.libraryId)
+        return byLibrary.keys
+            .sorted { libraryName(for: $0).localizedStandardCompare(libraryName(for: $1)) == .orderedAscending }
+            .map { libID in
+                let items = byLibrary[libID] ?? []
+                let movies = items.filter { !$0.isEpisode && !$0.isPrivateStyle }
+                    .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+                let series = DownloadGroup.grouped(items.filter(\.isEpisode), key: { $0.showName }, sortItems: episodeOrder)
+                    .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                let youtube = DownloadGroup.grouped(items.filter(\.isPrivateStyle), key: { $0.channelName }, sortItems: releaseDateOrder)
+                    .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                return LibraryDownloadSection(id: libID, name: libraryName(for: libID), movieItems: movies, seriesGroups: series, youtubeGroups: youtube)
+            }
     }
 
     /// Serien-Folgen: immer nach Staffel/Episoden-Nummer, unabhängig vom Download-Zeitpunkt.
@@ -63,38 +79,40 @@ struct DownloadsView: View {
     private func releaseDateOrder(_ lhs: Item, _ rhs: Item) -> Bool {
         (lhs.releasedAt ?? "") < (rhs.releasedAt ?? "")
     }
-    /// Mehr als eine Art gleichzeitig heruntergeladen? Dann bekommt jede ihre eigene
-    /// Überschrift — bei nur einer Art wäre eine Sektion-Überschrift unnötiges Rauschen.
-    private var showsSectionHeaders: Bool {
-        [!movieItems.isEmpty, !seriesGroups.isEmpty, !youtubeGroups.isEmpty].filter { $0 }.count > 1
-    }
-
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if allRecords.isEmpty {
                     ContentUnavailableMessage(text: "Noch keine Downloads. Öffne ein Video und tippe auf Für offline speichern.")
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            downloadSection(title: "🎬 Filme", isEmpty: movieItems.isEmpty) {
-                                LazyVGrid(columns: columns, spacing: 16) {
-                                    ForEach(movieItems) { item in
-                                        itemTile(item)
+                        VStack(alignment: .leading, spacing: 28) {
+                            ForEach(librarySections) { section in
+                                VStack(alignment: .leading, spacing: 20) {
+                                    Text(section.name)
+                                        .font(.title3.bold())
+                                        .padding(.horizontal)
+
+                                    downloadSection(title: "🎬 Filme", isEmpty: section.movieItems.isEmpty, showTitle: section.showsTypeHeaders) {
+                                        LazyVGrid(columns: columns, spacing: 16) {
+                                            ForEach(section.movieItems) { item in
+                                                itemTile(item, queue: section.movieItems)
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                            downloadSection(title: "📺 Serien", isEmpty: seriesGroups.isEmpty) {
-                                LazyVGrid(columns: columns, spacing: 16) {
-                                    ForEach(seriesGroups) { group in
-                                        groupTile(group, placeholderSystemImage: "tv")
+                                    downloadSection(title: "📺 Serien", isEmpty: section.seriesGroups.isEmpty, showTitle: section.showsTypeHeaders) {
+                                        LazyVGrid(columns: columns, spacing: 16) {
+                                            ForEach(section.seriesGroups) { group in
+                                                groupTile(group, placeholderSystemImage: "tv")
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                            downloadSection(title: "▶️ YouTube", isEmpty: youtubeGroups.isEmpty) {
-                                LazyVGrid(columns: columns, spacing: 16) {
-                                    ForEach(youtubeGroups) { group in
-                                        groupTile(group, placeholderSystemImage: "play.rectangle")
+                                    downloadSection(title: "▶️ YouTube", isEmpty: section.youtubeGroups.isEmpty, showTitle: section.showsTypeHeaders) {
+                                        LazyVGrid(columns: columns, spacing: 16) {
+                                            ForEach(section.youtubeGroups) { group in
+                                                groupTile(group, placeholderSystemImage: "play.rectangle")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -113,6 +131,12 @@ struct DownloadsView: View {
                 }
             }
             .navigationTitle("Downloads")
+            .navigationDestination(for: ItemNavTarget.self) { target in
+                ItemDetailView(item: target.item, queue: target.queue)
+            }
+            .navigationDestination(for: DownloadGroup.self) { group in
+                DownloadGroupDetailView(group: group)
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -153,6 +177,10 @@ struct DownloadsView: View {
             // Downloads Kacheln (offline bleibt es weiterhin bei der Listen-Darstellung für
             // diese, kein Fehler, nur kein Nachholen möglich ohne Netz).
             .task {
+                // Für die Bibliotheks-Überschriften (siehe `librarySections`) — offline/
+                // Fehlerfall bewusst stillschweigend ignoriert, `libraryName(for:)` fällt
+                // dann auf einen generischen Platzhalter zurück statt die Ansicht zu blockieren.
+                libraries = (try? await client.fetchLibraries()) ?? []
                 for record in plainDoneRecords {
                     if let item = try? await client.fetchItem(id: record.itemId) {
                         downloads.backfillItemData(itemId: record.itemId, item: item)
@@ -173,12 +201,13 @@ struct DownloadsView: View {
     }
 
     @ViewBuilder
-    private func downloadSection<Content: View>(title: String, isEmpty: Bool, @ViewBuilder content: () -> Content) -> some View {
+    private func downloadSection<Content: View>(title: String, isEmpty: Bool, showTitle: Bool, @ViewBuilder content: () -> Content) -> some View {
         if !isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                if showsSectionHeaders {
+                if showTitle {
                     Text(title)
-                        .font(.title3.bold())
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal)
                 }
                 content()
@@ -188,8 +217,8 @@ struct DownloadsView: View {
     }
 
     @ViewBuilder
-    private func itemTile(_ item: Item) -> some View {
-        NavigationLink(destination: ItemDetailView(item: item, queue: movieItems)) {
+    private func itemTile(_ item: Item, queue: [Item] = []) -> some View {
+        NavigationLink(value: ItemNavTarget(item: item, queue: queue)) {
             ItemCard(item: item)
                 .frame(width: 150)
         }
@@ -207,9 +236,9 @@ struct DownloadsView: View {
     @ViewBuilder
     private func groupTile(_ group: DownloadGroup, placeholderSystemImage: String) -> some View {
         if group.items.count == 1, let only = group.items.first {
-            itemTile(only)
+            itemTile(only, queue: group.items)
         } else {
-            NavigationLink(destination: DownloadGroupDetailView(group: group)) {
+            NavigationLink(value: group) {
                 DownloadGroupCard(group: group, placeholderSystemImage: placeholderSystemImage)
                     .frame(width: 150)
             }
@@ -219,10 +248,28 @@ struct DownloadsView: View {
     }
 }
 
+/// Ein Bibliotheks-Abschnitt im Downloads-Tab (User-Anfrage 2026-09-02: "nach
+/// Bibliotheken trennen"). Innerhalb einer Bibliothek bleibt die bekannte
+/// Filme/Serien/YouTube-Unterteilung erhalten.
+private struct LibraryDownloadSection: Identifiable {
+    let id: Int64
+    let name: String
+    let movieItems: [Item]
+    let seriesGroups: [DownloadGroup]
+    let youtubeGroups: [DownloadGroup]
+
+    /// Mehr als eine Art gleichzeitig in dieser Bibliothek heruntergeladen? Dann bekommt
+    /// jede ihre eigene kleine Unter-Überschrift — bei nur einer Art wäre das unter der
+    /// bereits vorhandenen Bibliotheks-Überschrift unnötiges Rauschen.
+    var showsTypeHeaders: Bool {
+        [!movieItems.isEmpty, !seriesGroups.isEmpty, !youtubeGroups.isEmpty].filter { $0 }.count > 1
+    }
+}
+
 /// Mehrere heruntergeladene Episoden/Videos derselben Serie bzw. desselben YouTube-Kanals,
 /// zu einer Kachel zusammengefasst (User-Anfrage 2026-08-19) — analog zur normalen
 /// Bibliotheksansicht, wo eine Serie ebenfalls eine Kachel ist statt N Einzel-Episoden-Kacheln.
-private struct DownloadGroup: Identifiable {
+private struct DownloadGroup: Identifiable, Hashable {
     let id: String
     let title: String
     let items: [Item]
@@ -244,6 +291,34 @@ private struct DownloadGroup: Identifiable {
             guard let bucketItems = buckets[bucketKey], let first = bucketItems.first else { return nil }
             return DownloadGroup(id: bucketKey, title: key(first) ?? first.displayTitle, items: bucketItems.sorted(by: sortItems))
         }
+    }
+}
+
+/// Eine Staffel-Kachel im Downloads-Tab — bewusst am Stil von `ShowSeasonsView.SeasonCard`
+/// orientiert (Poster + Folgenanzahl-Badge unten rechts + Titel darunter), nur ohne den
+/// Gesehen-Toggle (der gehört zur Server-Staffel-Ansicht, hier reicht Öffnen+Abspielen).
+private struct DownloadSeasonCard: View {
+    let seasonNumber: Int
+    let episodeCount: Int
+    let posterURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            PosterImage(url: posterURL, placeholderSystemImage: "tv", fixedWidth: 150)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .bottomTrailing) {
+                    Text("\(episodeCount) Folge\(episodeCount == 1 ? "" : "n")")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(6)
+                }
+            Text("Staffel \(seasonNumber)")
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -305,36 +380,108 @@ private struct DownloadGroupCard: View {
     }
 }
 
-/// Flaches Grid der heruntergeladenen Episoden/Videos einer einzelnen Serie/eines Kanals —
-/// erreicht über Tap auf eine `DownloadGroupCard`.
+/// Wertbasiertes Navigationsziel für eine einzelne Staffel innerhalb einer
+/// `DownloadGroupDetailView` — trägt die für diese Staffel bereits gefilterten
+/// Episoden mit, damit die Zielansicht ohne weiteren Lookup direkt rendern kann.
+private struct DownloadSeasonTarget: Hashable {
+    let showTitle: String
+    let season: Int
+    let items: [Item]
+}
+
+/// Geladene Episoden/Videos einer einzelnen Serie/eines Kanals — erreicht über Tap auf
+/// eine `DownloadGroupCard`. User-Anfrage 2026-09-02: "wenn man auf das Cover klickt,
+/// soll die Staffelübersicht der geladenen Folgen kommen", **als Kacheln, nicht als
+/// Text-Überschrift** (erster Entwurf zeigte die Episoden direkt unter einer reinen
+/// Text-Überschrift "Staffel N" — User-Feedback: Staffeln sollen wie in der normalen
+/// Staffel-Ansicht selbst KACHELN sein, erst ein Klick öffnet die Folgen). Bei Serien
+/// (Items mit `metadata.season`) jetzt zwei Navigationsstufen: Staffel-Kacheln → Klick
+/// → Folgen dieser Staffel. Nur Staffeln, von denen tatsächlich Folgen geladen wurden —
+/// kein "Fehlt"-Platzhalter wie in der normalen Staffel-Ansicht, das würde für
+/// Offline-Downloads keinen Sinn ergeben. YouTube-Kanäle & sonstige Gruppen ohne
+/// Staffel-Info fallen auf das bisherige flache Episoden-Grid zurück.
 private struct DownloadGroupDetailView: View {
     let group: DownloadGroup
+    @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(group.items) { item in
-                    NavigationLink(destination: ItemDetailView(item: item, queue: group.items)) {
-                        ItemCard(item: item)
-                            .frame(width: 150)
-                    }
-                    .buttonStyle(.plain)
-                    .focusableCompat(false)
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            downloads.deleteDownload(itemId: item.id)
-                        } label: {
-                            Label("Download löschen", systemImage: "trash")
-                        }
+    private var seasons: [Int] {
+        Set(group.items.compactMap(\.metadata?.season)).sorted()
+    }
+
+    private func items(inSeason season: Int) -> [Item] {
+        group.items
+            .filter { $0.metadata?.season == season }
+            .sorted { ($0.metadata?.episode ?? 0) < ($1.metadata?.episode ?? 0) }
+    }
+
+    /// Gleiche Priorisierung wie `DownloadGroupCard.posterURL` (Show-Cover statt
+    /// Episoden-eigenem Poster) — es gibt keine gecachte Staffel-eigene Poster-Variante
+    /// für den Offline-Fall, das Show-Cover ist die beste verfügbare Annäherung.
+    private var showPosterURL: URL? {
+        guard let representative = group.items.first else { return nil }
+        if let parentId = representative.metadata?.parentId {
+            if let cachedShow = downloads.cachedShowPosterURL(parentId: parentId) { return cachedShow }
+            if let url = client.posterURL(metadataId: parentId) { return url }
+        }
+        if let cached = downloads.cachedPosterURL(itemId: representative.id) { return cached }
+        if let metadataId = representative.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: representative.metadata?.posterPath) {
+            return url
+        }
+        return client.thumbURL(itemId: representative.id)
+    }
+
+    @ViewBuilder
+    private func episodeGrid(_ items: [Item]) -> some View {
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(items) { item in
+                NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
+                    ItemCard(item: item)
+                        .frame(width: 150)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+                .contextMenu {
+                    Button(role: .destructive) {
+                        downloads.deleteDownload(itemId: item.id)
+                    } label: {
+                        Label("Download löschen", systemImage: "trash")
                     }
                 }
             }
-            .padding()
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            if seasons.isEmpty {
+                episodeGrid(group.items)
+                    .padding()
+            } else {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(seasons, id: \.self) { season in
+                        let seasonItems = items(inSeason: season)
+                        NavigationLink(value: DownloadSeasonTarget(showTitle: group.title, season: season, items: seasonItems)) {
+                            DownloadSeasonCard(seasonNumber: season, episodeCount: seasonItems.count, posterURL: showPosterURL)
+                                .frame(width: 150)
+                        }
+                        .buttonStyle(.plain)
+                        .focusableCompat(false)
+                    }
+                }
+                .padding()
+            }
         }
         .navigationTitle(group.title)
+        .navigationDestination(for: DownloadSeasonTarget.self) { target in
+            ScrollView {
+                episodeGrid(target.items)
+                    .padding()
+            }
+            .navigationTitle("\(target.showTitle) · Staffel \(target.season)")
+        }
     }
 }
 

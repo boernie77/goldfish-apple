@@ -18,6 +18,8 @@ struct SettingsView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
     @EnvironmentObject var localLibrary: LocalLibraryManager
+    /// User-Anfrage 2026-09-02: siehe `HomeView.path` — gleicher Zweck.
+    @Binding var path: NavigationPath
     // Two SEPARATE states instead of deriving `isPresented` from `folderPickerTarget` —
     // real bug hit 2026-08-19: SwiftUI resets `isPresented` back to `false` (running our
     // binding's `set`, which cleared `folderPickerTarget`) BEFORE calling `onCompletion`,
@@ -36,6 +38,15 @@ struct SettingsView: View {
     @State private var renameText = ""
     @State private var renamingMergedLibrary = false
     @State private var mergedLibraryNameDraft = ""
+    // Passwort ändern (User-Anfrage 2026-09-02: fehlte bisher komplett in der
+    // App — nur der Browser hatte einen Weg dafür). Eigenes Sheet statt
+    // .alert, weil zwei SecureFields + Inline-Fehlertext in einem .alert
+    // unübersichtlich würden.
+    @State private var showingChangePassword = false
+    // User-Anfrage 2026-09-02: Dark-Mode-Wahlschalter im Menü. `@AppStorage` statt eines
+    // account-gescoped Settings-Objekts, analog `localBufferSeconds` oben — gilt geräteweit
+    // über alle Accounts, genau wie das Erscheinungsbild jeder anderen iOS/macOS-App.
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     @EnvironmentObject var shuffleScope: ShuffleScope
     // Real gap hit 2026-08-19: der 🎯-Button für die Zufall-Bibliotheksauswahl saß bisher
     // nur im Toolbar der "Bibliotheken"-Übersicht — der User fand ihn dort nicht ("finde
@@ -92,19 +103,48 @@ struct SettingsView: View {
         return "Nicht verknüpft"
     }
 
+    private var appVersionString: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
+    }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
-                Section("Account") {
+                Section {
                     // Plain stacked Text instead of LabeledContent: on macOS, Form lays
                     // LabeledContent out as two fixed-width columns that overflow badly in a
                     // narrow window — long values (URLs, paths) push their label off the left
                     // edge, unreadable (real bug hit 2026-08-17). Stacked rows never do that.
                     SettingsInfoRow(label: "Benutzer", value: client.currentUsername ?? "-")
                     SettingsInfoRow(label: "Server", value: client.baseURL?.absoluteString ?? "-")
+                    // User-Anfrage 2026-09-02: "ab sofort eine Versionsnummer im Menü ...
+                    // bei jedem Build um x.1 erhöhen" — ersetzt die bisherige informelle
+                    // Build-Zählung in der Konversation (siehe Memory feedback_apple_
+                    // versioning) durch eine echte, im Menü sichtbare `MARKETING_VERSION`
+                    // aus `project.yml`. Bump-Stelle bleibt dort (Mac + iOS, 2×), danach
+                    // `xcodegen generate`.
+                    SettingsInfoRow(label: "Version", value: appVersionString)
+                    Button("Passwort ändern…") {
+                        showingChangePassword = true
+                    }
                     Button("Abmelden", role: .destructive) {
                         Task { await client.logout() }
                     }
+                } header: {
+                    Text("Account")
+                } footer: {
+                    // User-Anfrage 2026-09-02 (Lizenz-Check): TMDB verlangt sichtbare
+                    // Attribution IN der Anwendung, nicht nur im Repo-NOTICE.md.
+                    Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
+                }
+
+                // User-Anfrage 2026-09-02: Privacy-Policy-URL für App-Store-Einreichung
+                // (Apple/Google verlangen das als Store-Bedingung, unabhängig davon, dass
+                // ein privater Self-Hosted-Server kein Impressum braucht — das wurde
+                // deshalb bewusst NICHT ergänzt). Seite liegt auf dem Server, hier nur
+                // verlinkt.
+                Section {
+                    Link("Datenschutz", destination: URL(string: "https://goldfish.example.com/datenschutz.html")!)
                 }
 
                 Section {
@@ -147,6 +187,15 @@ struct SettingsView: View {
                     watchLinks = (try? await client.fetchWatchLinks()) ?? []
                 }
 
+                Section("Darstellung") {
+                    Picker("Erscheinungsbild", selection: $appearanceRaw) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Section("Downloads") {
                     SettingsInfoRow(label: "Ordner", value: downloads.usesCustomDirectory ? downloads.downloadsDir.path : "Standard (App-Datenordner)")
                     Button("Ordner wählen…") {
@@ -165,6 +214,15 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(macOS)
+                // "Lokale Bibliotheken" (externe Datenträger scannen) + alles, was
+                // davon abhängt (Formatanpassung, Zusammenlegen, Duplikate-Finder,
+                // Vorlaufpuffer für LocalPlayerView) ist ab hier macOS-only —
+                // GoldfishiOS soll bewusst NUR Online-Bibliotheken + Downloads
+                // abspielen (User-Anfrage 2026-09-02, "grundsätzlich nur zum
+                // Abspielen der Videos aus den online Bibliotheken"). Downloads
+                // laufen über einen komplett anderen Pfad (PlayerView + DownloadManager,
+                // s. Kommentar unten bei "Lokale Wiedergabe") und sind NICHT betroffen.
                 Section("Lokale Bibliotheken") {
                     ForEach(localLibrary.libraries) { lib in
                         VStack(alignment: .leading, spacing: 2) {
@@ -258,8 +316,13 @@ struct SettingsView: View {
                 } header: {
                     Text("Lokale Wiedergabe")
                 } footer: {
+                    // Betrifft NUR LocalPlayerView (externe/lokale Bibliotheken) —
+                    // Downloads laufen über PlayerView + DownloadManager.localFileURL
+                    // und nutzen dieses Setting nicht. Deshalb steht die ganze Sektion
+                    // hinter #if os(macOS), Downloads bleiben auf iOS unbeeinflusst.
                     Text("Wie viele Sekunden vorausgeladen werden, bevor mitten in der Wiedergabe nachgepuffert werden muss. Höhere Werte helfen bei langsamen externen Festplatten, verzögern aber den Start etwas. Gilt für alle Benutzer auf diesem Mac.")
                 }
+                #endif
 
                 #if os(macOS)
                 // User-Anfrage 2026-08-27 ("wie löst Jellyfin das eigentlich"): Downloads
@@ -316,6 +379,12 @@ struct SettingsView: View {
                 }
                 #endif
 
+                // Nur relevant für lokale/externe Bibliotheken (macOS-only, siehe
+                // "Lokale Bibliotheken"-Section oben) — auf iOS bleibt
+                // localLibrary.libraries ohnehin leer, aber der Block wird hier aus
+                // Konsistenz zum Rest der Lokale-Bibliotheken-Trimmung trotzdem
+                // kompilierzeit-ausgeschlossen.
+                #if os(macOS)
                 if localLibrary.libraries.count >= 2 {
                     Section {
                         Text("Beliebig viele lokale Bibliotheken zusammenlegen — sie erscheinen dann in der Bibliotheken-Übersicht als EINE Kachel, Videos aus allen zusammen.")
@@ -406,6 +475,7 @@ struct SettingsView: View {
                         Text("Duplikate finden")
                     }
                 }
+                #endif
             }
             .formStyle(.grouped)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -448,6 +518,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingAddLocalLibrary) {
                 AddLocalLibrarySheet()
+            }
+            .sheet(isPresented: $showingChangePassword) {
+                ChangePasswordSheet()
             }
             .alert("Bibliothek umbenennen", isPresented: Binding(
                 get: { renamingLibrary != nil },
@@ -498,6 +571,85 @@ private struct SettingsInfoRow: View {
                 .textSelection(.enabled)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// Eigenes Passwort ändern — analog zum Browser-Dialog (`PUT /api/auth/password`,
+/// verlangt das aktuelle Passwort + ein neues mit min. 6 Zeichen). Bewusst als
+/// Sheet mit `Form` statt `.alert` (wie z. B. das Umbenennen einer lokalen
+/// Bibliothek oben) — zwei SecureFields + Inline-Fehlertext + ein Erfolgs-
+/// Zustand passen nicht sauber in einen Alert.
+private struct ChangePasswordSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var client: GoldfishClient
+
+    @State private var oldPassword = ""
+    @State private var newPassword = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var didSucceed = false
+
+    private var canSave: Bool {
+        !oldPassword.isEmpty && newPassword.count >= 6 && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if didSucceed {
+                    Section {
+                        Label("Passwort geändert.", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                } else {
+                    Section {
+                        SecureField("Aktuelles Passwort", text: $oldPassword)
+                            #if os(iOS)
+                            .textContentType(.password)
+                            #endif
+                        SecureField("Neues Passwort (min. 6 Zeichen)", text: $newPassword)
+                            #if os(iOS)
+                            .textContentType(.newPassword)
+                            #endif
+                    }
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Passwort ändern")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(didSucceed ? "Fertig" : "Abbrechen") { dismiss() }
+                }
+                if !didSucceed {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Speichern") {
+                            errorMessage = nil
+                            isSaving = true
+                            Task {
+                                do {
+                                    try await client.changePassword(oldPassword: oldPassword, newPassword: newPassword)
+                                    didSucceed = true
+                                } catch {
+                                    errorMessage = error.localizedDescription
+                                }
+                                isSaving = false
+                            }
+                        }
+                        .disabled(!canSave)
+                    }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 360, minHeight: 240)
+        #endif
     }
 }
 
