@@ -142,9 +142,13 @@ struct SettingsView: View {
                 // (Apple/Google verlangen das als Store-Bedingung, unabhängig davon, dass
                 // ein privater Self-Hosted-Server kein Impressum braucht — das wurde
                 // deshalb bewusst NICHT ergänzt). Seite liegt auf dem Server, hier nur
-                // verlinkt.
-                Section {
-                    Link("Datenschutz", destination: URL(string: "https://goldfish.example.com/datenschutz.html")!)
+                // verlinkt. NICHT hardcodiert — jeder Self-Hoster hat seinen eigenen
+                // Server (siehe gleicher Fix in GoldfishAndroid, 2026-09-02).
+                if let base = client.baseURL,
+                   let privacyURL = URL(string: "datenschutz.html", relativeTo: base) {
+                    Section {
+                        Link("Datenschutz", destination: privacyURL)
+                    }
                 }
 
                 Section {
