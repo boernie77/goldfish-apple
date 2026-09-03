@@ -105,6 +105,14 @@ struct LoginView: View {
             .disabled(serverURLString.isEmpty || isLoading)
         }
         .padding(40)
+        // iPad-Fix 2026-09-03: ohne explizites Full-Screen-Frame hängt der Inhalt
+        // (nur so groß wie sein Inhalt) irgendwo im oberen Drittel des riesigen
+        // iPad-Bildschirms statt sauber zentriert zu sein — auf dem iPhone fiel
+        // das nicht auf, weil dort kaum Platz drumherum übrig blieb. maxWidth
+        // deckelt die Formularbreite (verhindert ausuferndes Layout auf großen
+        // iPads), das äußere .frame zentriert das Ganze auf jeder Bildschirmgröße.
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if serverURLString.isEmpty, let saved = client.baseURL?.absoluteString {
                 serverURLString = saved

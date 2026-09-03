@@ -1,5 +1,8 @@
 import SwiftUI
 import GoldfishCore
+#if os(iOS)
+import UIKit
+#endif
 
 struct RootView: View {
     @EnvironmentObject var client: GoldfishClient
@@ -157,33 +160,7 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        // Explicit expansion: a TabView's tab content doesn't always stretch to fill the
-        // window on macOS on its own — a `Form`-rooted tab (Settings) was staying at its
-        // compact intrinsic width, pinned to the leading edge with a huge empty area next
-        // to it (real bug hit 2026-08-18, looked like a two-column layout issue but wasn't).
-        TabView(selection: Binding(
-            get: { selectedTab },
-            set: { newValue in
-                selectedTab = newValue
-                if newValue == .libraries { librariesPath = NavigationPath() }
-            }
-        )) {
-            HomeView(path: $homePath)
-                .tabItem { Label("Start", systemImage: "house") }
-                .tag(MainTab.home)
-
-            LibrariesView(path: $librariesPath)
-                .tabItem { Label("Bibliotheken", systemImage: "books.vertical") }
-                .tag(MainTab.libraries)
-
-            DownloadsView(path: $downloadsPath)
-                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
-                .tag(MainTab.downloads)
-
-            SettingsView(path: $settingsPath)
-                .tabItem { Label("Einstellungen", systemImage: "gearshape") }
-                .tag(MainTab.settings)
-        }
+        styledTabView
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Real bug hit 2026-08-19: the Goldfish header was originally a plain `VStack` wrapper
         // AROUND the `TabView` — wrapping each tab's `NavigationStack` in an extra container
@@ -209,12 +186,100 @@ struct MainTabView: View {
             // gibt es dieses Bedienkonzept nicht (eigenes Fenster-Titelleisten-Verhalten,
             // siehe Kommentar oben) — dort bleibt der Kopfbereich wie gehabt immer sichtbar.
             #if os(iOS)
-            if isAtTabRoot {
+            // iPad-Fix 2026-09-03 (siehe Kommentar bei `styledTabView`): der volle-Breite
+            // Kopfbereich saß GENAU dort, wo iPadOS seine eigene schwebende Tab-/Sidebar-
+            // Leiste zeigen will — mit Header drüber blieb die komplette native Navigation
+            // unsichtbar (keine Tabs, kein Sidebar-Toggle, nichts klickbar). Diagnose per
+            // Vergleichs-Build ohne Header bestätigt: Tab-Leiste erscheint sofort wieder,
+            // sobald der Header weg ist. Auf dem iPhone ist der Header dagegen unproblematisch
+            // (eigene, unten sitzende Tab-Leiste, kein Platzkonflikt) — deshalb NUR auf dem
+            // iPad ausblenden, nicht generell.
+            if UIDevice.current.userInterfaceIdiom != .pad, isAtTabRoot {
                 goldfishHeader
             }
             #else
             goldfishHeader
             #endif
+        }
+    }
+
+    // iPad-Fix 2026-09-03 (User-Report: "keine Steuerelemente sichtbar" — die klassische
+    // .tabItem-Tab-Leiste blieb auf iPadOS 26 im regulären Breiten-Format komplett unsichtbar).
+    // Zwei Fix-Versuche mit `.tabViewStyle(.sidebarAdaptable)` AUF der alten `.tabItem`-
+    // Struktur (einmal davor, einmal danach in der Modifier-Kette) haben die iPad-Sidebar
+    // NICHT zum Erscheinen gebracht — vermutlich weil `.sidebarAdaptable` für Apples NEUE
+    // `Tab(...)`-Werttyp-API (iOS 18+) gebaut ist und mit dem alten `.tabItem`-Modifier-Muster
+    // nicht zuverlässig zusammenspielt. Deshalb jetzt zwei GETRENNTE TabView-Aufbauten:
+    // `modernTabView` (neue `Tab(value:)`-Syntax, nur iOS 18+) für den Sidebar-Style, und
+    // `legacyTabView` (alte `.tabItem`, unverändert) als Fallback für iOS 16/17. Nur iOS
+    // (Mac hat eine eigene funktionierende Fensterleisten-Logik, nicht anfassen).
+    @ViewBuilder
+    private var styledTabView: some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            modernTabView.tabViewStyle(.sidebarAdaptable)
+        } else {
+            legacyTabView
+        }
+        #else
+        legacyTabView
+        #endif
+    }
+
+    // Gemeinsame Selection-Logik für beide TabView-Varianten: Wechsel zur Bibliotheken-Tab
+    // setzt deren NavigationPath zurück (siehe LibrariesView-Doc-Kommentar) — ein simpler
+    // `@State` + `.onChange` würde das erneute Antippen des schon aktiven Tabs verpassen,
+    // ein custom `Binding`-Setter feuert dagegen bei JEDEM Tap, auch auf den aktiven Tab.
+    private var tabSelection: Binding<MainTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                selectedTab = newValue
+                if newValue == .libraries { librariesPath = NavigationPath() }
+            }
+        )
+    }
+
+    #if os(iOS)
+    // Nur iOS: die Tab(value:)-API existiert auch auf macOS 15+, aber diese Property würde
+    // sonst auch auf dem Mac-Ziel typgeprüft/kompiliert (Availability allein reicht nicht,
+    // die Deklaration muss komplett raus) — Mac-Deployment-Target bleibt bei 13.0.
+    @available(iOS 18.0, *)
+    private var modernTabView: some View {
+        TabView(selection: tabSelection) {
+            Tab("Start", systemImage: "house", value: MainTab.home) {
+                HomeView(path: $homePath)
+            }
+            Tab("Bibliotheken", systemImage: "books.vertical", value: MainTab.libraries) {
+                LibrariesView(path: $librariesPath)
+            }
+            Tab("Downloads", systemImage: "arrow.down.circle", value: MainTab.downloads) {
+                DownloadsView(path: $downloadsPath)
+            }
+            Tab("Einstellungen", systemImage: "gearshape", value: MainTab.settings) {
+                SettingsView(path: $settingsPath)
+            }
+        }
+    }
+    #endif
+
+    private var legacyTabView: some View {
+        TabView(selection: tabSelection) {
+            HomeView(path: $homePath)
+                .tabItem { Label("Start", systemImage: "house") }
+                .tag(MainTab.home)
+
+            LibrariesView(path: $librariesPath)
+                .tabItem { Label("Bibliotheken", systemImage: "books.vertical") }
+                .tag(MainTab.libraries)
+
+            DownloadsView(path: $downloadsPath)
+                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+                .tag(MainTab.downloads)
+
+            SettingsView(path: $settingsPath)
+                .tabItem { Label("Einstellungen", systemImage: "gearshape") }
+                .tag(MainTab.settings)
         }
     }
 
