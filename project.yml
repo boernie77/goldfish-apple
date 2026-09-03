@@ -52,14 +52,14 @@ targets:
         CURRENT_PROJECT_VERSION: "155"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
-        # Persönliches Team "Christian Bernauer" (christian@example.com).
-        # User-Anfrage 2026-08-28: fest im Projekt speichern, damit ein
-        # `xcodegen generate` die in der Xcode-GUI gewählte Team-ID nicht mehr
-        # wegwischt (früher bewusst NICHT eingetragen — Entscheidung revidiert).
-        # xcodebuild-CLI kann mit dieser Free-Personal-Team-ID trotzdem nicht
+        # Bezahltes Apple Developer Program-Team (seit 2026-09-03, Bestätigung
+        # per Email erhalten) — ersetzt das vorherige kostenlose Personal Team
+        # (Y83997R5WL). Fest im Projekt gespeichert, damit `xcodegen generate`
+        # die in der Xcode-GUI gewählte Team-ID nicht wegwischt.
+        # xcodebuild-CLI kann trotz bezahltem Account weiterhin nicht
         # automatisch signieren (kein Account-Zugriff außerhalb der Xcode-GUI) —
         # der signierte Build läuft über Xcode (⌘R / Product ▸ Archive).
-        DEVELOPMENT_TEAM: Y83997R5WL
+        DEVELOPMENT_TEAM: SYQL3PUXA9
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -90,11 +90,15 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
+        # com.goldfish.ios war unter dem alten kostenlosen Personal Team
+        # reserviert und deshalb für Geräte-Tests auf .iosdev ausgewichen
+        # (siehe Git-Historie). Mit dem neuen, bezahlten Team (2026-09-03)
+        # ist das ein anderes Konto — .ios sollte wieder frei sein.
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.ios
         MARKETING_VERSION: "0.8"
         CURRENT_PROJECT_VERSION: "155"
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: Y83997R5WL  # siehe Kommentar beim GoldfishMac-Target
+        DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
