@@ -197,6 +197,14 @@ struct MainTabView: View {
             if UIDevice.current.userInterfaceIdiom != .pad, isAtTabRoot {
                 goldfishHeader
             }
+            #elseif os(tvOS)
+            // Apple-TV-Fix 2026-09-03 (identische Ursache wie der iPad-Fix oben): die
+            // klassische `.tabItem`-TabView rendert auf tvOS ihre eigene Tab-/Fokus-Leiste
+            // oben — mit dem vollen-Breite-Kopfbereich davor blieb sie komplett unsichtbar
+            // (kein Tab anwählbar, siehe Screenshot-Diagnose). tvOS hat ohnehin keinen Platz-
+            // /Bedienkonzept-Bedarf für einen zusätzlichen Marken-Header über der nativen
+            // TabView-Leiste — deshalb hier komplett weggelassen statt nur eingeschränkt.
+            EmptyView()
             #else
             goldfishHeader
             #endif
