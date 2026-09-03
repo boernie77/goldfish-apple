@@ -179,6 +179,12 @@ struct ItemGridView: View {
                         itemGrid
                             .padding(.horizontal)
                             .padding(.trailing, 28)
+                            // tvOS-Fix 2026-09-03: siehe LibrariesView-Kommentar — extra
+                            // Abstand, damit der Fokusrahmen der ersten Kachelreihe nicht
+                            // oben von der ScrollView abgeschnitten wird.
+                            #if os(tvOS)
+                            .padding(.top, 24)
+                            #endif
                     }
                     .padding(.vertical)
                 }
@@ -247,6 +253,14 @@ struct ItemGridView: View {
                     }
                 }
                 .disabled(isLoadingRandom)
+                // tvOS-Fix 2026-09-03 (User-Report: Toolbar-Buttons zeigen abgeschnittenen
+                // Text wie "Z...lig"): `ToolbarItemGroup` quetscht ihre Kinder auf tvOS
+                // offenbar auf eine knappere Breite als der Label-Text braucht.
+                // `.fixedSize()` erzwingt die intrinsische (volle) Größe statt sich
+                // komprimieren zu lassen.
+                #if os(tvOS)
+                .fixedSize()
+                #endif
 
                 Menu {
                     // Real bug hit 2026-08-19: a `Picker` nested inside a `Menu` renders as
@@ -271,6 +285,9 @@ struct ItemGridView: View {
                 } label: {
                     Label("Sortieren", systemImage: "arrow.up.arrow.down")
                 }
+                #if os(tvOS)
+                .fixedSize()
+                #endif
 
                 Menu {
                     ForEach(WatchedFilter.allCases) { option in
@@ -330,6 +347,9 @@ struct ItemGridView: View {
                 // nichts geändert (bzw. man musste raten, was gerade an/aus war). `.disabled`
                 // hält das Menü über mehrere Taps offen, exakt wie eine Checkbox-Liste.
                 .modernMenuStaysOpen()
+                #if os(tvOS)
+                .fixedSize()
+                #endif
             }
         }
         .task { await load() }
@@ -505,6 +525,12 @@ struct FolderCard: View {
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
+            // vierter Anlauf: `.buttonBorderShape` teilt dem System die TATSÄCHLICHE
+            // Form des Inhalts mit (Cornerradius 8, wie `posterSection`s eigenes
+            // `.clipShape`) — der native Fokushintergrund folgt dann exakt dieser
+            // Form/Größe statt einer generischen, zu großen Standard-Box mit
+            // sichtbarem Rand-Abstand zum Poster.
+            .buttonBorderShape(.roundedRectangle(radius: 8))
 
             titleSection
         }
@@ -609,6 +635,10 @@ struct ItemCard: View {
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
+            // Siehe Kommentar bei FolderCard: `.buttonBorderShape` lässt den nativen
+            // Fokushintergrund der tatsächlichen Poster-Form/-Größe folgen statt
+            // einer generischen Box mit sichtbarem Rand-Abstand.
+            .buttonBorderShape(.roundedRectangle(radius: 8))
 
             titleSection
         }

@@ -147,6 +147,16 @@ struct LibrariesView: View {
                             .focusableCompat(false)
                         }
                         .padding()
+                        // tvOS-Fix 2026-09-03 (User-Report: heller Fokusrahmen der obersten
+                        // Reihe ist oben abgeschnitten): der native Fokus-Effekt einer
+                        // NavigationLink-Kachel reicht optisch über deren eigene Bounding-Box
+                        // hinaus — steht die Kachel direkt am oberen ScrollView-Rand, schneidet
+                        // die ScrollView diesen Überstand einfach ab. Zusätzlicher Top-Abstand
+                        // gibt der obersten Reihe genug Luft, betrifft nur tvOS (dort ist der
+                        // Effekt sichtbar größer als auf anderen Plattformen).
+                        #if os(tvOS)
+                        .padding(.top, 40)
+                        #endif
                     }
                     .navigationDestination(for: LibraryDestination.self) { dest in
                         switch dest {
@@ -159,6 +169,15 @@ struct LibrariesView: View {
                 }
             }
             .navigationTitle("Bibliotheken")
+            // tvOS-Fix 2026-09-03 (User-Report: Toolbar-Buttons "funktionieren auch
+            // nicht" + Text wird abgeschnitten, z. B. "Z...lig"): `ToolbarItemGroup`
+            // quetscht auf tvOS mehrere Buttons in zu schmale Pillen, UND die
+            // Zufallswiedergabe ist ohnehin bereits pro Bibliothek im jeweiligen
+            // Grid-Toolbar verfügbar — auf der Bibliotheken-ÜBERSICHT sind beide
+            // Buttons hier also redundant. Auf tvOS deshalb komplett weggelassen statt
+            // um Breitenprobleme zu kämpfen; Mac/iOS unverändert (dort funktionieren
+            // sie und sind dort auch sinnvoll direkt erreichbar).
+            #if !os(tvOS)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
@@ -186,6 +205,7 @@ struct LibrariesView: View {
                     .disabled(libraries.isEmpty)
                 }
             }
+            #endif
             .sheet(isPresented: $showingScopeSheet) {
                 ShuffleScopeSheet(libraries: libraries)
             }
