@@ -189,6 +189,14 @@ private struct HomeRow: View {
                         }
                     }
                     .padding(.horizontal)
+                    // tvOS-Fix 2026-09-03 (User-Report: fokussierte Kachel oben abgeschnitten):
+                    // die horizontale ScrollView clippt ihren Inhalt an den eigenen Bounds —
+                    // ohne vertikalen Zusatzraum reicht die hochskalierte Kachel
+                    // (`posterSection`s `scaleEffect(1.08)` + Schatten) oben/unten über den
+                    // sichtbaren Bereich hinaus und wird dort abgeschnitten.
+                    #if os(tvOS)
+                    .padding(.vertical, 24)
+                    #endif
                 }
             }
         }

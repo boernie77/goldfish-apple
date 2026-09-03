@@ -28,6 +28,9 @@ struct PersonItemsView: View {
     // in `ItemGridView`), und diese Ansicht hatte bisher überhaupt keine Sortierung.
     @State private var sort: ItemSort = .title
     @State private var ascending = true
+    #if os(tvOS)
+    @State private var showTVSortSheet = false
+    #endif
 
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
@@ -163,9 +166,23 @@ struct PersonItemsView: View {
                     Button {
                         ownedOnly.toggle()
                     } label: {
+                        #if os(tvOS)
+                        Image(systemName: ownedOnly ? "checkmark.square.fill" : "square")
+                        #else
                         Label("Nur Treffer", systemImage: ownedOnly ? "checkmark.square.fill" : "square")
+                        #endif
                     }
                 }
+                // tvOS-Fix 2026-09-03: gleiches `Menu`-in-Toolbar-Problem wie in `ItemGridView`
+                // (truncateter Text + unzuverlässiges Öffnen) — dieselbe `TVSortSheet`
+                // wiederverwendet statt eine zweite, fast identische Sheet-View zu bauen.
+                #if os(tvOS)
+                Button {
+                    showTVSortSheet = true
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                #else
                 Menu {
                     ForEach(ItemSort.allCases) { option in
                         Button {
@@ -183,8 +200,14 @@ struct PersonItemsView: View {
                 } label: {
                     Label("Sortieren", systemImage: "arrow.up.arrow.down")
                 }
+                #endif
             }
         }
+        #if os(tvOS)
+        .sheet(isPresented: $showTVSortSheet) {
+            TVSortSheet(sort: $sort, ascending: $ascending)
+        }
+        #endif
         .task { await load() }
     }
 

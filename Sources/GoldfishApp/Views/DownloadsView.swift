@@ -19,6 +19,9 @@ struct DownloadsView: View {
     @State private var showingDeleteAllConfirm = false
     // User-Anfrage 2026-08-30: zusätzlich "Alle gesehenen löschen" als eigene Auswahl.
     @State private var showingDeleteWatchedConfirm = false
+    #if os(tvOS)
+    @State private var showTVDeleteMenu = false
+    #endif
     /// User-Anfrage 2026-09-02: siehe `HomeView.path` — gleicher Zweck.
     @Binding var path: NavigationPath
     /// User-Anfrage 2026-09-02: "nach Bibliotheken trennen" — `Item` cached nur
@@ -139,6 +142,19 @@ struct DownloadsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
+                    // tvOS-Fix 2026-09-03: ein `Menu` als Toolbar-Popover truncatet auf tvOS
+                    // nicht nur seinen Label-Text ("Downloa...löschen") — es scheint dort
+                    // strukturell unzuverlässig zu öffnen (gleicher Befund wie beim Sortieren-/
+                    // Filter-Menu in `ItemGridView`). Bei nur zwei destruktiven Optionen reicht
+                    // hier ein `.confirmationDialog` statt eines eigenen Sheets.
+                    #if os(tvOS)
+                    Button {
+                        showTVDeleteMenu = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(allRecords.isEmpty)
+                    #else
                     Menu {
                         Button(role: .destructive) {
                             showingDeleteWatchedConfirm = true
@@ -156,8 +172,21 @@ struct DownloadsView: View {
                         Label("Downloads löschen", systemImage: "trash")
                     }
                     .disabled(allRecords.isEmpty)
+                    #endif
                 }
             }
+            #if os(tvOS)
+            .confirmationDialog("Downloads löschen", isPresented: $showTVDeleteMenu) {
+                Button("Alle gesehenen löschen", role: .destructive) {
+                    showingDeleteWatchedConfirm = true
+                }
+                .disabled(downloads.watchedDownloadCount == 0)
+                Button("Alle löschen", role: .destructive) {
+                    showingDeleteAllConfirm = true
+                }
+                Button("Abbrechen", role: .cancel) {}
+            }
+            #endif
             .confirmationDialog("Wirklich ALLE \(allRecords.count) Downloads löschen?", isPresented: $showingDeleteAllConfirm, titleVisibility: .visible) {
                 Button("Alle \(allRecords.count) Downloads löschen", role: .destructive) {
                     downloads.deleteAllDownloads()

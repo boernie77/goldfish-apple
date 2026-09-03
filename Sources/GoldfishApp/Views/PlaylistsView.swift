@@ -85,7 +85,13 @@ struct PlaylistsView: View {
                     newName = ""
                     showingCreate = true
                 } label: {
+                    // tvOS-Fix 2026-09-03: Icon-only wie die übrigen Toolbar-Buttons —
+                    // Label-Text wurde auf tvOS in Toolbars wiederholt abgeschnitten.
+                    #if os(tvOS)
+                    Image(systemName: "plus")
+                    #else
                     Label("Neue Playlist", systemImage: "plus")
+                    #endif
                 }
             }
         }
@@ -188,6 +194,9 @@ struct PlaylistDetailView: View {
     @State private var errorMessage: String?
     @State private var showingDeleteConfirm = false
     @State private var showingRename = false
+    #if os(tvOS)
+    @State private var showTVActionsMenu = false
+    #endif
     @State private var renameText = ""
 
     private let cardWidth: CGFloat = 150
@@ -225,6 +234,16 @@ struct PlaylistDetailView: View {
         .navigationTitle(playlist.name)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                // tvOS-Fix 2026-09-03: gleiches `Menu`-in-Toolbar-Problem wie in `ItemGridView`/
+                // `DownloadsView` — hier nur zwei einfache Aktionen, ein `.confirmationDialog`
+                // reicht statt eines eigenen Sheets.
+                #if os(tvOS)
+                Button {
+                    showTVActionsMenu = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                #else
                 Menu {
                     Button {
                         renameText = playlist.name
@@ -240,8 +259,21 @@ struct PlaylistDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                #endif
             }
         }
+        #if os(tvOS)
+        .confirmationDialog(playlist.name, isPresented: $showTVActionsMenu) {
+            Button("Umbenennen") {
+                renameText = playlist.name
+                showingRename = true
+            }
+            Button("Playlist löschen", role: .destructive) {
+                showingDeleteConfirm = true
+            }
+            Button("Abbrechen", role: .cancel) {}
+        }
+        #endif
         .alert("Playlist umbenennen", isPresented: $showingRename) {
             TextField("Name", text: $renameText)
             Button("Abbrechen", role: .cancel) {}

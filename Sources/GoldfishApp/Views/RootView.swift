@@ -281,9 +281,15 @@ struct MainTabView: View {
                 .tabItem { Label("Bibliotheken", systemImage: "books.vertical") }
                 .tag(MainTab.libraries)
 
+            // User-Anfrage 2026-09-03: "der Downloadbereich kann bei Apple TV eigentlich
+            // entfernt werden. Das braucht man dort meiner Meinung nach nicht" — Apple TV hat
+            // keinen Datei-Browser/keine Notwendigkeit für Offline-Downloads (immer am
+            // Heimnetz, reiner Streaming-Client), anders als iPhone/iPad unterwegs.
+            #if !os(tvOS)
             DownloadsView(path: $downloadsPath)
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
                 .tag(MainTab.downloads)
+            #endif
 
             SettingsView(path: $settingsPath)
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }

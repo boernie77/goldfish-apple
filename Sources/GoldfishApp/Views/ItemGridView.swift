@@ -44,6 +44,17 @@ struct ItemGridView: View {
     /// Buchstabenleiste zum navigieren" — filtert wie im Browser (CLAUDE.md
     /// "Alphabet-Sidebar rechts"), kein Scroll-Sprung.
     @State private var alphaFilter: String?
+    // tvOS-Fix 2026-09-03 (User-Report: "die Filterbuttons zeigen nichts an. Funktionieren
+    // nicht"): ein `Menu` als Toolbar-Popover scheint auf tvOS nicht zuverlässig ein
+    // sichtbares Overlay zu öffnen (vermutlich ein Anker-/Positionierungsproblem des
+    // `ToolbarItemGroup`-Bridging auf tvOS — mit Icon-only-Buttons ohne intrinsische Text-
+    // breite besonders ausgeprägt). Fix: auf tvOS eigene, garantiert sichtbare Sheets
+    // (Vollbild-Liste) statt eines angehefteten Menüs — dasselbe robuste Pattern wie jeder
+    // andere Auswahl-Dialog in der App.
+    #if os(tvOS)
+    @State private var showTVSortSheet = false
+    @State private var showTVFilterSheet = false
+    #endif
 
     /// Custom init only to set the sort defaults from `library.kind` — everything else keeps
     /// the compiler-synthesized memberwise behavior's parameter shape/defaults.
@@ -192,6 +203,11 @@ struct ItemGridView: View {
                     if !folders.isEmpty || !items.isEmpty {
                         AlphabetSidebar(selected: $alphaFilter)
                             .padding(.trailing, 4)
+                            // tvOS-Fix 2026-09-03 (User: "Buchstabenleiste etwas nach unten"):
+                            // vertikal zentriert saß die Leiste zu nah an der Toolbar-Zeile.
+                            #if os(tvOS)
+                            .offset(y: 40)
+                            #endif
                     }
                 }
             }
@@ -249,19 +265,28 @@ struct ItemGridView: View {
                     if isLoadingRandom {
                         ProgressView()
                     } else {
+                        // tvOS-Fix 2026-09-03, zweiter Anlauf (User-Report: Text blieb trotz
+                        // `.fixedSize()` abgeschnitten — "Z...lig" — UND der Button war dadurch
+                        // kaum noch zuverlässig treffbar/auslösbar). `ToolbarItemGroup`
+                        // komprimiert ihre Kinder auf tvOS offenbar so aggressiv, dass selbst
+                        // die erzwungene intrinsische Größe nicht half. Icon-only umgeht das
+                        // Problem komplett, statt weiter gegen die Kompression anzukämpfen.
+                        #if os(tvOS)
+                        Image(systemName: "shuffle")
+                        #else
                         Label("Zufällig", systemImage: "shuffle")
+                        #endif
                     }
                 }
                 .disabled(isLoadingRandom)
-                // tvOS-Fix 2026-09-03 (User-Report: Toolbar-Buttons zeigen abgeschnittenen
-                // Text wie "Z...lig"): `ToolbarItemGroup` quetscht ihre Kinder auf tvOS
-                // offenbar auf eine knappere Breite als der Label-Text braucht.
-                // `.fixedSize()` erzwingt die intrinsische (volle) Größe statt sich
-                // komprimieren zu lassen.
-                #if os(tvOS)
-                .fixedSize()
-                #endif
 
+                #if os(tvOS)
+                Button {
+                    showTVSortSheet = true
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                #else
                 Menu {
                     // Real bug hit 2026-08-19: a `Picker` nested inside a `Menu` renders as
                     // a native AppKit SUBMENU (its own panel, its own disclosure chevron) —
@@ -285,10 +310,15 @@ struct ItemGridView: View {
                 } label: {
                     Label("Sortieren", systemImage: "arrow.up.arrow.down")
                 }
-                #if os(tvOS)
-                .fixedSize()
                 #endif
 
+                #if os(tvOS)
+                Button {
+                    showTVFilterSheet = true
+                } label: {
+                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+                #else
                 Menu {
                     ForEach(WatchedFilter.allCases) { option in
                         Button {
@@ -347,11 +377,17 @@ struct ItemGridView: View {
                 // nichts geändert (bzw. man musste raten, was gerade an/aus war). `.disabled`
                 // hält das Menü über mehrere Taps offen, exakt wie eine Checkbox-Liste.
                 .modernMenuStaysOpen()
-                #if os(tvOS)
-                .fixedSize()
                 #endif
             }
         }
+        #if os(tvOS)
+        .sheet(isPresented: $showTVSortSheet) {
+            TVSortSheet(sort: $sort, ascending: $ascending)
+        }
+        .sheet(isPresented: $showTVFilterSheet) {
+            TVFilterSheet(watchedFilter: $watchedFilter, favoritesOnly: $favoritesOnly, selectedBuckets: $selectedBuckets, showTotalSize: $showTotalSize)
+        }
+        #endif
         .task { await load() }
         .onChange(of: search) { _ in Task { await load() } }
         .onChange(of: sort) { newValue in
@@ -790,6 +826,146 @@ struct ItemCard: View {
         return client.thumbURL(itemId: item.id)
     }
 }
+
+#if os(tvOS)
+/// tvOS-Fix 2026-09-03: Ersatz für das Sortieren-`Menu` (siehe Kommentar an der
+/// Aufrufstelle) — eine echte Vollbild-Liste statt eines Toolbar-Popovers, das auf tvOS
+/// unzuverlässig nichts sichtbares öffnete. Tap auf eine Zeile schließt das Sheet direkt
+/// (Einfachauswahl, kein "offen halten" nötig wie beim Filter-Sheet).
+// Nicht `private` — wird auch von `PersonItemsView` für ihr eigenes Sortieren-Menü
+// wiederverwendet (gleiches tvOS-Menu-in-Toolbar-Problem, siehe dortiger Kommentar).
+struct TVSortSheet: View {
+    @Binding var sort: ItemSort
+    @Binding var ascending: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    // tvOS-Fix 2026-09-03 (User-Report: "weiße Schrift hinter weißem Balken"): `.navigationTitle`
+    // + `.toolbar` überlappten sich in diesem Sheet sichtbar statt sich ordentlich
+    // anzuordnen — ein eigener, manuell gebauter Header umgeht das System-Nav-Bar-Layout
+    // komplett, statt gegen dessen tvOS-Sheet-Eigenheiten anzukämpfen.
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Sortieren")
+                .font(.title2.bold())
+                .padding()
+            List {
+                Section("Sortieren nach") {
+                    ForEach(ItemSort.allCases) { option in
+                        Button {
+                            sort = option
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(option.label)
+                                Spacer()
+                                if sort == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("Richtung") {
+                    Button {
+                        ascending.toggle()
+                        dismiss()
+                    } label: {
+                        Label(ascending ? "Aufsteigend" : "Absteigend", systemImage: ascending ? "arrow.up" : "arrow.down")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// tvOS-Fix 2026-09-03: Ersatz für das Filter-`Menu`. Anders als beim Sortieren-Sheet
+/// bleibt dieses Sheet nach jedem Tap offen (Mehrfachauswahl bei den Auflösungs-Buckets),
+/// der User schließt es selbst über den "Fertig"-Button oder die Menü-Taste der Fernbedienung.
+private struct TVFilterSheet: View {
+    @Binding var watchedFilter: WatchedFilter
+    @Binding var favoritesOnly: Bool
+    @Binding var selectedBuckets: Set<ResolutionBucket>
+    @Binding var showTotalSize: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    // tvOS-Fix 2026-09-03: siehe Kommentar bei `TVSortSheet` — manueller Header statt
+    // `.navigationTitle`+`.toolbar`, die sich hier sichtbar überlappt hatten ("Filter"-Titel
+    // hinter dem "Fertig"-Button, beides weiß auf weiß kaum lesbar).
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Filter")
+                    .font(.title2.bold())
+                Spacer()
+                Button("Fertig") { dismiss() }
+            }
+            .padding()
+            List {
+                Section("Gesehen") {
+                    ForEach(WatchedFilter.allCases) { option in
+                        Button {
+                            watchedFilter = option
+                        } label: {
+                            HStack {
+                                Text(option.label)
+                                Spacer()
+                                if watchedFilter == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    Button {
+                        favoritesOnly.toggle()
+                    } label: {
+                        HStack {
+                            Label("Nur Favoriten", systemImage: favoritesOnly ? "heart.fill" : "heart")
+                            Spacer()
+                            if favoritesOnly {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Section("Auflösung") {
+                    ForEach(ResolutionBucket.allCases) { bucket in
+                        Button {
+                            if selectedBuckets.contains(bucket) {
+                                selectedBuckets.remove(bucket)
+                            } else {
+                                selectedBuckets.insert(bucket)
+                            }
+                        } label: {
+                            HStack {
+                                Text(bucket.label)
+                                Spacer()
+                                if selectedBuckets.contains(bucket) {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    Button {
+                        showTotalSize.toggle()
+                    } label: {
+                        HStack {
+                            Text("Gesamtgröße anzeigen")
+                            Spacer()
+                            if showTotalSize {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
 
 // Hält ein `Menu` über mehrere Taps offen statt sich nach jedem Button-Tap zu schließen —
 // nötig für Mehrfachauswahl-Menüs (Auflösungs-Filter). `.menuActionDismissBehavior` kam erst
