@@ -90,11 +90,14 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        # com.goldfish.ios war unter dem alten kostenlosen Personal Team
-        # reserviert und deshalb für Geräte-Tests auf .iosdev ausgewichen
-        # (siehe Git-Historie). Mit dem neuen, bezahlten Team (2026-09-03)
-        # ist das ein anderes Konto — .ios sollte wieder frei sein.
-        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.ios
+        # com.goldfish.ios ist unter dem alten kostenlosen Personal Team
+        # reserviert — Apple-Bundle-IDs sind global eindeutig, das neue
+        # bezahlte Team (SYQL3PUXA9) kann sie nicht übernehmen, und die
+        # alte Personal-Team-Reservierung ist über developer.apple.com
+        # NICHT erreichbar (Personal Teams haben keine eigene Web-Verwaltung,
+        # nur Xcode-intern) — verifiziert 2026-09-03. Bleibt deshalb dauerhaft
+        # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
         MARKETING_VERSION: "0.8"
         CURRENT_PROJECT_VERSION: "155"
         CODE_SIGN_STYLE: Automatic
