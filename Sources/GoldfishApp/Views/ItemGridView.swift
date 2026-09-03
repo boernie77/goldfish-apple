@@ -535,10 +535,52 @@ struct ItemGridView: View {
             // `groupVariants`, was missing entirely here (real bug hit 2026-08-19: user
             // saw duplicate movies as two separate tiles).
             items = groupVariants(try await itemsTask)
-            folders = try await foldersTask
+            folders = sortFolderTiles(try await foldersTask)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // User-Report 2026-09-03 (Apple TV): "Filter Veröffentlicht und Hinzugefügt zeigen keine
+    // Veränderung" — kein tvOS-Bug, sondern eine bestehende Lücke der ganzen App (Mac/iOS
+    // gleichermaßen betroffen, gleiche Datei): `sort`/`ascending` wirkten bisher nur auf
+    // `items`, nie auf `folders`. Der Server liefert Ordner-/Show-Kacheln immer NATSORT-
+    // alphabetisch zurück (`internal/store/sqlite.go topLevelFolders`, kein `sort=`-Query
+    // auf `/api/libraries/{id}/folders`) — identisch zum Browser (`grid.js` sortiert Kacheln
+    // ausschließlich über `folderCollator`, ignoriert den Sort-Dropdown komplett). Für
+    // Laufzeit/Auflösung/Zuletzt-abgespielt gibt es ohnehin keine sinnvolle Kachel-Entsprechung
+    // (bleibt bei der Server-Reihenfolge). Für Titel/Veröffentlicht/Hinzugefügt/Bewertung sind
+    // die nötigen Werte bereits vorhanden (`FolderTile.metadata`/`.addedAt`, letzteres neu als
+    // `MAX(added_at)` pro Ordner vom Server) — hier sortieren wir client-seitig nach.
+    // Folgefund (User-Report "Sortierung nach Name umgekehrt getestet, Pfeil ändert sich,
+    // Sortierung blieb gleich"): `.title` gehörte ursprünglich zur "keine Entsprechung"-
+    // Gruppe, in der Annahme, Namen blieben ohnehin immer alphabetisch — falsch, `ascending`
+    // soll auch hier umkehren, der Server liefert aber IMMER aufsteigend (NATSORT). Jetzt
+    // ebenfalls client-seitig sortiert.
+    private func sortFolderTiles(_ tiles: [FolderTile]) -> [FolderTile] {
+        func precedes<T: Comparable>(_ a: T?, _ b: T?, ascending: Bool) -> Bool {
+            switch (a, b) {
+            case let (a?, b?): return ascending ? a < b : a > b
+            case (nil, nil): return false
+            case (nil, _): return false // fehlender Wert landet ans Ende, unabhängig von ascending
+            case (_, nil): return true
+            }
+        }
+        switch sort {
+        case .title:
+            return tiles.sorted {
+                let result = ($0.metadata?.title ?? $0.displayName).localizedStandardCompare($1.metadata?.title ?? $1.displayName)
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+            }
+        case .released:
+            return tiles.sorted { precedes($0.metadata?.releaseDate, $1.metadata?.releaseDate, ascending: ascending) }
+        case .added:
+            return tiles.sorted { precedes($0.addedAt, $1.addedAt, ascending: ascending) }
+        case .rating:
+            return tiles.sorted { precedes($0.metadata?.rating, $1.metadata?.rating, ascending: ascending) }
+        case .duration, .resolution, .played:
+            return tiles
         }
     }
 }
@@ -584,6 +626,20 @@ struct FolderCard: View {
     private var posterSection: some View {
             PosterImage(url: posterURL, placeholderSystemImage: "folder")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                // User-Report 2026-09-03: Show-Kacheln zeigten weder Bewertung noch Jahr/
+                // Folgenanzahl — nur den nackten itemCount unten rechts. Rating-Badge jetzt
+                // oben rechts, gleiches Capsule-Styling wie `ItemCard.posterSection` (dort
+                // .yellow für den Stern), damit beide Kachel-Arten optisch zusammenpassen.
+                .overlay(alignment: .topTrailing) {
+                    if let ratingLabel = tile.ratingLabel {
+                        Text(ratingLabel)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.yellow)
+                            .padding(6)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     Text("\(tile.itemCount)")
                         .font(.caption2.bold())
@@ -601,10 +657,20 @@ struct FolderCard: View {
 
     @ViewBuilder
     private var titleSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(tile.metadata?.title ?? tile.displayName)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
                 .foregroundStyle(.primary)
+            // Jahr · Folgenanzahl — nur bei echten Show-Ordnern (mit TMDB-Metadata), siehe
+            // `FolderTile.episodeMetaLabel`. Generische Ordner (z. B. in Privat-Libs) bleiben
+            // unverändert ohne zweite Zeile.
+            if let meta = tile.episodeMetaLabel {
+                Text(meta)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var posterURL: URL? {
@@ -843,38 +909,48 @@ struct TVSortSheet: View {
     // + `.toolbar` überlappten sich in diesem Sheet sichtbar statt sich ordentlich
     // anzuordnen — ein eigener, manuell gebauter Header umgeht das System-Nav-Bar-Layout
     // komplett, statt gegen dessen tvOS-Sheet-Eigenheiten anzukämpfen.
+    // tvOS-Fix 2026-09-03 (Folge-Bug, User-Report "gleicher Fehler" nach dem Sheet-Umbau):
+    // `.sheet` präsentiert auf tvOS NICHT automatisch vollbildschirm wie auf iOS, sondern als
+    // zentriertes "Form-Sheet", das sich an die intrinsische Größe seines Inhalts anpasst.
+    // Ohne explizites `.frame` schrumpfte der VStack auf die Breite/Höhe des Header-Texts —
+    // die `List` darunter bekam 0pt Höhe zugewiesen und war unsichtbar (nur der schwebende
+    // "Sortieren"-Pill war zu sehen). Fix: fester `.frame` auf dem VStack, groß genug für
+    // Header + alle Listenzeilen auf einem 10-Fuß-Screen.
     var body: some View {
         VStack(spacing: 0) {
             Text("Sortieren")
                 .font(.title2.bold())
                 .padding()
             List {
+                // User-Anfrage 2026-09-03: der separate "Richtung"-Eintrag ganz unten (eigene
+                // Section, eine Interaktion "extra") wirkte losgelöst von der eigentlichen
+                // Sortierauswahl. Fix: erneutes Antippen der BEREITS gewählten Option togglet
+                // jetzt die Richtung direkt — kein zweiter Menüpunkt mehr nötig, ein Pfeil
+                // (↑/↓) statt Haken zeigt bei der aktiven Zeile zusätzlich die Richtung an.
                 Section("Sortieren nach") {
                     ForEach(ItemSort.allCases) { option in
                         Button {
-                            sort = option
+                            if sort == option {
+                                ascending.toggle()
+                            } else {
+                                sort = option
+                                ascending = option.defaultAscending
+                            }
                             dismiss()
                         } label: {
                             HStack {
                                 Text(option.label)
                                 Spacer()
                                 if sort == option {
-                                    Image(systemName: "checkmark")
+                                    Image(systemName: ascending ? "arrow.up" : "arrow.down")
                                 }
                             }
                         }
                     }
                 }
-                Section("Richtung") {
-                    Button {
-                        ascending.toggle()
-                        dismiss()
-                    } label: {
-                        Label(ascending ? "Aufsteigend" : "Absteigend", systemImage: ascending ? "arrow.up" : "arrow.down")
-                    }
-                }
             }
         }
+        .frame(width: 900, height: 700)
     }
 }
 
@@ -891,6 +967,8 @@ private struct TVFilterSheet: View {
     // tvOS-Fix 2026-09-03: siehe Kommentar bei `TVSortSheet` — manueller Header statt
     // `.navigationTitle`+`.toolbar`, die sich hier sichtbar überlappt hatten ("Filter"-Titel
     // hinter dem "Fertig"-Button, beides weiß auf weiß kaum lesbar).
+    // tvOS-Fix 2026-09-03 (Folge-Bug): siehe Kommentar bei `TVSortSheet` — explizites `.frame`
+    // nötig, sonst schrumpft das Sheet auf die Header-Textgröße und die Liste ist unsichtbar.
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -963,6 +1041,7 @@ private struct TVFilterSheet: View {
                 }
             }
         }
+        .frame(width: 900, height: 900)
     }
 }
 #endif

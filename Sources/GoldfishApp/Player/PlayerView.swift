@@ -67,6 +67,15 @@ struct PlayerView: View {
     @State private var resumeTimer: Timer?
     @State private var timeObserverToken: Any?
     @State private var didEndObserverToken: NSObjectProtocol?
+    // tvOS-Fix 2026-09-03 (User-Report: "spielt nichts ab", Position hängt dauerhaft an der
+    // Resume-Sekunde fest, `player.currentItem?.status` erreicht dabei nie `.failed` — der
+    // simple Status-Check von vorhin griff also nicht): ein Stream, der aus Netzwerksicht
+    // scheitert (z. B. App Transport Security blockt eine http://-Segment-URL, 4xx/5xx vom
+    // Server, DNS-Fehler), lässt `AVPlayerItem.status` oft auf `.readyToPlay` stehen — das
+    // Item "kennt" seine Metadaten (Dauer) schon aus dem HLS-Playlist-Header, hängt aber beim
+    // eigentlichen Segment-Laden fest. Der zuverlässige Kanal dafür ist NICHT `.status`,
+    // sondern `AVPlayerItemNewErrorLogEntry` (das native HTTP-Error-Log jedes Requests).
+    @State private var errorLogObserverToken: NSObjectProtocol?
 
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -183,30 +192,42 @@ struct PlayerView: View {
             }
             .frame(width: 0, height: 0)
 
-            if let player {
-                NativePlayerView(player: player)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { toggleControlsVisibility() }
-            } else if let errorMessage {
+            // tvOS-Fix 2026-09-03: Reihenfolge bewusst umgestellt — vorher gewann `player`
+            // immer schon, sobald `AVPlayer(url:)` erfolgreich KONSTRUIERT wurde, selbst wenn
+            // der zugehörige `AVPlayerItem` danach asynchron mit `.status == .failed`
+            // scheiterte (siehe der neue Status-Check in `attachObservers`). Ein stiller
+            // schwarzer Bildschirm statt einer Fehlermeldung war die Folge — `errorMessage`
+            // muss Vorrang haben, damit ein Spätfehler den Player-Zweig sofort ablöst.
+            if let errorMessage {
                 VStack(spacing: 12) {
                     Text(errorMessage).foregroundStyle(.white)
                     Button("Schließen") { closePlayer() }
                 }
+            } else if let player {
+                NativePlayerView(player: player)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleControlsVisibility() }
             } else {
                 ProgressView().tint(.white)
             }
             #else
-            if let player {
-                NativePlayerView(player: player)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { toggleControlsVisibility() }
-            } else if let errorMessage {
+            // tvOS-Fix 2026-09-03: Reihenfolge bewusst umgestellt — vorher gewann `player`
+            // immer schon, sobald `AVPlayer(url:)` erfolgreich KONSTRUIERT wurde, selbst wenn
+            // der zugehörige `AVPlayerItem` danach asynchron mit `.status == .failed`
+            // scheiterte (siehe der neue Status-Check in `attachObservers`). Ein stiller
+            // schwarzer Bildschirm statt einer Fehlermeldung war die Folge — `errorMessage`
+            // muss Vorrang haben, damit ein Spätfehler den Player-Zweig sofort ablöst.
+            if let errorMessage {
                 VStack(spacing: 12) {
                     Text(errorMessage).foregroundStyle(.white)
                     Button("Schließen") { closePlayer() }
                 }
+            } else if let player {
+                NativePlayerView(player: player)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleControlsVisibility() }
             } else {
                 ProgressView().tint(.white)
             }
@@ -473,6 +494,8 @@ struct PlayerView: View {
         timeObserverToken = nil
         if let token = didEndObserverToken { NotificationCenter.default.removeObserver(token) }
         didEndObserverToken = nil
+        if let token = errorLogObserverToken { NotificationCenter.default.removeObserver(token) }
+        errorLogObserverToken = nil
         if let player {
             // Capture + pause synchronously — by the time an async Task actually runs,
             // `self.player` would already be nil below and saveResume() would no-op.
@@ -710,6 +733,14 @@ struct PlayerView: View {
             }
             virtualOffset = isTranscode ? startAt : 0
 
+            // Diagnose 2026-09-03 (tvOS: "spielt nichts ab", stille FigStreamPlayer/CFHTTP/
+            // HLS-FASB-Fehler in der Xcode-Konsole ohne jede AVPlayerItem-Fehlermeldung) —
+            // zeigt die tatsächlich geladene URL (Schema/Host besonders wichtig: http vs.
+            // https, LAN-IP vs. Domain), um den Netzwerk-Fehlschlag einzugrenzen.
+            #if DEBUG
+            print("[PlayerView] isTranscode=\(isTranscode) startAt=\(startAt) streamURL=\(streamURL.absoluteString)")
+            #endif
+
             let p = AVPlayer(url: streamURL)
             self.player = p
             attachObservers(to: p)
@@ -761,6 +792,17 @@ struct PlayerView: View {
         // is ever skipped on some path) even after every other reference is dropped.
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
             guard !isScrubbing, let player else { return }
+            // tvOS-Fix 2026-09-03 (User-Report: "spielt nichts ab", stiller schwarzer
+            // Bildschirm ohne jede Meldung): bisher wurde ein asynchron gescheiterter
+            // `AVPlayerItem` (z. B. Netzwerk-/URL-Fehler NACH dem erfolgreichen
+            // `AVPlayer(url:)`-Konstruktor-Aufruf) nirgendwo beobachtet — `errorMessage`
+            // blieb nil, der `player`-Zweig (siehe body oben) zeigte einfach dauerhaft
+            // Schwarz. Reuse des ohnehin laufenden 0,5s-Timers statt eines eigenen KVO-
+            // Observers.
+            if player.currentItem?.status == .failed, errorMessage == nil {
+                errorMessage = player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen."
+                return
+            }
             currentTime = virtualOffset + time.seconds
             if duration <= 0, let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite, itemDuration > 0 {
                 duration = virtualOffset + itemDuration
@@ -801,6 +843,17 @@ struct PlayerView: View {
                     await jumpRandom(by: 1, context: ctx)
                 }
             }
+        }
+
+        errorLogObserverToken = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemNewErrorLogEntry,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak player] _ in
+            guard errorMessage == nil,
+                  let event = player?.currentItem?.errorLog()?.events.last else { return }
+            let comment = event.errorComment ?? "unbekannter Netzwerkfehler"
+            errorMessage = "Stream-Fehler (\(event.errorStatusCode)): \(comment)"
         }
     }
 

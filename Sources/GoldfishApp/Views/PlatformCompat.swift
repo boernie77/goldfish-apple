@@ -1,11 +1,34 @@
 import SwiftUI
 
 extension View {
-    /// `fullScreenCover` only exists on iOS; macOS uses a plain large `.sheet` instead.
+    /// `fullScreenCover` only exists on iOS; macOS/tvOS use a plain `.sheet` instead.
     @ViewBuilder
     func fullScreenCoverCompat<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
         #if os(iOS)
         self.fullScreenCover(isPresented: isPresented, content: content)
+        #elseif os(tvOS)
+        // tvOS-Fix 2026-09-03, ZWEITER Anlauf (User-Report nach dem ersten Versuch mit
+        // explizitem `.frame`: "das weiße Fenster um die Elemente ist zu groß" — Bild blieb
+        // trotzdem klein/schwarz, Controls unproportional). Root Cause: `.sheet` lässt sich
+        // auf tvOS GRUNDSÄTZLICH NICHT zu echtem Vollbild zwingen — das System präsentiert
+        // IMMER eine zentrierte "Form-Sheet"-Karte mit eigenem hellen Chrome/Rand, egal
+        // welches `.frame` der Inhalt bekommt (kein Sheet-Modifier/keine Presentation-Detent-
+        // API auf tvOS kann das umgehen). Fix: Player wird auf tvOS über
+        // `.navigationDestination(isPresented:)` GESCHOBEN statt modal präsentiert — echte
+        // Vollbild-Navigation ohne System-Chrome, wie jede andere Seite in der App. Setzt
+        // voraus, dass der Aufrufer innerhalb der `NavigationStack` seiner Tab-Seite sitzt
+        // (LibrariesView/HomeView/etc. — siehe RootView.legacyTabView), was für alle
+        // aktuellen Aufrufer zutrifft. `@Environment(\.dismiss)` in `PlayerView.closePlayer()`
+        // funktioniert dadurch unverändert weiter (poppt jetzt den Stack statt ein Sheet zu
+        // schließen).
+        // tvOS-Fix 2026-09-03, Folgebug (User-Screenshot: die Tab-Leiste "Start/Bibliotheken/
+        // Einstellungen" blieb über dem gepushten Player sichtbar) — anders als ein echtes
+        // `fullScreenCover` deckt eine reine Stack-Navigation die umschließende `TabView`
+        // (RootView.legacyTabView) NICHT automatisch ab. `.toolbar(.hidden, for: .tabBar)`
+        // auf dem gepushten Inhalt blendet sie für die Dauer der Präsentation aus.
+        self.navigationDestination(isPresented: isPresented) {
+            content().toolbar(.hidden, for: .tabBar)
+        }
         #else
         self.sheet(isPresented: isPresented) {
             content()

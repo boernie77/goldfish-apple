@@ -41,6 +41,21 @@ struct NativePlayerView: UIViewControllerRepresentable {
         let vc = AVPlayerViewController()
         vc.player = player
         vc.showsPlaybackControls = false
+        #if os(tvOS)
+        // tvOS-Fix 2026-09-03 (User-Report: "Player spielt nichts ab, Steuerelemente nicht
+        // auswählbar/kein sichtbarer Fokus"): `AVPlayerViewController`s View ist auf tvOS von
+        // Haus aus Teil der Fokus-Kette der Siri-Remote — das gilt auch bei
+        // `showsPlaybackControls = false`, wo nur die eingebaute Chrome unsichtbar ist. Sie
+        // schnappt sich den Fokus VOR den eigenen SwiftUI-Buttons in `PlayerControlsBar`
+        // (kein sichtbarer Fokusrahmen dort, Remote-Klicks landen im unsichtbaren nativen
+        // Player statt im eigenen `togglePlay()`). `canBecomeFocused` existiert nur auf
+        // `UIView`/`UIFocusItem`, NICHT auf `UIViewController` (erster Versuch schlug mit
+        // "does not override any property from its superclass" fehl) — Fix greift daher an
+        // der View selbst: `isUserInteractionEnabled = false` nimmt sie komplett aus der
+        // Fokus-Kette, die Fokus-Engine zieht direkt zu den eigenen Controls weiter. Rein
+        // visuell/interaktiv, betrifft NICHT die Video-Wiedergabe selbst.
+        vc.view.isUserInteractionEnabled = false
+        #endif
         return vc
     }
 

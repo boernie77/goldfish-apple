@@ -442,9 +442,32 @@ public struct FolderTile: Decodable, Identifiable, Hashable {
     public let metadataId: Int64?
     public let metadata: Metadata?
     public let drilldown: Bool
+    /// MAX(added_at) aller Items in diesem Ordner (rekursiv). Server: `store.Folder.AddedAt`
+    /// (`internal/store/sqlite.go`/`folder_nav.go`). Ermöglicht Sortierung von Ordner-/Show-
+    /// Kacheln nach "Hinzugefügt" — der Browser sortiert Kacheln bisher immer nur alphabetisch.
+    public let addedAt: String?
 
     public var id: String { name }
     public var displayName: String { name.components(separatedBy: "/").last ?? name }
+
+    /// Same formula as `Item.ratingLabel` — User-Report 2026-09-03 (Apple TV): Show-Kacheln
+    /// in Serien-Bibliotheken zeigten weder Bewertung, Jahr noch Folgenanzahl, obwohl der
+    /// Browser das schon immer tut (`grid.js renderFolderCard`: ★-Badge + "Jahr · N Episoden").
+    public var ratingLabel: String? {
+        guard let rating = metadata?.rating, rating > 0 else { return nil }
+        return String(format: "★ %.1f", rating)
+    }
+
+    /// "2019 · 24 Episoden" (Jahr bekannt) oder nur "24 Episoden" — nil, wenn diese Kachel
+    /// keine TMDB-Show-Metadata hat (generischer Ordner, z. B. in einer Privat-Bibliothek).
+    public var episodeMetaLabel: String? {
+        guard metadata != nil else { return nil }
+        let episodes = "\(itemCount) Episode\(itemCount == 1 ? "" : "n")"
+        if let year = metadata?.year, year > 0 {
+            return "\(year) · \(episodes)"
+        }
+        return episodes
+    }
 }
 
 // MARK: - Resume
