@@ -41,6 +41,8 @@ struct LoginView: View {
                     .autocorrectionDisabled()
                     #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #else
+                    .tvLoginFieldStyle()
                     #endif
 
                 TextField("Benutzername", text: $username)
@@ -54,12 +56,16 @@ struct LoginView: View {
                     .textContentType(.username)
                     #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #else
+                    .tvLoginFieldStyle()
                     #endif
 
                 SecureField("Passwort", text: $password)
                     .textContentType(.password)
                     #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #else
+                    .tvLoginFieldStyle()
                     #endif
             }
             .frame(maxWidth: 360)

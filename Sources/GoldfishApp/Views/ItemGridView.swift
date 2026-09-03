@@ -93,14 +93,36 @@ struct ItemGridView: View {
     // Fixed (min == max) column width instead of a fully adaptive grid: adaptive grids
     // on macOS can miscompute their initial width right after a NavigationStack push,
     // which visually collapses the grid into one smeared column. A fixed cell size sidesteps that.
+    // tvOS-Fix 2026-09-03: größere Kacheln (10-Fuß-UI) + größerer Abstand, damit die
+    // fokussierte Kachel beim Hochskalieren (siehe ItemCard/FolderCard `posterSection`,
+    // scaleEffect 1.08) nicht die Nachbarkachel berührt.
+    #if os(tvOS)
+    private let cardWidth: CGFloat = 240
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 48, alignment: .top)] }
+    #else
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
+    #endif
 
     /// Ausgelagert aus `body` — der große kombinierte ViewBuilder-Ausdruck brachte den
     /// Type-Checker sonst zum Timeout ("unable to type-check ... in reasonable time"),
     /// nachdem `displayedFolders`/`displayedItems` dazukamen.
     @ViewBuilder
     private var itemGrid: some View {
+        #if os(tvOS)
+        LazyVGrid(columns: columns, spacing: 48) {
+            ForEach(displayedFolders) { tile in
+                // Der NavigationLink steckt jetzt INNERHALB von FolderCard/ItemCard
+                // (nur ums Poster) — siehe Kommentar dort. Kein äußerer Link mehr nötig.
+                FolderCard(tile: tile, library: library)
+                    .frame(width: cardWidth)
+            }
+            ForEach(displayedItems) { item in
+                ItemCard(item: item, width: cardWidth, queue: items)
+                    .frame(width: cardWidth)
+            }
+        }
+        #else
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(displayedFolders) { tile in
                 NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
@@ -119,6 +141,7 @@ struct ItemGridView: View {
                 .focusableCompat(false)
             }
         }
+        #endif
     }
 
     var body: some View {
@@ -467,9 +490,36 @@ struct ItemGridView: View {
 struct FolderCard: View {
     let tile: FolderTile
     @EnvironmentObject var client: GoldfishClient
+    #if os(tvOS)
+    // Gleiches Muster wie `ItemCard` — siehe dortiger Kommentar zum nativen
+    // tvOS-Fokushintergrund, der sich sonst über Poster UND Titeltext erstreckt.
+    @Environment(\.isFocused) private var isFocused
+    let library: Library
+    #endif
 
     var body: some View {
+        #if os(tvOS)
         VStack(alignment: .leading, spacing: 6) {
+            NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
+                posterSection
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+
+            titleSection
+        }
+        .contentShape(Rectangle())
+        #else
+        VStack(alignment: .leading, spacing: 6) {
+            posterSection
+            titleSection
+        }
+        .contentShape(Rectangle())
+        #endif
+    }
+
+    @ViewBuilder
+    private var posterSection: some View {
             PosterImage(url: posterURL, placeholderSystemImage: "folder")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .bottomTrailing) {
@@ -480,13 +530,19 @@ struct FolderCard: View {
                         .foregroundStyle(.white)
                         .padding(6)
                 }
+                #if os(tvOS)
+                .scaleEffect(isFocused ? 1.08 : 1.0)
+                .shadow(color: .black.opacity(isFocused ? 0.5 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.2), value: isFocused)
+                #endif
+    }
 
+    @ViewBuilder
+    private var titleSection: some View {
             Text(tile.metadata?.title ?? tile.displayName)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
                 .foregroundStyle(.primary)
-        }
-        .contentShape(Rectangle())
     }
 
     private var posterURL: URL? {
@@ -512,16 +568,62 @@ struct ItemCard: View {
     @EnvironmentObject var downloads: DownloadManager
     @State private var watched: Bool
     @State private var favorite: Bool
+    #if os(tvOS)
+    // tvOS-Fix 2026-09-03, zweiter (korrekter) Anlauf: weder `.buttonStyle(.plain)`
+    // (kein Fokus-Feedback) noch `.buttonStyle(.card)` (verzerrt/beschneidet das
+    // Poster durch eigenes Layout-Padding) passen für unser zusammengesetztes
+    // Poster+Titeltext-Layout. Der Fokus-Effekt wird stattdessen hier selbst,
+    // NUR auf dem Poster, über `@Environment(\.isFocused)` gebaut (skaliert +
+    // Schatten) — der Titeltext darunter bleibt unverändert an fester Position,
+    // dadurch keine variierende Box mehr je nach Zeilenzahl.
+    @Environment(\.isFocused) private var isFocused
+    // tvOS-Fix 2026-09-03, DRITTER Anlauf (User: "das weiße Fenster ist immer noch
+    // da", nachdem `.buttonStyle(.card)` UND `.focusEffectDisabled()` beide nicht
+    // reichten): der native tvOS-Fokushintergrund gehört zum `NavigationLink`
+    // selbst und umfasst IMMER dessen kompletten Label-Inhalt — solange Poster UND
+    // Titeltext gemeinsam das Label bilden, bleibt die Fläche zwangsläufig so groß
+    // wie beide zusammen (und variiert mit der Zeilenzahl des Titels). Einzig
+    // wirksamer Ausweg: der `NavigationLink` umschließt auf tvOS NUR noch das
+    // Poster, der Titeltext steht strukturell AUSSERHALB (separates, nicht
+    // fokussierbares Label direkt darunter) — dafür braucht `ItemCard` hier die
+    // Navigations-Queue selbst, um den Link intern zu bauen statt sich vom
+    // Aufrufer umschließen zu lassen (siehe `body` unten).
+    var queue: [Item] = []
+    #endif
 
-    init(item: Item, width: CGFloat = 150) {
+    init(item: Item, width: CGFloat = 150, queue: [Item] = []) {
         self.item = item
         self.width = width
         _watched = State(initialValue: item.watched)
         _favorite = State(initialValue: item.favorite)
+        #if os(tvOS)
+        self.queue = queue
+        #endif
     }
 
     var body: some View {
+        #if os(tvOS)
         VStack(alignment: .leading, spacing: 4) {
+            NavigationLink(value: ItemNavTarget(item: item, queue: queue)) {
+                posterSection
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+
+            titleSection
+        }
+        .contentShape(Rectangle())
+        #else
+        VStack(alignment: .leading, spacing: 4) {
+            posterSection
+            titleSection
+        }
+        .contentShape(Rectangle())
+        #endif
+    }
+
+    @ViewBuilder
+    private var posterSection: some View {
             // fixedWidth: siehe PosterImage.fixedWidth-Kommentar für den Bug, den das umgeht.
             PosterImage(url: posterURL, fixedWidth: width)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -576,9 +678,17 @@ struct ItemCard: View {
                         .foregroundStyle(.white)
                         .padding(6)
                 }
+                #if os(tvOS)
+                .scaleEffect(isFocused ? 1.08 : 1.0)
+                .shadow(color: .black.opacity(isFocused ? 0.5 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.2), value: isFocused)
+                #endif
+    }
 
-            // Episodes: show name on top, "S07E23 · Episodentitel" below.
-            // Movies/everything else: title on top, year below (when known).
+    // Episodes: show name on top, "S07E23 · Episodentitel" below.
+    // Movies/everything else: title on top, year below (when known).
+    @ViewBuilder
+    private var titleSection: some View {
             if item.isEpisode {
                 Text(item.showName ?? item.displayTitle)
                     .font(.subheadline.weight(.medium))
@@ -622,8 +732,6 @@ struct ItemCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-        .contentShape(Rectangle())
     }
 
     private func toggleWatched() {

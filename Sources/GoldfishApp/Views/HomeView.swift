@@ -157,14 +157,35 @@ private struct HomeRow: View {
                     // stay centered against the shorter card — looked like the tiles were
                     // randomly shifted. Top alignment keeps every poster's top edge level
                     // regardless of how much text sits underneath.
-                    HStack(alignment: .top, spacing: 12) {
+                    // tvOS-Fix 2026-09-03: größerer Kartenabstand, damit die fokussierte
+                    // Kachel beim Hochskalieren (siehe `ItemCard.posterSection`,
+                    // scaleEffect 1.08) nicht in die Nachbarkachel hineinreicht. Auch die
+                    // Kartenbreite selbst ist auf tvOS größer (10-Fuß-UI — bei 130pt wie
+                    // auf dem iPhone passen Titel/Jahr/Badges auf dem großen Bildschirm
+                    // kaum lesbar drauf).
+                    #if os(tvOS)
+                    let tileWidth: CGFloat = 220
+                    let tileSpacing: CGFloat = 40
+                    #else
+                    let tileWidth: CGFloat = 130
+                    let tileSpacing: CGFloat = 12
+                    #endif
+                    HStack(alignment: .top, spacing: tileSpacing) {
                         ForEach(items) { item in
+                            #if os(tvOS)
+                            // Der NavigationLink steckt jetzt INNERHALB von ItemCard (nur
+                            // ums Poster, siehe dortiger Kommentar) — hier also nur noch
+                            // die Karte selbst, kein zusätzlicher äußerer Link mehr.
+                            ItemCard(item: item, width: tileWidth, queue: items)
+                                .frame(width: tileWidth)
+                            #else
                             NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
-                                ItemCard(item: item, width: 130)
-                                    .frame(width: 130)
+                                ItemCard(item: item, width: tileWidth)
+                                    .frame(width: tileWidth)
                             }
                             .cardButtonStyleCompat()
                             .focusableCompat(false)
+                            #endif
                         }
                     }
                     .padding(.horizontal)

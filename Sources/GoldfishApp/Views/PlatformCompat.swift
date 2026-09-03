@@ -27,22 +27,39 @@ extension View {
         #endif
     }
 
-    /// tvOS-Fix 2026-09-03 (User-Report: weißes Fokus-Rechteck sieht "komisch" aus und
-    /// ist "bei jedem Film unterschiedlich"): `.buttonStyle(.plain)` unterdrückt auf
-    /// tvOS NICHT den automatischen System-Fokus-Effekt — der zeichnet stattdessen eine
-    /// weiße, abgerundete Fläche über die GESAMTE Bounding-Box des Buttons, inklusive
-    /// des Titeltexts UNTER dem Poster. Da die Titelzeilen-Anzahl je Film variiert
-    /// (1 vs. 2 Zeilen), variiert auch diese Box — exakt das beobachtete Symptom.
-    /// `.buttonStyle(.card)` ist tvOS' dafür vorgesehener Stil: der Fokus-/Hover-Effekt
-    /// (Skalierung + Schatten) folgt dann der tatsächlichen Content-Form des Buttons
-    /// (hier: nur das Poster, da genau das der Button-Inhalt ist) statt einer groben
-    /// Bounding-Box. Auf anderen Plattformen bleibt `.plain` unverändert.
+    /// tvOS-Fix 2026-09-03, DRITTER Anlauf (User-Screenshot zeigte: die graue/weiße
+    /// Fläche hinter der Kachel war nach den ersten beiden Versuchen IMMER NOCH da).
+    /// Root Cause, jetzt tatsächlich verifiziert: tvOS zeichnet den automatischen
+    /// System-Fokus-Hintergrund UNABHÄNGIG vom `.buttonStyle` — weder `.plain` noch
+    /// `.card` schalten ihn ab, das ist ein separater Fokus-Effekt-Layer, der ohne
+    /// explizites Opt-out immer mitläuft. `.focusEffectDisabled()` (tvOS 17+, unser
+    /// Minimum) ist der tatsächlich dafür vorgesehene Schalter — erst DAMIT verschwindet
+    /// die Fläche wirklich, und der eigene Skalierungs-/Schatten-Effekt in `ItemCard`/
+    /// `FolderCard` (`@Environment(\.isFocused)`) bleibt als einziges Fokus-Feedback übrig.
     @ViewBuilder
     func cardButtonStyleCompat() -> some View {
         #if os(tvOS)
-        self.buttonStyle(.card)
+        self.buttonStyle(.plain).focusEffectDisabled()
         #else
         self.buttonStyle(.plain)
         #endif
     }
+
+    /// tvOS-Fix 2026-09-03 (User-Report: Text in den Login-Feldern sitzt oben/links
+    /// statt zentriert): ohne `.textFieldStyle(.roundedBorder)` (existiert auf tvOS
+    /// nicht) fällt das Feld auf tvOS' EIGENE, native Editier-Darstellung zurück,
+    /// deren interne Text-Position sich nicht sauber beeinflussen lässt. Fix: die
+    /// Pille selbst zeichnen (`.textFieldStyle(.plain)` + eigenes Padding/Capsule) —
+    /// SwiftUI zentriert den Text darin zuverlässig vertikal, exakt wie ein normales
+    /// Textfeld auf jeder anderen Plattform.
+    #if os(tvOS)
+    @ViewBuilder
+    func tvLoginFieldStyle() -> some View {
+        self
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(.regularMaterial, in: Capsule())
+    }
+    #endif
 }
