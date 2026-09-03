@@ -300,6 +300,15 @@ struct ItemGridView: View {
                 } label: {
                     Label("Filter", systemImage: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
+                // User-Anfrage 2026-09-03: "man erkennt nicht, welche Auflösung gewählt ist" —
+                // war kein Anzeige-Bug (der Haken war schon korrekt gesetzt), sondern ein
+                // Interaktionsproblem: ein SwiftUI-`Menu` schließt sich standardmäßig nach JEDEM
+                // Tap auf einen Button darin. Bei den Auflösungs-Kästchen (Mehrfachauswahl) hieß
+                // das: ein Tap togglete den Haken korrekt, aber das Menü klappte sofort zu, bevor
+                // man das gesehen hat — beim nächsten Öffnen sah es dann so aus, als hätte sich
+                // nichts geändert (bzw. man musste raten, was gerade an/aus war). `.disabled`
+                // hält das Menü über mehrere Taps offen, exakt wie eine Checkbox-Liste.
+                .modernMenuStaysOpen()
             }
         }
         .task { await load() }
@@ -643,5 +652,27 @@ struct ItemCard: View {
             return url
         }
         return client.thumbURL(itemId: item.id)
+    }
+}
+
+// Hält ein `Menu` über mehrere Taps offen statt sich nach jedem Button-Tap zu schließen —
+// nötig für Mehrfachauswahl-Menüs (Auflösungs-Filter). `.menuActionDismissBehavior` kam erst
+// mit iOS 16.4/macOS 13.3 dazu, App-Deployment-Target ist iOS 16.0 — daher #available-Gate
+// statt direktem Aufruf.
+private extension View {
+    @ViewBuilder
+    func modernMenuStaysOpen() -> some View {
+        // `.disabled` existiert als MenuActionDismissBehavior-Fall NUR auf iOS/iPadOS
+        // (macOS-Menüs schließen sich systemweit immer nach einem Klick, dort nicht
+        // übersteuerbar) — deshalb zusätzlich zum Availability-Check ein Plattform-Gate.
+        #if os(iOS)
+        if #available(iOS 16.4, *) {
+            self.menuActionDismissBehavior(.disabled)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
