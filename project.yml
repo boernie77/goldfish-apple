@@ -34,8 +34,8 @@ targets:
         # bei jedem Build um x.1 erhöhen" — ersetzt den bisherigen informellen
         # "Build NNNN"-Zähler (siehe Memory feedback_apple_versioning). Nächster
         # Bump: 0.1 → 0.2 → 0.3 … Sichtbar in Settings → Account → "Version".
-        CFBundleShortVersionString: "0.8"
-        CFBundleVersion: "181"
+        CFBundleShortVersionString: "0.9"
+        CFBundleVersion: "182"
     # App Sandbox intentionally OFF (2026-08-19) — see GoldfishMac.entitlements for the
     # full story: Security-Scoped-Bookmarks failed unpredictably even for internal APFS
     # folders under a free "Personal Team" signature, not just exFAT USB-sticks. Goldfish
@@ -48,8 +48,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.mac
-        MARKETING_VERSION: "0.8"
-        CURRENT_PROJECT_VERSION: "155"
+        MARKETING_VERSION: "0.9"
+        CURRENT_PROJECT_VERSION: "182"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
         # Bezahltes Apple Developer Program-Team (seit 2026-09-03, Bestätigung
@@ -76,8 +76,8 @@ targets:
       properties:
         CFBundleDisplayName: Goldfish
         # Siehe Kommentar beim GoldfishMac-Target: 0.1 → 0.2 → 0.3 … bei jedem Build.
-        CFBundleShortVersionString: "0.8"
-        CFBundleVersion: "181"
+        CFBundleShortVersionString: "0.9"
+        CFBundleVersion: "182"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -98,8 +98,8 @@ targets:
         # nur Xcode-intern) — verifiziert 2026-09-03. Bleibt deshalb dauerhaft
         # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
-        MARKETING_VERSION: "0.8"
-        CURRENT_PROJECT_VERSION: "155"
+        MARKETING_VERSION: "0.9"
+        CURRENT_PROJECT_VERSION: "182"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"
