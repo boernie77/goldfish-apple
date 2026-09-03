@@ -107,7 +107,7 @@ struct ItemGridView: View {
                     FolderCard(tile: tile)
                         .frame(width: cardWidth)
                 }
-                .buttonStyle(.plain)
+                .cardButtonStyleCompat()
                 .focusableCompat(false)
             }
             ForEach(displayedItems) { item in
@@ -115,7 +115,7 @@ struct ItemGridView: View {
                     ItemCard(item: item)
                         .frame(width: cardWidth)
                 }
-                .buttonStyle(.plain)
+                .cardButtonStyleCompat()
                 .focusableCompat(false)
             }
         }

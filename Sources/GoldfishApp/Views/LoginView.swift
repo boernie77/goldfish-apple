@@ -30,7 +30,11 @@ struct LoginView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 TextField("Server-Adresse (z. B. https://goldfish.example.com)", text: $serverURLString)
-                    #if os(iOS)
+                    #if os(iOS) || os(tvOS)
+                    // tvOS-Fix 2026-09-03: auch hier gesetzt (vorher nur iOS) — die
+                    // automatische Großschreibung des ersten Buchstabens würde sonst
+                    // aus "https" leicht ein "Https" machen, was zwar technisch noch
+                    // eine gültige URL ergibt, aber gegen den Server ins Leere läuft.
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                     #endif
@@ -146,7 +150,7 @@ struct LoginView: View {
 
     private func startOIDC(clearSession: Bool) {
         errorMessage = nil
-        guard let url = URL(string: serverURLString), url.scheme != nil else {
+        guard let url = URL(string: serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme != nil else {
             errorMessage = "Bitte eine vollständige URL mit https:// eingeben."
             return
         }
@@ -178,7 +182,13 @@ struct LoginView: View {
 
     private func login() async {
         errorMessage = nil
-        guard let url = URL(string: serverURLString), url.scheme != nil else {
+        // tvOS-Fix 2026-09-03 (User-Report: "Anmeldung klappt nicht", obwohl die
+        // angezeigte URL vollständig aussah): die native tvOS-Vollbild-Tastatur kann
+        // beim Bestätigen ein unsichtbares führendes/nachgestelltes Leerzeichen
+        // hinterlassen (z. B. durch Autokomplettierungs-Vorschläge) — `URL(string:)`
+        // lehnt das ohne sichtbaren Hinweis komplett ab. Trimmen behebt das
+        // unabhängig von der genauen Ursache, auf allen Plattformen unschädlich.
+        guard let url = URL(string: serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme != nil else {
             errorMessage = "Bitte eine vollständige URL mit https:// eingeben."
             return
         }

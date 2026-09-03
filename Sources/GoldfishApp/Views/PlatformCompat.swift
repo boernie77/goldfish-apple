@@ -26,4 +26,23 @@ extension View {
         self
         #endif
     }
+
+    /// tvOS-Fix 2026-09-03 (User-Report: weißes Fokus-Rechteck sieht "komisch" aus und
+    /// ist "bei jedem Film unterschiedlich"): `.buttonStyle(.plain)` unterdrückt auf
+    /// tvOS NICHT den automatischen System-Fokus-Effekt — der zeichnet stattdessen eine
+    /// weiße, abgerundete Fläche über die GESAMTE Bounding-Box des Buttons, inklusive
+    /// des Titeltexts UNTER dem Poster. Da die Titelzeilen-Anzahl je Film variiert
+    /// (1 vs. 2 Zeilen), variiert auch diese Box — exakt das beobachtete Symptom.
+    /// `.buttonStyle(.card)` ist tvOS' dafür vorgesehener Stil: der Fokus-/Hover-Effekt
+    /// (Skalierung + Schatten) folgt dann der tatsächlichen Content-Form des Buttons
+    /// (hier: nur das Poster, da genau das der Button-Inhalt ist) statt einer groben
+    /// Bounding-Box. Auf anderen Plattformen bleibt `.plain` unverändert.
+    @ViewBuilder
+    func cardButtonStyleCompat() -> some View {
+        #if os(tvOS)
+        self.buttonStyle(.card)
+        #else
+        self.buttonStyle(.plain)
+        #endif
+    }
 }

@@ -163,7 +163,7 @@ private struct HomeRow: View {
                                 ItemCard(item: item, width: 130)
                                     .frame(width: 130)
                             }
-                            .buttonStyle(.plain)
+                            .cardButtonStyleCompat()
                             .focusableCompat(false)
                         }
                     }
