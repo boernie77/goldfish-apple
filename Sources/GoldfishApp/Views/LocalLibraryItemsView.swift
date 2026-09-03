@@ -366,23 +366,16 @@ struct LocalLibraryItemsView: View {
                         }
                     }
                     Divider()
-                    // "Alle Auflösungen"-Reset-Eintrag: sorgt außerdem dafür, dass diese
-                    // Menü-Gruppe IMMER mindestens ein Häkchen hat — sonst reserviert
-                    // SwiftUI auf macOS keine Icon-Spalte und die 4K/2K/1080p-Zeilen
-                    // stehen bündig links statt eingerückt wie die anderen Gruppen
-                    // (User-Screenshot 2026-08-30).
+                    // User-Anfrage 2026-09-03: dieselbe echte Ursache wie in ItemGridView.swift
+                    // (siehe dortiger Kommentar) — ein immer vorhandenes "checkmark"-Icon nur
+                    // per .opacity() aus-/einzublenden wird von SwiftUIs Menu→UIMenu-Bridging
+                    // ignoriert, das Icon erschien IMMER, egal ob ausgewählt oder nicht. Fix:
+                    // echtes Icon-Paar (checkmark/circle) statt Opacity-Trick.
                     Button {
                         selectedBuckets.removeAll()
                     } label: {
-                        HStack {
-                            Image(systemName: "checkmark")
-                                .opacity(selectedBuckets.isEmpty ? 1 : 0)
-                            Text("Alle Auflösungen")
-                        }
+                        Label("Alle Auflösungen", systemImage: selectedBuckets.isEmpty ? "checkmark.circle.fill" : "circle")
                     }
-                    // Siehe Kommentar in ItemGridView.swift: Checkmark-Icon bleibt immer im
-                    // Layout (nur Opacity togglet), sonst rutscht ein Eintrag ohne aktives
-                    // Icon bündig nach links statt eingerückt zu bleiben.
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
@@ -391,11 +384,7 @@ struct LocalLibraryItemsView: View {
                                 selectedBuckets.insert(bucket)
                             }
                         } label: {
-                            HStack {
-                                Image(systemName: "checkmark")
-                                    .opacity(selectedBuckets.contains(bucket) ? 1 : 0)
-                                Text(bucket.label)
-                            }
+                            Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark.circle.fill" : "circle")
                         }
                     }
                     Divider()

@@ -267,15 +267,17 @@ struct ItemGridView: View {
                         Label("Nur Favoriten", systemImage: favoritesOnly ? "heart.fill" : "heart")
                     }
                     Divider()
-                    // User-Anfrage 2026-09-02: "Auflösungen müssen eingerückt werden, damit
-                    // es zum Rest passt" — `Label(_, systemImage: "")` (leerer String bei
-                    // nicht ausgewählten Buckets) reserviert bei iOS' Menu-Rendering KEINEN
-                    // Icon-Platz, während Zeilen mit echtem "checkmark" eingerückt werden.
-                    // Ist zu Beginn (kein Bucket gewählt) KEIN einziger Eintrag markiert,
-                    // rutscht die GESAMTE Sektion bündig nach links, während Sortieren/
-                    // Gesehen-Filter (immer genau ein aktiver Eintrag) das Icon-Gutter schon
-                    // verankert haben. Fix: Checkmark-Icon bleibt immer im Layout, wird nur
-                    // per Opacity aus-/eingeblendet — reserviert den Platz garantiert.
+                    // User-Anfrage 2026-09-03: "man erkennt nicht, welche Auflösung gewählt
+                    // ist" — der echte Grund war NICHT das Menü-Schließverhalten (siehe
+                    // .modernMenuStaysOpen() unten), sondern dass hier vorher IMMER ein
+                    // "checkmark"-Symbol im Label steckte und nur per .opacity() aus-/
+                    // eingeblendet wurde (User-Anfrage 2026-09-02, s. Git-Historie). SwiftUI
+                    // bridged Menu-Inhalte auf natives UIMenu, und dabei wird das Icon als
+                    // statisches Bild übernommen — die Opacity wird dabei ignoriert. Ergebnis:
+                    // JEDE Auflösung zeigte immer einen Haken, unabhängig vom echten Zustand.
+                    // Fix: echtes Icon-Paar (checkmark/circle) statt Opacity-Trick — reserviert
+                    // genauso zuverlässig die Icon-Spalte (immer ein echtes Icon vorhanden),
+                    // spiegelt aber den tatsächlichen Auswahlzustand korrekt wider.
                     ForEach(ResolutionBucket.allCases) { bucket in
                         Button {
                             if selectedBuckets.contains(bucket) {
@@ -284,11 +286,7 @@ struct ItemGridView: View {
                                 selectedBuckets.insert(bucket)
                             }
                         } label: {
-                            HStack {
-                                Image(systemName: "checkmark")
-                                    .opacity(selectedBuckets.contains(bucket) ? 1 : 0)
-                                Text(bucket.label)
-                            }
+                            Label(bucket.label, systemImage: selectedBuckets.contains(bucket) ? "checkmark.circle.fill" : "circle")
                         }
                     }
                     Divider()
