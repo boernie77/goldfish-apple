@@ -32,6 +32,18 @@ struct ItemDetailView: View {
     /// Ton-/Untertitel-Vorwahl aus den Dropdowns oben — an den Player weitergereicht.
     @State private var pickedAudioIndex: Int? = nil
     @State private var pickedSubtitle: PreferredSubtitle? = nil
+    #if os(tvOS)
+    // tvOS-Fix 2026-09-03 (User-Report: Fernbedienung reagiert im Detail-Dialog
+    // nicht — Fokus blieb sichtbar auf der Tab-Leiste hängen): beim Öffnen einer
+    // NavigationDestination setzt tvOS den Fokus normalerweise auf das erste
+    // fokussierbare Element der neuen Seite — hier lagen davor nur Bild/Text
+    // (nicht fokussierbar), sodass die Fokus-Engine keinen Übergang fand und
+    // schlicht auf der zuvor aktiven Tab-Leiste verharrte. `@Namespace` +
+    // `.prefersDefaultFocus(true, in:)` auf dem Abspielen-Button erzwingt den
+    // Sprung explizit dorthin, zusätzlich stehen die Action-Buttons auf tvOS
+    // (siehe unten) weiter oben, direkt sichtbar ohne Scrollen.
+    @Namespace private var tvFocusNamespace
+    #endif
 
     init(item: Item, queue: [Item] = []) {
         self.item = item
@@ -105,6 +117,14 @@ struct ItemDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+
+                // tvOS-Fix 2026-09-03 (siehe Kommentar bei `tvFocusNamespace`): die
+                // Action-Buttons stehen hier VOR der langen Beschreibung/Cast-Strip,
+                // damit sie ohne Scrollen sichtbar sind UND die Fokus-Engine beim
+                // Öffnen der Seite ein nahes, klar erreichbares Ziel hat.
+                #if os(tvOS)
+                actionButtonsRow
+                #endif
 
                 if let overview = item.metadata?.overview, !overview.isEmpty {
                     Text(overview)
@@ -215,45 +235,17 @@ struct ItemDetailView: View {
 
                 CastStripView(metadataId: item.metadataId)
 
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await startPlayback() }
-                    } label: {
-                        if isCheckingResume {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Label(downloads.isDownloaded(itemId: selectedItem.id) ? "Offline abspielen" : "Abspielen", systemImage: "play.fill")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isCheckingResume)
-
-                    Button {
-                        Task { await toggleFavorite() }
-                    } label: {
-                        Image(systemName: isFavorite ? "heart.fill" : "heart")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        Task { await toggleWatched() }
-                    } label: {
-                        Image(systemName: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        showingAddToPlaylist = true
-                    } label: {
-                        Image(systemName: "text.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                }
+                #if !os(tvOS)
+                actionButtonsRow
+                #endif
 
                 DownloadButtonRow(item: selectedItem)
             }
             .padding()
         }
+        #if os(tvOS)
+        .focusScope(tvFocusNamespace)
+        #endif
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -302,6 +294,47 @@ struct ItemDetailView: View {
     private var sizeLabel: String? {
         guard let bytes = selectedItem.sizeBytes, bytes > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    @ViewBuilder
+    private var actionButtonsRow: some View {
+        HStack(spacing: 12) {
+            Button {
+                Task { await startPlayback() }
+            } label: {
+                if isCheckingResume {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label(downloads.isDownloaded(itemId: selectedItem.id) ? "Offline abspielen" : "Abspielen", systemImage: "play.fill")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isCheckingResume)
+            #if os(tvOS)
+            .prefersDefaultFocus(true, in: tvFocusNamespace)
+            #endif
+
+            Button {
+                Task { await toggleFavorite() }
+            } label: {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                Task { await toggleWatched() }
+            } label: {
+                Image(systemName: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                showingAddToPlaylist = true
+            } label: {
+                Image(systemName: "text.badge.plus")
+            }
+            .buttonStyle(.bordered)
+        }
     }
 
     private func variantLabel(_ variant: Item) -> String {
