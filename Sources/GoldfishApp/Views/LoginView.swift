@@ -35,7 +35,9 @@ struct LoginView: View {
                     .keyboardType(.URL)
                     #endif
                     .autocorrectionDisabled()
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
 
                 TextField("Benutzername", text: $username)
                     #if os(iOS)
@@ -46,11 +48,15 @@ struct LoginView: View {
                     // Bitwarden-AutoFill-Provider / die QuickType-Leiste) diese
                     // Felder nicht als Login-Felder → keine Ausfüll-Vorschläge.
                     .textContentType(.username)
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
 
                 SecureField("Passwort", text: $password)
                     .textContentType(.password)
+                    #if !os(tvOS)
                     .textFieldStyle(.roundedBorder)
+                    #endif
             }
             .frame(maxWidth: 360)
             // User-Anfrage 2026-08-24: "die Freigabetaste soll den Anmeldevorgang auslösen,
@@ -80,9 +86,15 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            #if !os(tvOS)
             .keyboardShortcut(.defaultAction)
+            #endif
             .disabled(serverURLString.isEmpty || username.isEmpty || password.isEmpty || isLoading)
 
+            // SSO läuft über einen eingebetteten WKWebView — WebKit existiert nicht
+            // auf tvOS, daher ist SSO dort komplett ausgeblendet (nur Benutzername/
+            // Passwort, siehe auch OIDCLoginView.swift).
+            #if !os(tvOS)
             Button {
                 startOIDC(clearSession: false)
             } label: {
@@ -103,6 +115,7 @@ struct LoginView: View {
             }
             .buttonStyle(.borderless)
             .disabled(serverURLString.isEmpty || isLoading)
+            #endif
         }
         .padding(40)
         // iPad-Fix 2026-09-03: ohne explizites Full-Screen-Frame hängt der Inhalt
@@ -118,6 +131,7 @@ struct LoginView: View {
                 serverURLString = saved
             }
         }
+        #if !os(tvOS)
         .sheet(isPresented: $showingOIDC) {
             if let url = client.baseURL {
                 OIDCLoginView(baseURL: url, clearSessionFirst: oidcClearSession) {
@@ -127,6 +141,7 @@ struct LoginView: View {
                 }
             }
         }
+        #endif
     }
 
     private func startOIDC(clearSession: Bool) {

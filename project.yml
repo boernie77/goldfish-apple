@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     macOS: "13.0"
     iOS: "16.0"
+    tvOS: "17.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -107,6 +108,29 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
+  GoldfishTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Sources/GoldfishApp
+    dependencies:
+      - package: GoldfishCore
+    info:
+      path: Sources/GoldfishApp/Resources/Info-tvOS.plist
+      properties:
+        CFBundleDisplayName: Goldfish
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SYQL3PUXA9
+        GENERATE_INFOPLIST_FILE: NO
+        TVOS_DEPLOYMENT_TARGET: "17.0"
+
 schemes:
   GoldfishMac:
     build:
@@ -118,5 +142,11 @@ schemes:
     build:
       targets:
         GoldfishiOS: all
+    run:
+      config: Debug
+  GoldfishTV:
+    build:
+      targets:
+        GoldfishTV: all
     run:
       config: Debug

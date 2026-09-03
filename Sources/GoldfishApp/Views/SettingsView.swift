@@ -484,6 +484,10 @@ struct SettingsView: View {
             .formStyle(.grouped)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Einstellungen")
+            // fileImporter (freier Ordner-Picker) existiert nicht auf tvOS — dort gibt
+            // es kein Dateisystem, das der Nutzer durchsuchen könnte; Downloads liegen
+            // dort ohnehin nur im App-Datenordner.
+            #if !os(tvOS)
             .fileImporter(
                 isPresented: $isPresentingFolderPicker,
                 allowedContentTypes: [.folder]
@@ -520,6 +524,7 @@ struct SettingsView: View {
             } message: {
                 Text(downloads.lastAccessWarning ?? "")
             }
+            #endif
             .sheet(isPresented: $showingAddLocalLibrary) {
                 AddLocalLibrarySheet()
             }
@@ -572,7 +577,9 @@ private struct SettingsInfoRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value)
+                #if !os(tvOS)
                 .textSelection(.enabled)
+                #endif
         }
         .padding(.vertical, 2)
     }
@@ -696,7 +703,9 @@ private struct AddLocalLibrarySheet: View {
                         Text("Name").font(.caption).foregroundStyle(.secondary)
                         TextField("Name", text: $name)
                             .labelsHidden()
+                            #if !os(tvOS)
                             .textFieldStyle(.roundedBorder)
+                            #endif
                     }
                     .frame(maxWidth: 320)
 
@@ -749,12 +758,14 @@ private struct AddLocalLibrarySheet: View {
                     .disabled(rootURL == nil || name.isEmpty || isAdding)
                 }
             }
+            #if !os(tvOS)
             .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
                 if case .success(let url) = result {
                     rootURL = url
                     if name.isEmpty { name = url.lastPathComponent }
                 }
             }
+            #endif
         }
         .frame(minWidth: 380, minHeight: 260)
     }

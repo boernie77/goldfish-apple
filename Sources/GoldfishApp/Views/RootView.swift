@@ -301,6 +301,10 @@ struct MainTabView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 14)
+            #if os(tvOS)
+            .background(.thinMaterial)
+            #else
             .background(.bar)
+            #endif
     }
 }

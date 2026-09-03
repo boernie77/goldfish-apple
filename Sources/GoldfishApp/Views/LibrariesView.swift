@@ -493,27 +493,43 @@ private struct FolderScopeRow: View {
     private var isChecked: Bool { shuffleScope.isSelected(libraryId: libraryId, folder: folder) }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            if isLoadingChildren {
-                ProgressView().padding(.leading, CGFloat(depth + 1) * 16)
-            } else {
-                ForEach(children) { tile in
-                    FolderScopeRow(libraryId: libraryId, libraryName: libraryName, folder: tile.name, displayName: tile.displayName, depth: depth + 1)
+        // `DisclosureGroup` existiert nicht auf tvOS — dieselbe Auf-/Zuklapp-Logik
+        // hier manuell mit einem Button + Pfeil-Icon nachgebaut, funktioniert auf
+        // allen Plattformen identisch.
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 20)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    shuffleScope.toggle(selection)
+                } label: {
+                    HStack {
+                        Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
+                        Text(displayName)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            if isExpanded {
+                if isLoadingChildren {
+                    ProgressView().padding(.leading, CGFloat(depth + 1) * 16)
+                } else {
+                    ForEach(children) { tile in
+                        FolderScopeRow(libraryId: libraryId, libraryName: libraryName, folder: tile.name, displayName: tile.displayName, depth: depth + 1)
+                    }
                 }
             }
-        } label: {
-            Button {
-                shuffleScope.toggle(selection)
-            } label: {
-                HStack {
-                    Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
-                    Text(displayName)
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
         }
         .onChange(of: isExpanded) { expanded in
             guard expanded, !hasLoadedChildren else { return }

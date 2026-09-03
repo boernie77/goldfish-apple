@@ -589,6 +589,12 @@ private struct LocalPlayerControlsBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Text(formatTime(isScrubbing ? scrubValue : currentTime))
+                #if os(tvOS)
+                // `Slider` existiert nicht auf tvOS — lokale Bibliotheken sind ohnehin
+                // eine reine macOS-Funktion (siehe CLAUDE.md), dieser Player-Typ läuft
+                // auf tvOS nie wirklich, muss aber kompilieren. Rein visueller Ersatz.
+                ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
+                #else
                 Slider(
                     value: Binding(get: { isScrubbing ? scrubValue : currentTime }, set: { scrubValue = $0 }),
                     in: 0...max(duration, 1),
@@ -597,6 +603,7 @@ private struct LocalPlayerControlsBar: View {
                         else { onScrubEnd(scrubValue); isScrubbing = false }
                     }
                 )
+                #endif
                 Text(formatTime(duration))
             }
             .font(.caption2.monospacedDigit())
@@ -618,8 +625,12 @@ private struct LocalPlayerControlsBar: View {
                             Image(systemName: volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill").font(.caption)
                         }
                         .buttonStyle(.plain)
+                        #if os(tvOS)
+                        ProgressView(value: volume, total: 1).frame(width: 60)
+                        #else
                         Slider(value: Binding(get: { volume }, set: { volume = $0; onVolumeChange($0) }), in: 0...1)
                             .frame(width: 60)
+                        #endif
                     }
                 }
                 .foregroundStyle(.white)

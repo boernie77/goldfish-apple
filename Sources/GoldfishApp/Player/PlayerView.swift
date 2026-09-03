@@ -1043,10 +1043,14 @@ private struct PlayerControlsBar: View {
                         // Auf dem iPhone hat das Steuerfeld im Hochkantformat zu wenig Platz
                         // für den Slider (iOS hat ohnehin Hardware-Lautstärketasten) — nur
                         // der Mute-Button bleibt, Regler nur auf breiteren Screens (iPad/Mac).
+                        // `Slider` existiert außerdem gar nicht auf tvOS — dort regelt die
+                        // Fernbedienung/der Fernseher die Lautstärke ohnehin systemseitig.
+                        #if !os(tvOS)
                         if !isCompact {
                             Slider(value: Binding(get: { volume }, set: { volume = $0; onVolumeChange($0) }), in: 0...1)
                                 .frame(width: 60)
                         }
+                        #endif
                     }
                 }
                 .foregroundStyle(.white)
@@ -1200,6 +1204,33 @@ private struct ScrubberWithPreview: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
+                #if os(tvOS)
+                // `Slider` existiert nicht auf tvOS — als erster funktionaler Ersatz
+                // ±10s-Sprünge über Links/Rechts-Wischen auf der Siri-Remote-Touchfläche
+                // (`onMoveCommand`), solange die Leiste fokussiert ist. Echtes
+                // Drag-Scrubbing wäre ein eigener Anlauf (Fokus-Engine + Touch-Surface-
+                // Geschwindigkeit), hier bewusst erstmal minimal gehalten.
+                ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
+                    .frame(width: geo.size.width)
+                    .focusable(true)
+                    .onMoveCommand { direction in
+                        let base = isScrubbing ? scrubValue : currentTime
+                        switch direction {
+                        case .left:
+                            scrubValue = max(0, base - 10)
+                            isScrubbing = true
+                            onScrubEnd(scrubValue)
+                            isScrubbing = false
+                        case .right:
+                            scrubValue = min(max(duration, 1), base + 10)
+                            isScrubbing = true
+                            onScrubEnd(scrubValue)
+                            isScrubbing = false
+                        default:
+                            break
+                        }
+                    }
+                #else
                 Slider(
                     value: Binding(
                         get: { isScrubbing ? scrubValue : currentTime },
@@ -1217,6 +1248,7 @@ private struct ScrubberWithPreview: View {
                     }
                 )
                 .frame(width: geo.size.width)
+                #endif
 
                 if let previewTime, !trickplayCues.isEmpty, let sprite = trickplaySprite,
                    let cue = TrickplayVTTParser.cue(for: previewTime, in: trickplayCues) {

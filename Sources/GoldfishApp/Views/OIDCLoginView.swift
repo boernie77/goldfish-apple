@@ -1,3 +1,6 @@
+// WKWebView/WebKit existiert nicht auf tvOS — SSO-Login läuft dort komplett
+// ohne diese Datei (siehe LoginView.swift, SSO-Buttons dort #if !os(tvOS)).
+#if !os(tvOS)
 import SwiftUI
 import WebKit
 import GoldfishCore
@@ -75,7 +78,7 @@ private func startOIDCLoad(_ webView: WKWebView, baseURL: URL, clearFirst: Bool)
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 struct OIDCWebViewRepresentable: UIViewRepresentable {
@@ -186,3 +189,4 @@ final class OIDCWebCoordinator: NSObject, WKNavigationDelegate {
         }
     }
 }
+#endif
