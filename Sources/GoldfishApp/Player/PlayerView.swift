@@ -1073,6 +1073,22 @@ struct PlayerView: View {
     }
 }
 
+#if os(tvOS)
+// tvOS-Fix 2026-09-04 (User-Report: nach Fokussieren des Scrub-Balkens — z. B.
+// durch Drücken der Pfeiltaste nach oben — kam man mit der Pfeiltaste nach
+// unten nicht mehr zurück zu den Steuerelementen, egal wie oft gedrückt).
+// Ursache: `.onMoveCommand` auf dem Scrub-Balken übernimmt ALLE Richtungen,
+// nicht nur links/rechts — die native Fokus-Engine bewegt den Fokus dadurch
+// bei hoch/runter gar nicht mehr, weil der View die Events selbst "konsumiert".
+// Fix: geteiltes `@FocusState` zwischen Scrub-Balken und Play/Pause-Button,
+// hoch/runter auf dem Scrub-Balken schickt den Fokus explizit zurück zum
+// Play/Pause-Button statt gar nichts zu tun.
+private enum PlayerFocusTarget: Hashable {
+    case scrubber
+    case playPause
+}
+#endif
+
 private struct PlayerControlsBar: View {
     @Binding var isPlaying: Bool
     @Binding var currentTime: Double
@@ -1118,6 +1134,9 @@ private struct PlayerControlsBar: View {
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
+    #if os(tvOS)
+    @FocusState private var tvFocusTarget: PlayerFocusTarget?
+    #endif
     // User-Anfrage 2026-09-02: im iPhone-Hochkantformat war die Leiste (fixe
     // 40pt-Außenpolsterung + volle Lautstärke-Slider-Breite) zu breit fürs
     // schmale Fenster und lief über/quetschte Icons. `horizontalSizeClass`
@@ -1146,6 +1165,18 @@ private struct PlayerControlsBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Text(formatTime(isScrubbing ? scrubValue : currentTime))
+                #if os(tvOS)
+                ScrubberWithPreview(
+                    isScrubbing: $isScrubbing,
+                    scrubValue: $scrubValue,
+                    currentTime: currentTime,
+                    duration: duration,
+                    trickplayCues: trickplayCues,
+                    trickplaySprite: trickplaySprite,
+                    onScrubEnd: onScrubEnd,
+                    tvFocusTarget: $tvFocusTarget
+                )
+                #else
                 ScrubberWithPreview(
                     isScrubbing: $isScrubbing,
                     scrubValue: $scrubValue,
@@ -1155,6 +1186,7 @@ private struct PlayerControlsBar: View {
                     trickplaySprite: trickplaySprite,
                     onScrubEnd: onScrubEnd
                 )
+                #endif
                 Text(formatTime(duration))
             }
             .font(.caption2.monospacedDigit())
@@ -1210,6 +1242,9 @@ private struct PlayerControlsBar: View {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                             .font(.title2)
                     }
+                    #if os(tvOS)
+                    .focused($tvFocusTarget, equals: .playPause)
+                    #endif
                     Button { onSkip(15) } label: {
                         Image(systemName: "goforward.15")
                     }
@@ -1349,6 +1384,11 @@ private struct ScrubberWithPreview: View {
     // noch gar nicht aktualisiert wurde), der echte Seek feuert erst, wenn für
     // 400ms kein weiteres Move-Event mehr kam.
     @State private var scrubCommitTask: Task<Void, Never>?
+    // tvOS-Fix 2026-09-04 (User-Report: nach Fokus auf den Scrub-Balken kam
+    // man mit der Pfeiltaste nach unten nicht mehr zurück zu den
+    // Steuerelementen): geteiltes FocusState mit `PlayerControlsBar`, damit
+    // hoch/runter den Fokus explizit zurückschicken kann (siehe unten).
+    var tvFocusTarget: FocusState<PlayerFocusTarget?>.Binding
     #endif
 
     private var previewTime: Double? {
@@ -1371,12 +1411,21 @@ private struct ScrubberWithPreview: View {
                 ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
                     .frame(width: geo.size.width)
                     .focusable(true)
+                    .focused(tvFocusTarget, equals: .scrubber)
                     .onMoveCommand { direction in
                         let base = isScrubbing ? scrubValue : currentTime
                         let delta: Double
                         switch direction {
                         case .left: delta = -10
                         case .right: delta = 10
+                        case .up, .down:
+                            // Ohne dieses explizite Zurückschicken übernimmt
+                            // `.onMoveCommand` JEDE Richtung auf diesem View —
+                            // die native Fokus-Engine würde hoch/runter sonst
+                            // nie mehr bearbeiten und der Fokus bliebe für immer
+                            // auf dem Scrub-Balken hängen.
+                            tvFocusTarget.wrappedValue = .playPause
+                            return
                         default: return
                         }
                         scrubValue = min(max(duration, 1), max(0, base + delta))
