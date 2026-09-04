@@ -313,7 +313,7 @@ struct ItemDetailView: View {
         #if !os(tvOS)
         .sheet(isPresented: $showTrailer) {
             if let trailerKey {
-                TrailerSheet(youtubeKey: trailerKey)
+                TrailerSheet(youtubeKey: trailerKey, serverBaseURL: client.baseURL)
             }
         }
         #else
@@ -406,20 +406,33 @@ struct ItemDetailView: View {
     }
 
     #if os(tvOS)
+    /// User-Bericht 2026-09-04: `youtube://watch?v=<key>` öffnet auf Apple TV
+    /// zwar die YouTube-App (accepted=true), aber landet auf deren normaler
+    /// Startseite statt direkt beim Video — die App nimmt den Aufruf zwar
+    /// entgegen, wertet den `watch?v=`-Query-Teil aber offenbar nicht aus.
+    /// `vnd.youtube://<key>` ist das ÄLTERE, historisch dokumentierte
+    /// "direktes Video"-Schema (ohne Query-String) — wird zusätzlich VOR
+    /// der `watch?v=`-Variante versucht, falls die tvOS-App das (noch)
+    /// unterstützt. Beide sind reine Versuche ohne Erfolgsgarantie — tvOS
+    /// hat keinerlei WebKit/eigenen Player, ein zuverlässiges In-App-Fenster
+    /// wie auf Mac/iOS ist auf dieser Plattform technisch nicht möglich
+    /// (siehe [[project_feature_trailer_apple]]).
     private func openTrailerOnTV(_ key: String) {
-        guard let ytAppURL = URL(string: "youtube://watch?v=\(key)") else {
+        let candidates = [
+            "vnd.youtube://\(key)",
+            "youtube://watch?v=\(key)",
+            "https://www.youtube.com/watch?v=\(key)",
+        ].compactMap(URL.init(string:))
+        tryOpen(candidates, index: 0)
+    }
+
+    private func tryOpen(_ urls: [URL], index: Int) {
+        guard index < urls.count else {
             showTrailerUnavailableAlert = true
             return
         }
-        openURL(ytAppURL) { accepted in
-            if accepted { return }
-            guard let watchURL = URL(string: "https://www.youtube.com/watch?v=\(key)") else {
-                showTrailerUnavailableAlert = true
-                return
-            }
-            openURL(watchURL) { accepted in
-                if !accepted { showTrailerUnavailableAlert = true }
-            }
+        openURL(urls[index]) { accepted in
+            if !accepted { tryOpen(urls, index: index + 1) }
         }
     }
     #endif
