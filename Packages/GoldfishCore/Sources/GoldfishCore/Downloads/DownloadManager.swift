@@ -143,11 +143,32 @@ public final class DownloadManager: NSObject, ObservableObject {
         // noch für lokale/externe Bibliotheken zuständig, die keinen Server zum Fragen haben.
     }
 
-    private static func defaultDirectory() -> URL {
+    /// Wurzel für alles, was Neustarts überleben muss (Downloads, Index, Poster-Cache).
+    ///
+    /// tvOS-Fix 2026-09-04 (User-Frage: "geben gelöschte/abgebrochene Downloads den Speicher
+    /// wieder frei?"): auf dem echten Apple TV zeigte `devicectl device info files`, dass
+    /// `Library/Application Support` im App-Container GAR NICHT existiert — tvOS erlaubt
+    /// persistente App-Daten nur unter `Library/Caches` (plus `tmp`). Der bisherige Aufruf
+    /// `fm.url(for: .applicationSupportDirectory, …, create: true)` schlug dort still fehl,
+    /// und der `?? fm.temporaryDirectory`-Fallback ließ ALLE Downloads (+ Index + Poster)
+    /// in `tmp/` landen — das tvOS jederzeit räumen darf, vor allem wenn die App nicht läuft.
+    /// Ein "Download" wäre also ohne Vorwarnung wieder weg gewesen. `Caches` ist Apples
+    /// vorgesehener Ort für heruntergeladene Inhalte auf tvOS (nur unter echtem
+    /// Speicherdruck purgeable, überlebt Neustarts). Mac/iOS bleiben bei Application
+    /// Support (dort ist Caches deutlich aggressiver purgeable).
+    private static func persistentBaseDirectory() -> URL {
         let fm = FileManager.default
-        let support = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+        #if os(tvOS)
+        let preferred: FileManager.SearchPathDirectory = .cachesDirectory
+        #else
+        let preferred: FileManager.SearchPathDirectory = .applicationSupportDirectory
+        #endif
+        return (try? fm.url(for: preferred, in: .userDomainMask, appropriateFor: nil, create: true))
             ?? fm.temporaryDirectory
-        return support.appendingPathComponent("GoldfishDownloads", isDirectory: true)
+    }
+
+    private static func defaultDirectory() -> URL {
+        persistentBaseDirectory().appendingPathComponent("GoldfishDownloads", isDirectory: true)
     }
 
     // Plain (non-security-scoped) bookmarks on both platforms — App Sandbox was removed
@@ -575,11 +596,10 @@ public final class DownloadManager: NSObject, ObservableObject {
     // Platte gecacht (gleiche Application-Support-Cache-Konvention wie
     // `LocalTranscodeService.outDir`), unabhängig vom eigentlichen Video-Download.
     private static let posterCacheDir: URL = {
-        let fm = FileManager.default
-        let support = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
-            ?? fm.temporaryDirectory
-        let dir = support.appendingPathComponent("GoldfishDownloadPosters", isDirectory: true)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // tvOS: gleicher Root wie die Downloads selbst (Caches statt tmp), siehe
+        // `persistentBaseDirectory()`.
+        let dir = persistentBaseDirectory().appendingPathComponent("GoldfishDownloadPosters", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
 
@@ -673,8 +693,17 @@ public final class DownloadManager: NSObject, ObservableObject {
     }
 
     public func cancelDownload(itemId: Int64) {
+        // Plain `.cancel()` (NICHT `cancel(byProducingResumeData:)`): Foundation verwirft die
+        // System-Teildatei damit sofort selbst — kein `resumeData`-Leck wie in `deleteDownload`.
         tasks[itemId]?.cancel()
         tasks[itemId] = nil
+        // Audit 2026-09-04 (User-Frage "gibt Abbruch den Speicher frei?"): das beim
+        // Download-START gecachte Poster (`cachePoster`) blieb nach einem Abbruch liegen —
+        // nur `deleteDownload` räumte es weg. Klein (KB-Bereich), aber pro abgebrochenem
+        // Download ein echter Rest. Gleicher Aufräum-Schritt wie in `deleteDownload`.
+        if let cachedPoster = cachedPosterURL(itemId: itemId) {
+            try? FileManager.default.removeItem(at: cachedPoster)
+        }
         clearSpeedSample(itemId: itemId)
         removeRecord(itemId: itemId)
         saveIndex()
