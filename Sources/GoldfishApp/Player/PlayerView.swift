@@ -569,23 +569,46 @@ struct PlayerView: View {
     /// Controls fade out after a few seconds of inactivity while playing (matches
     /// standard video-player conventions) — restarted on every scrub/skip/volume/tap.
     #if os(tvOS)
-    // User-Anfrage 2026-09-04: siehe `seekBoostLevel`-Kommentar oben. `direction` ist
-    // +1 (vorwärts, "goforward.15"-Button) oder -1 (rückwärts, "gobackward.15"-Button).
+    // User-Anfrage 2026-09-04 (Korrektur nach erstem Anlauf, der stattdessen zu
+    // Sprungpositionen sprang: "Spulen heißt für mich, dass das Video entsprechend
+    // schnell läuft" — Vergleich mit Infuse): echtes beschleunigtes Abspielen über
+    // `player.rate`, KEIN Sprung/Session-Neustart. Das läuft einfach schneller durch
+    // den bereits laufenden Transcode-Stream statt ihn abzureißen — behebt nebenbei
+    // auch das "Video startet dann leider nicht"-Problem der Sprung-Variante (jeder
+    // Sprung weit voraus zwang einen kompletten `restartTranscodeSession`-Neustart).
+    // `direction` ist +1 (vorwärts, "forward.fill"-Button) oder -1 (rückwärts,
+    // "backward.fill"-Button). `isPlaying` aktualisiert sich automatisch über den
+    // bestehenden `timeControlStatus`-Observer in `attachObservers`.
     private func boostedSkip(_ direction: Double) {
+        guard let player else { return }
         let now = Date()
         if now.timeIntervalSince(lastSeekBoostAt) > 3 {
             seekBoostLevel = 0
         }
         lastSeekBoostAt = now
-        let multiplier: Double
+        let multiplier: Float
         switch seekBoostLevel {
         case 0: multiplier = 2
         case 1: multiplier = 4
         case 2: multiplier = 8
-        default: multiplier = 1 // 4. Klick: zurück auf normal
+        default: multiplier = 1 // 4. Klick: zurück auf normale Geschwindigkeit
         }
         seekBoostLevel = (seekBoostLevel + 1) % 4
-        seek(toAbsolute: currentTime + direction * 15 * multiplier)
+
+        if direction > 0 || multiplier == 1 {
+            player.rate = multiplier
+        } else if player.currentItem?.canPlayReverse == true {
+            // Echtes Rückwärts-Decodieren nur, wenn die Quelle es unterstützt —
+            // bei HLS/Transcode-Streams praktisch nie der Fall.
+            player.rate = -multiplier
+        } else {
+            // Kein echtes Rückwärts-Abspielen über den Netzwerk-Stream möglich.
+            // Fallback: Sprung zurück (bleibt meist innerhalb des bereits gepufferten
+            // Bereichs, braucht daher normalerweise KEINEN Session-Neustart), danach
+            // normal weiterspielen.
+            seek(toAbsolute: max(0, currentTime - Double(multiplier) * 15))
+            player.rate = 1
+        }
         resetAutoHide()
     }
     #endif
@@ -596,8 +619,19 @@ struct PlayerView: View {
         // jedem Aufruf — resetAutoHide() läuft auch bei bereits sichtbarer Leiste,
         // z. B. nach jedem Skip/Lautstärke-Änderung, und würde sonst dem User
         // ständig den Fokus von einem anderen Button wegreißen).
+        // User-Report 2026-09-04: Fokus blieb nach dem Wieder-Einblenden trotzdem hängen
+        // ("kann nichts mehr auswählen") — Ursache vermutlich eine Race: der Play/Pause-
+        // Button ist im selben Render-Durchlauf, in dem `controlsVisible` von false auf
+        // true kippt, noch `.disabled(true)` (der äußere `.disabled(!controlsVisible)`-
+        // Modifier hat den neuen Wert noch nicht verarbeitet) und daher noch kein gültiges
+        // Fokus-Ziel — die Zuweisung verpufft. Fix: einen Runloop-Tick warten, bis der
+        // Button durch die inzwischen aktualisierte `controlsVisible` wirklich wieder
+        // fokussierbar ist.
         if !controlsVisible {
-            tvFocusTarget = .playPause
+            Task { @MainActor in
+                await Task.yield()
+                tvFocusTarget = .playPause
+            }
         }
         #endif
         controlsVisible = true
@@ -1420,7 +1454,10 @@ private struct PlayerControlsBar: View {
         // tvOS-Fix 2026-09-04: die 560pt-Deckelung war für iPhone/iPad/Mac gedacht — mit den
         // größeren tvOS-Abständen oben (siehe `spacing(...)`) hätte sie den ganzen Effekt
         // sofort wieder zunichtegemacht (Inhalt zusammengequetscht statt nur breiter verteilt).
-        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 1050))
+        // tvOS-Fix 2026-09-04 (User-Report: die neuen ⏪/⏩-Buttons überlappten rechts
+        // die Favorit-/Playlist-Icons): 1050pt reichte für die ursprünglichen 5 Buttons,
+        // die 2 zusätzlichen Speed-Buttons + ihre Abstände brauchen spürbar mehr Platz.
+        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 1300))
         .padding(.horizontal, isCompact ? 8 : 40)
     }
 
