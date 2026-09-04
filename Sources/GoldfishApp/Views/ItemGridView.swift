@@ -54,6 +54,11 @@ struct ItemGridView: View {
     #if os(tvOS)
     @State private var showTVSortSheet = false
     @State private var showTVFilterSheet = false
+    // User-Anfrage 2026-09-04: "Was übrigens auch noch fehlt, ist ein Suchfeld" —
+    // `.searchable(text:)` lief bisher nur auf iOS, macOS hat sein eigenes
+    // Toolbar-TextField (siehe Kommentar dort), tvOS hatte GAR KEINEN Einstieg.
+    // Gleiches Sheet-statt-Menü-Muster wie Sortieren/Filter.
+    @State private var showTVSearchSheet = false
     #endif
 
     /// Custom init only to set the sort defaults from `library.kind` — everything else keeps
@@ -259,6 +264,14 @@ struct ItemGridView: View {
             }
             #endif
             ToolbarItemGroup(placement: .primaryAction) {
+                #if os(tvOS)
+                Button {
+                    showTVSearchSheet = true
+                } label: {
+                    Image(systemName: search.isEmpty ? "magnifyingglass" : "magnifyingglass.circle.fill")
+                }
+                #endif
+
                 Button {
                     Task { await playRandom() }
                 } label: {
@@ -386,6 +399,9 @@ struct ItemGridView: View {
         }
         .sheet(isPresented: $showTVFilterSheet) {
             TVFilterSheet(watchedFilter: $watchedFilter, favoritesOnly: $favoritesOnly, selectedBuckets: $selectedBuckets, showTotalSize: $showTotalSize)
+        }
+        .sheet(isPresented: $showTVSearchSheet) {
+            TVSearchSheet(search: $search)
         }
         #endif
         .task { await load() }
@@ -1044,6 +1060,39 @@ private struct TVFilterSheet: View {
             }
         }
         .frame(width: 900, height: 900)
+    }
+}
+
+/// tvOS-Fix 2026-09-04: Ersatz für `.searchable(text:)`, das auf iOS/macOS funktioniert,
+/// auf tvOS aber nirgends ein sichtbares Sucheingabefeld erzeugt (User-Report: "Was
+/// übrigens auch noch fehlt, ist ein Suchfeld"). Gleiches Sheet-Muster wie Sortieren/
+/// Filter — ein `TextField` reicht hier, tvOS öffnet dafür automatisch seine native
+/// Tastatur, sobald es fokussiert wird (identisches Verhalten wie im Login-Formular).
+private struct TVSearchSheet: View {
+    @Binding var search: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack {
+                Text("Suchen")
+                    .font(.title2.bold())
+                Spacer()
+                Button("Fertig") { dismiss() }
+            }
+            TextField("Titel oder Schauspieler…", text: $search)
+                .tvLoginFieldStyle()
+            if !search.isEmpty {
+                Button {
+                    search = ""
+                } label: {
+                    Label("Suche löschen", systemImage: "xmark.circle")
+                }
+            }
+            Spacer()
+        }
+        .padding(40)
+        .frame(width: 900, height: 500)
     }
 }
 #endif
