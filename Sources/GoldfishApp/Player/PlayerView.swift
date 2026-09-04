@@ -1408,10 +1408,20 @@ private struct ScrubberWithPreview: View {
                 // (`onMoveCommand`), solange die Leiste fokussiert ist. Echtes
                 // Drag-Scrubbing wäre ein eigener Anlauf (Fokus-Engine + Touch-Surface-
                 // Geschwindigkeit), hier bewusst erstmal minimal gehalten.
-                ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
-                    .frame(width: geo.size.width)
-                    .focusable(true)
-                    .focused(tvFocusTarget, equals: .scrubber)
+                // tvOS-Fix 2026-09-04 (User-Report: Zeitleiste wird beim Hoch-Drücken gar
+                // nicht erst markiert/fokussiert): `ProgressView` ist kein interaktives
+                // Steuerelement — `.focusable(true)` allein nimmt es auf tvOS nicht
+                // zuverlässig in die Fokus-Kette auf (kein sichtbarer Fokus-Effekt, kein
+                // `onMoveCommand`). Ein `Button` wird dagegen nachweislich zuverlässig
+                // fokussiert (siehe Play/Pause-Button) — hier als reiner Fokus-Träger
+                // (leere `action`, eigentliche Logik komplett in `onMoveCommand`)
+                // um die ProgressView herumgelegt.
+                Button(action: {}) {
+                    ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
+                        .frame(width: geo.size.width)
+                }
+                .buttonStyle(.plain)
+                .focused(tvFocusTarget, equals: .scrubber)
                     .onMoveCommand { direction in
                         let base = isScrubbing ? scrubValue : currentTime
                         let delta: Double
