@@ -501,6 +501,13 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/metadata/\(metadataId)/cast")
     }
 
+    /// Nur für Filme (`tmdb_type=movie`) — der Server antwortet mit 404, wenn kein
+    /// öffentlicher YouTube-Trailer gefunden wurde (Normalfall bei den meisten
+    /// Filmen), das ist hier ein regulärer `throw`, kein Sonderfall.
+    public func fetchTrailer(metadataId: Int64) async throws -> TrailerInfo {
+        try await perform("/api/metadata/\(metadataId)/trailer")
+    }
+
     /// Bio-Daten + volle Filmografie einer Person (live von TMDB, serverseitig
     /// gecacht). Gegenstück zum Browser `GET /api/person/{tmdbId}`.
     public func fetchPersonDetails(tmdbId: Int64) async throws -> PersonDetails {

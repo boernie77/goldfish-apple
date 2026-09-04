@@ -337,6 +337,18 @@ public enum ResolutionBucket: String, CaseIterable, Identifiable, Equatable, Has
     public var label: String { rawValue.uppercased() }
 }
 
+// MARK: - Trailer
+
+/// `GET /api/metadata/{id}/trailer` — Jellyfin-artige Trailer-Funktion (server-
+/// seitig 2026-09-04 eingeführt, siehe CLAUDE.md "Trailer"). Der Server liefert
+/// den `tmdb.Video`-Struct direkt (snake_case-Feldnamen wie `iso_639_1`) — wir
+/// deklarieren hier bewusst nur die für die UI benötigten Felder, alle anderen
+/// werden beim Decode einfach ignoriert (kein CodingKeys-Mapping nötig).
+public struct TrailerInfo: Decodable, Sendable {
+    public let key: String
+    public let site: String
+}
+
 // MARK: - Cast
 
 public struct CastMember: Decodable, Identifiable, Hashable {

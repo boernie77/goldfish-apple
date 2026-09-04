@@ -12,7 +12,17 @@ struct ItemDetailView: View {
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
+    @Environment(\.openURL) private var openURL
     @State private var showPlayer = false
+    // Trailer (seit 2026-09-04, Server-Pendant internal/api/cast.go
+    // getMetadataTrailer): nil = noch nicht geladen ODER kein Trailer
+    // gefunden — der 🎬-Button erscheint erst, wenn der Fetch einen Treffer
+    // liefert (gleiches Verhalten wie der Browser: Button ist standardmäßig
+    // versteckt).
+    @State private var trailerKey: String? = nil
+    #if !os(tvOS)
+    @State private var showTrailer = false
+    #endif
     @State private var isFavorite: Bool
     @State private var isWatched: Bool
     @State private var showResumePrompt = false
@@ -263,6 +273,7 @@ struct ItemDetailView: View {
         .task {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
             await loadStreams(for: selectedItem.id)
+            await loadTrailer()
         }
         .onChange(of: selectedItem.id) { newID in
             Task { await loadStreams(for: newID) }
@@ -292,6 +303,13 @@ struct ItemDetailView: View {
         .sheet(isPresented: $showingAddToPlaylist) {
             AddToPlaylistSheet(item: selectedItem)
         }
+        #if !os(tvOS)
+        .sheet(isPresented: $showTrailer) {
+            if let trailerKey {
+                TrailerSheet(youtubeKey: trailerKey)
+            }
+        }
+        #endif
     }
 
     private var sizeLabel: String? {
@@ -337,7 +355,37 @@ struct ItemDetailView: View {
                 Image(systemName: "text.badge.plus")
             }
             .buttonStyle(.bordered)
+
+            if let trailerKey {
+                Button {
+                    #if os(tvOS)
+                    // WKWebView/WebKit existiert auf tvOS nicht (siehe
+                    // OIDCLoginView.swift) — der Trailer wird stattdessen extern
+                    // in der YouTube-App geöffnet (falls installiert; ohne
+                    // YouTube-App tut sich auf tvOS mangels Systembrowser nichts).
+                    if let url = URL(string: "https://www.youtube.com/watch?v=\(trailerKey)") {
+                        openURL(url)
+                    }
+                    #else
+                    showTrailer = true
+                    #endif
+                } label: {
+                    Image(systemName: "film")
+                }
+                .buttonStyle(.bordered)
+            }
         }
+    }
+
+    /// Nur für echte Filme (`tmdb_type=movie`) — Serien/Episoden/Privat-Videos
+    /// haben serverseitig ohnehin keinen Trailer (404), der Fetch würde also nur
+    /// unnötig einen Request auslösen. 404/Fehler sind der Normalfall (die
+    /// meisten Filme haben keinen öffentlichen YouTube-Trailer) — bewusst
+    /// lautlos, kein Fehler-Toast wie im Browser.
+    private func loadTrailer() async {
+        guard item.metadata?.tmdbType == "movie", let metadataId = item.metadataId, metadataId > 0 else { return }
+        guard let trailer = try? await client.fetchTrailer(metadataId: metadataId) else { return }
+        trailerKey = trailer.key
     }
 
     private func variantLabel(_ variant: Item) -> String {
