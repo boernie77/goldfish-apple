@@ -80,18 +80,47 @@ public final class GoldfishClient: ObservableObject {
         return base.appendingPathComponent(path)
     }
 
+    // Root Cause 2026-09-04 (App-Review-Aufnahme: grauer "Wiedergabe nicht möglich"-Screen,
+    // Simulator-Log zeigte den Stream-Request mit "received response, status 401"):
+    // `AVPlayer(url:)` schickt das HttpOnly-`goldfish_session`-Cookie NICHT zuverlässig mit
+    // seinem eigenen Resource-Loader-Request mit (AVFoundations Netzwerk-Stack teilt sich
+    // `HTTPCookieStorage.shared` anders als eine normale `URLSession`-Anfrage) — betraf sowohl
+    // tvOS als auch den iOS-Simulator, war vorher durch die kaputte IPv6-Route auf tvOS
+    // verdeckt. Der Server unterstützt genau für diesen Fall (Chromecast/FireTV/AVPlayer)
+    // bereits einen `?session=<token>`-Query-Param-Fallback (`internal/api/auth.go
+    // resolveSessionToken`) — dieser Client hat ihn nie genutzt. Fix: an jede über diese
+    // Funktion aufgelöste Stream-URL den Token aus dem Cookie zusätzlich als Query-Param
+    // anhängen. Einziger Aufrufer dieser Funktion ist `PlayerView` (Stream-/Transcode-Restart-
+    // URLs), Poster/Thumbnails laufen über andere Funktionen und normale `URLSession`-Requests,
+    // die das Cookie bereits korrekt mitschicken.
     public func resolvedURL(forServerPath path: String) -> URL? {
         guard let base = baseURL else { return nil }
-        if path.hasPrefix("http://") || path.hasPrefix("https://") { return URL(string: path) }
-        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        // path already contains its own query string (e.g. "/api/transcode/1/index.m3u8?profile=...")
-        if let sepIdx = path.firstIndex(of: "?") {
-            comps.path = base.path + String(path[path.startIndex..<sepIdx])
-            comps.query = String(path[path.index(after: sepIdx)...])
+        let resolved: URL?
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            resolved = URL(string: path)
         } else {
-            comps.path = base.path + path
+            var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+            // path already contains its own query string (e.g. "/api/transcode/1/index.m3u8?profile=...")
+            if let sepIdx = path.firstIndex(of: "?") {
+                comps.path = base.path + String(path[path.startIndex..<sepIdx])
+                comps.query = String(path[path.index(after: sepIdx)...])
+            } else {
+                comps.path = base.path + path
+            }
+            resolved = comps.url
         }
-        return comps.url
+        guard let resolved else { return nil }
+        guard let token = sessionToken else { return resolved }
+        var comps = URLComponents(url: resolved, resolvingAgainstBaseURL: false)!
+        var items = comps.queryItems ?? []
+        items.append(URLQueryItem(name: "session", value: token))
+        comps.queryItems = items
+        return comps.url ?? resolved
+    }
+
+    private var sessionToken: String? {
+        guard let base = baseURL else { return nil }
+        return HTTPCookieStorage.shared.cookies(for: base)?.first(where: { $0.name == "goldfish_session" })?.value
     }
 
     // MARK: - Generic request helpers
