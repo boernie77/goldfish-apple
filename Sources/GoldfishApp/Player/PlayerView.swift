@@ -853,6 +853,22 @@ struct PlayerView: View {
             guard errorMessage == nil,
                   let event = player?.currentItem?.errorLog()?.events.last else { return }
             let comment = event.errorComment ?? "unbekannter Netzwerkfehler"
+            // tvOS-Fix 2026-09-04 (User-Report auf echtem Gerät: "Stream-Fehler (-16832)"
+            // erschien zweimal, im jeweils NÄCHSTEN Versuch spielte das Video dann aber
+            // trotzdem): dieser Observer wurde als generischer Auffang für stille 401-
+            // Fehlschläge gebaut (siehe Kommentar oben), behandelt aber JEDEN neuen
+            // Error-Log-Eintrag als fatal — inklusive harmloser, sich selbst erholender
+            // HLS-Pufferwarnungen wie "restarting 2.002000s from end of live playlist;
+            // target duration 2s - stall danger". Das ist AVFoundations normales
+            // Verhalten am Rand unserer wachsenden `#EXT-X-PLAYLIST-TYPE:EVENT`-Playlist
+            // (Client holt kurzzeitig den Server ein, bevor das nächste Segment fertig
+            // transkodiert ist) — kein echter Abbruch, AVPlayer puffert einfach nach.
+            // Fix: dieses bekannte, unschädliche Muster explizit ausfiltern statt jeden
+            // Log-Eintrag als Totalausfall zu werten.
+            if comment.localizedCaseInsensitiveContains("stall danger")
+                || comment.localizedCaseInsensitiveContains("end of live playlist") {
+                return
+            }
             errorMessage = "Stream-Fehler (\(event.errorStatusCode)): \(comment)"
         }
     }
@@ -1054,6 +1070,22 @@ private struct PlayerControlsBar: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    // tvOS-Fix 2026-09-04 (User-Report auf echtem Apple TV, mit Foto belegt): die
+    // Steuerelemente saßen so eng beieinander, dass sie sich sichtbar überlappten.
+    // Ursache: alle Abstände hier unterscheiden bisher nur "iPhone (isCompact)" vs.
+    // "iPad/Mac" — auf tvOS greift mangels Size-Class-Konzept immer der iPad/Mac-Wert,
+    // obwohl tvOS' 10-Fuß-UI die Symbole selbst schon deutlich größer rendert
+    // (SwiftUIs Standard-Textstile sind auf tvOS grundsätzlich größer skaliert). Gleiche
+    // Lücke wie bei iPhone/iPad — hier extra großzügige tvOS-Werte statt die iPad-Werte
+    // mitzubenutzen.
+    private func spacing(compact: CGFloat, regular: CGFloat, tv: CGFloat) -> CGFloat {
+        #if os(tvOS)
+        return tv
+        #else
+        return isCompact ? compact : regular
+        #endif
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
@@ -1072,8 +1104,8 @@ private struct PlayerControlsBar: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white)
 
-            HStack(spacing: isCompact ? 8 : 16) {
-                HStack(spacing: isCompact ? 6 : 12) {
+            HStack(spacing: spacing(compact: 8, regular: 16, tv: 28)) {
+                HStack(spacing: spacing(compact: 6, regular: 12, tv: 20)) {
                     if let onClose {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -1108,9 +1140,9 @@ private struct PlayerControlsBar: View {
                 }
                 .foregroundStyle(.white)
 
-                Spacer(minLength: isCompact ? 6 : 12)
+                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 24))
 
-                HStack(spacing: isCompact ? 10 : 18) {
+                HStack(spacing: spacing(compact: 10, regular: 18, tv: 32)) {
                     Button { onPrev() } label: {
                         Image(systemName: "backward.end.fill")
                     }.disabled(!hasPrev).opacity(hasPrev ? 1 : 0.35)
@@ -1132,8 +1164,8 @@ private struct PlayerControlsBar: View {
                 }
                 .font(.title3)
 
-                Spacer(minLength: isCompact ? 6 : 12)
-                HStack(spacing: isCompact ? 8 : 12) {
+                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 24))
+                HStack(spacing: spacing(compact: 8, regular: 12, tv: 26)) {
                     if let onToggleFavorite {
                         Button(action: onToggleFavorite) {
                             Image(systemName: isFavorite ? "heart.fill" : "heart")
@@ -1203,7 +1235,10 @@ private struct PlayerControlsBar: View {
         // User-Anfrage 2026-09-02: die feste 40pt-Außenpolsterung ließ auf dem iPhone im
         // Hochkantformat zu wenig Breite für die Leiste übrig ("zu groß, passt nicht") —
         // auf schmalen (compact) Screens deutlich reduziert.
-        .frame(maxWidth: 560)
+        // tvOS-Fix 2026-09-04: die 560pt-Deckelung war für iPhone/iPad/Mac gedacht — mit den
+        // größeren tvOS-Abständen oben (siehe `spacing(...)`) hätte sie den ganzen Effekt
+        // sofort wieder zunichtegemacht (Inhalt zusammengequetscht statt nur breiter verteilt).
+        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 900))
         .padding(.horizontal, isCompact ? 8 : 40)
     }
 
