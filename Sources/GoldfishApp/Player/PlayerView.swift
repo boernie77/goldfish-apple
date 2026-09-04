@@ -131,6 +131,29 @@ struct PlayerView: View {
 
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
+    // tvOS-Fix 2026-09-04 (User-Report: nach einem Ausblenden/Wieder-Einblenden-Zyklus der
+    // Steuerleiste war GAR NICHTS mehr fokussiert und ließ sich auch nicht mehr fokussieren).
+    // Ursache: reines `.disabled(!controlsVisible)`/`.focusable(!controlsVisible)`-Umschalten
+    // ohne begleitendes explizites FocusState-Ziel — wird der gerade fokussierte View
+    // deaktiviert/nicht-fokussierbar, versucht die tvOS-Fokus-Engine zwar automatisch
+    // umzuspringen, tut das aber nicht zuverlässig über zwei gleichzeitig kippende
+    // Geschwister-Zweige hinweg (Video-Fläche vs. Steuerleiste) — der Fokus blieb komplett
+    // verwaist hängen. Fix: EIN gemeinsames FocusState hier in PlayerView, das bei jedem
+    // Ein-/Ausblenden explizit gesetzt wird (siehe `resetAutoHide()`), statt sich auf
+    // automatische Neuzuweisung zu verlassen. Unconditional deklariert (nicht nur tvOS),
+    // damit die PlayerControlsBar-Instanziierung unten keine #if-Verzweigung in der
+    // Argumentliste braucht (das hatte sich als Swift-Parser-Falle erwiesen).
+    @FocusState private var tvFocusTarget: PlayerFocusTarget?
+    #if os(tvOS)
+    // User-Anfrage 2026-09-04: Statt einer eigenen fokussierbaren Zeitleiste (mehrere
+    // gescheiterte Anläufe, siehe DECISIONS.md/Memory) soll Spulen über wiederholtes
+    // Klicken der bestehenden ±15s-Buttons laufen: 1. Klick = 2-fache "Geschwindigkeit"
+    // (30s-Sprung), 2. Klick = 4-fach (60s), 3. Klick = 8-fach (120s), 4. Klick wieder
+    // normal (15s, Zähler resettet). Zähler resettet außerdem automatisch nach 3s
+    // Inaktivität, damit ein Klick nach längerer Pause wieder bei "einfach" startet.
+    @State private var seekBoostLevel: Int = 0
+    @State private var lastSeekBoostAt: Date = .distantPast
+    #endif
     /// User-Anfrage 2026-08-19: Favoriten- und Playlist-Symbol auch im Steuerfeld —
     /// mirrors `ItemDetailView`'s `isFavorite`/`showingAddToPlaylist`, updated in `setUp()`
     /// from the (possibly changed, via ⏮/⏭) current `item`.
@@ -245,6 +268,7 @@ struct PlayerView: View {
                         .contentShape(Rectangle())
                         .focusable(!controlsVisible)
                         .focusEffectDisabled()
+                        .focused($tvFocusTarget, equals: .videoSurface)
                         .onTapGesture { resetAutoHide() }
                         .onMoveCommand { _ in resetAutoHide() }
                     #endif
@@ -282,16 +306,32 @@ struct PlayerView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             if let currentResolutionLabel {
                                 Text(currentResolutionLabel)
+                                    #if os(tvOS)
+                                    .font(.title3.bold())
+                                    #else
                                     .font(.caption2.bold())
+                                    #endif
                             }
                             Text(item.displayTitle)
+                                #if os(tvOS)
+                                // tvOS-Fix 2026-09-04 (User-Report: Titel zu klein für die
+                                // Fenstergröße): `.caption2` bleibt selbst mit tvOS' größeren
+                                // Standard-Textstilen winzig auf einem 4K-Bildschirm — hier
+                                // explizit größer.
+                                .font(.title.bold())
+                                #else
                                 .font(.caption2)
+                                #endif
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.6), radius: 3)
+                        #if os(tvOS)
+                        .frame(maxWidth: 700, alignment: .leading)
+                        #else
                         .frame(maxWidth: 320, alignment: .leading)
+                        #endif
                         Spacer()
                     }
                     .padding(.leading, 20)
@@ -312,7 +352,15 @@ struct PlayerView: View {
                             hasPrev: hasPrev,
                             hasNext: hasNext,
                             onTogglePlay: { togglePlay(); resetAutoHide() },
-                            onSkip: { seek(toAbsolute: currentTime + $0); resetAutoHide() },
+                            onSkip: { delta in
+                                seek(toAbsolute: currentTime + delta)
+                                resetAutoHide()
+                            },
+                            onBoostSkip: { direction in
+                                #if os(tvOS)
+                                boostedSkip(direction)
+                                #endif
+                            },
                             onScrubEnd: { seek(toAbsolute: $0); resetAutoHide() },
                             onVolumeChange: { player?.volume = $0; resetAutoHide() },
                             onPrev: { Task { await jump(by: -1) } },
@@ -331,7 +379,8 @@ struct PlayerView: View {
                             onSelectTranscodeAudio: selectTranscodeAudio,
                             hasSubtitles: !subtitleCues.isEmpty,
                             subtitlesOn: subtitlesOn,
-                            onToggleSubtitles: { subtitlesOn.toggle(); resetAutoHide() }
+                            onToggleSubtitles: { subtitlesOn.toggle(); resetAutoHide() },
+                            tvFocusTarget: $tvFocusTarget
                         )
                         .padding(.bottom, 24)
                 }
@@ -519,7 +568,38 @@ struct PlayerView: View {
 
     /// Controls fade out after a few seconds of inactivity while playing (matches
     /// standard video-player conventions) — restarted on every scrub/skip/volume/tap.
+    #if os(tvOS)
+    // User-Anfrage 2026-09-04: siehe `seekBoostLevel`-Kommentar oben. `direction` ist
+    // +1 (vorwärts, "goforward.15"-Button) oder -1 (rückwärts, "gobackward.15"-Button).
+    private func boostedSkip(_ direction: Double) {
+        let now = Date()
+        if now.timeIntervalSince(lastSeekBoostAt) > 3 {
+            seekBoostLevel = 0
+        }
+        lastSeekBoostAt = now
+        let multiplier: Double
+        switch seekBoostLevel {
+        case 0: multiplier = 2
+        case 1: multiplier = 4
+        case 2: multiplier = 8
+        default: multiplier = 1 // 4. Klick: zurück auf normal
+        }
+        seekBoostLevel = (seekBoostLevel + 1) % 4
+        seek(toAbsolute: currentTime + direction * 15 * multiplier)
+        resetAutoHide()
+    }
+    #endif
+
     private func resetAutoHide() {
+        #if os(tvOS)
+        // Nur beim tatsächlichen Wieder-Einblenden explizit refokussieren (nicht bei
+        // jedem Aufruf — resetAutoHide() läuft auch bei bereits sichtbarer Leiste,
+        // z. B. nach jedem Skip/Lautstärke-Änderung, und würde sonst dem User
+        // ständig den Fokus von einem anderen Button wegreißen).
+        if !controlsVisible {
+            tvFocusTarget = .playPause
+        }
+        #endif
         controlsVisible = true
         hideControlsTask?.cancel()
         // User-Report 2026-09-04 (tvOS, aber plattformunabhängiger Bug): die Steuerelemente
@@ -537,6 +617,9 @@ struct PlayerView: View {
                 if Task.isCancelled { return }
                 if isPlaying {
                     controlsVisible = false
+                    #if os(tvOS)
+                    tvFocusTarget = .videoSurface
+                    #endif
                     return
                 }
             }
@@ -1073,21 +1156,17 @@ struct PlayerView: View {
     }
 }
 
-#if os(tvOS)
-// tvOS-Fix 2026-09-04 (User-Report: nach Fokussieren des Scrub-Balkens — z. B.
-// durch Drücken der Pfeiltaste nach oben — kam man mit der Pfeiltaste nach
-// unten nicht mehr zurück zu den Steuerelementen, egal wie oft gedrückt).
-// Ursache: `.onMoveCommand` auf dem Scrub-Balken übernimmt ALLE Richtungen,
-// nicht nur links/rechts — die native Fokus-Engine bewegt den Fokus dadurch
-// bei hoch/runter gar nicht mehr, weil der View die Events selbst "konsumiert".
-// Fix: geteiltes `@FocusState` zwischen Scrub-Balken und Play/Pause-Button,
-// hoch/runter auf dem Scrub-Balken schickt den Fokus explizit zurück zum
-// Play/Pause-Button statt gar nichts zu tun.
+// Unconditional (nicht nur tvOS) deklariert, damit `PlayerControlsBar`s
+// `tvFocusTarget`-Parameter auf allen Plattformen existiert und die
+// Instanziierung unten ohne #if-Verzweigung in der Argumentliste auskommt —
+// tatsächlich GENUTZT wird das FocusState-Ziel nur unter `#if os(tvOS)`.
 private enum PlayerFocusTarget: Hashable {
-    case scrubber
     case playPause
+    /// Die unsichtbare, fokussierbare Fläche über dem Videobild, solange die
+    /// Steuerleiste ausgeblendet ist (siehe `PlayerView.body`, Color.clear-Overlay,
+    /// nur unter tvOS vorhanden).
+    case videoSurface
 }
-#endif
 
 private struct PlayerControlsBar: View {
     @Binding var isPlaying: Bool
@@ -1101,6 +1180,9 @@ private struct PlayerControlsBar: View {
     let hasNext: Bool
     let onTogglePlay: () -> Void
     let onSkip: (Double) -> Void
+    /// tvOS-only: eigene Geschwindigkeits-Eskalations-Buttons (siehe `PlayerView.boostedSkip`).
+    /// `direction` ist -1 (rückwärts) oder +1 (vorwärts). nil auf anderen Plattformen.
+    var onBoostSkip: ((Double) -> Void)? = nil
     let onScrubEnd: (Double) -> Void
     let onVolumeChange: (Float) -> Void
     let onPrev: () -> Void
@@ -1134,9 +1216,12 @@ private struct PlayerControlsBar: View {
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
-    #if os(tvOS)
-    @FocusState private var tvFocusTarget: PlayerFocusTarget?
-    #endif
+    // Geteiltes FocusState-Ziel, das `PlayerView` besitzt und hier nur durchreicht,
+    // damit der Play/Pause-Button explizit zurückfokussiert werden kann (siehe
+    // `PlayerView.resetAutoHide()`). Unconditional (nicht nur tvOS) deklariert,
+    // damit die Instanziierungsstelle keine #if-Verzweigung in der Argumentliste
+    // braucht — genutzt wird das FocusState-Ziel selbst nur unter `#if os(tvOS)`.
+    var tvFocusTarget: FocusState<PlayerFocusTarget?>.Binding
     // User-Anfrage 2026-09-02: im iPhone-Hochkantformat war die Leiste (fixe
     // 40pt-Außenpolsterung + volle Lautstärke-Slider-Breite) zu breit fürs
     // schmale Fenster und lief über/quetschte Icons. `horizontalSizeClass`
@@ -1165,18 +1250,6 @@ private struct PlayerControlsBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Text(formatTime(isScrubbing ? scrubValue : currentTime))
-                #if os(tvOS)
-                ScrubberWithPreview(
-                    isScrubbing: $isScrubbing,
-                    scrubValue: $scrubValue,
-                    currentTime: currentTime,
-                    duration: duration,
-                    trickplayCues: trickplayCues,
-                    trickplaySprite: trickplaySprite,
-                    onScrubEnd: onScrubEnd,
-                    tvFocusTarget: $tvFocusTarget
-                )
-                #else
                 ScrubberWithPreview(
                     isScrubbing: $isScrubbing,
                     scrubValue: $scrubValue,
@@ -1186,7 +1259,6 @@ private struct PlayerControlsBar: View {
                     trickplaySprite: trickplaySprite,
                     onScrubEnd: onScrubEnd
                 )
-                #endif
                 Text(formatTime(duration))
             }
             .font(.caption2.monospacedDigit())
@@ -1235,6 +1307,17 @@ private struct PlayerControlsBar: View {
                         Image(systemName: "backward.end.fill")
                     }.disabled(!hasPrev).opacity(hasPrev ? 1 : 0.35)
 
+                    #if os(tvOS)
+                    // User-Anfrage 2026-09-04: EIGENE Buttons für die Geschwindigkeits-
+                    // Eskalation (2x/4x/8x/normal bei wiederholtem Klick) — NICHT die
+                    // ±15s-Buttons umfunktionieren, die springen immer exakt 15s.
+                    if let onBoostSkip {
+                        Button { onBoostSkip(-1) } label: {
+                            Image(systemName: "backward.fill")
+                        }
+                    }
+                    #endif
+
                     Button { onSkip(-15) } label: {
                         Image(systemName: "gobackward.15")
                     }
@@ -1243,11 +1326,19 @@ private struct PlayerControlsBar: View {
                             .font(.title2)
                     }
                     #if os(tvOS)
-                    .focused($tvFocusTarget, equals: .playPause)
+                    .focused(tvFocusTarget, equals: .playPause)
                     #endif
                     Button { onSkip(15) } label: {
                         Image(systemName: "goforward.15")
                     }
+
+                    #if os(tvOS)
+                    if let onBoostSkip {
+                        Button { onBoostSkip(1) } label: {
+                            Image(systemName: "forward.fill")
+                        }
+                    }
+                    #endif
 
                     Button { onNext() } label: {
                         Image(systemName: "forward.end.fill")
@@ -1371,25 +1462,6 @@ private struct ScrubberWithPreview: View {
     #if os(macOS)
     @State private var hoverFraction: CGFloat?
     #endif
-    #if os(tvOS)
-    // tvOS-Fix 2026-09-04 (User-Report: "Spulen über die Zeitleiste geht nicht,
-    // wenn ich lange auf der rechten Pfeiltaste bleibe"): die Siri-Remote feuert
-    // `onMoveCommand` bei gehaltener Taste wiederholt (Auto-Repeat), und
-    // `onScrubEnd` löst bei einer Transcode-Session `restartTranscodeSession`
-    // aus — das reißt den AVPlayer komplett ab und baut einen neuen auf. Ohne
-    // Debounce riss jedes Auto-Repeat-Event den gerade erst neu aufgebauten
-    // Player sofort wieder ein, bevor er überhaupt etwas anzeigen konnte —
-    // sichtbar passierte nie ein Sprung. Jetzt: `scrubValue` akkumuliert
-    // während des Haltens (Basis ist `scrubValue`, nicht `currentTime`, die ja
-    // noch gar nicht aktualisiert wurde), der echte Seek feuert erst, wenn für
-    // 400ms kein weiteres Move-Event mehr kam.
-    @State private var scrubCommitTask: Task<Void, Never>?
-    // tvOS-Fix 2026-09-04 (User-Report: nach Fokus auf den Scrub-Balken kam
-    // man mit der Pfeiltaste nach unten nicht mehr zurück zu den
-    // Steuerelementen): geteiltes FocusState mit `PlayerControlsBar`, damit
-    // hoch/runter den Fokus explizit zurückschicken kann (siehe unten).
-    var tvFocusTarget: FocusState<PlayerFocusTarget?>.Binding
-    #endif
 
     private var previewTime: Double? {
         if isScrubbing { return scrubValue }
@@ -1403,51 +1475,17 @@ private struct ScrubberWithPreview: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 #if os(tvOS)
-                // `Slider` existiert nicht auf tvOS — als erster funktionaler Ersatz
-                // ±10s-Sprünge über Links/Rechts-Wischen auf der Siri-Remote-Touchfläche
-                // (`onMoveCommand`), solange die Leiste fokussiert ist. Echtes
-                // Drag-Scrubbing wäre ein eigener Anlauf (Fokus-Engine + Touch-Surface-
-                // Geschwindigkeit), hier bewusst erstmal minimal gehalten.
-                // tvOS-Fix 2026-09-04 (User-Report: Zeitleiste wird beim Hoch-Drücken gar
-                // nicht erst markiert/fokussiert): `ProgressView` ist kein interaktives
-                // Steuerelement — `.focusable(true)` allein nimmt es auf tvOS nicht
-                // zuverlässig in die Fokus-Kette auf (kein sichtbarer Fokus-Effekt, kein
-                // `onMoveCommand`). Ein `Button` wird dagegen nachweislich zuverlässig
-                // fokussiert (siehe Play/Pause-Button) — hier als reiner Fokus-Träger
-                // (leere `action`, eigentliche Logik komplett in `onMoveCommand`)
-                // um die ProgressView herumgelegt.
-                Button(action: {}) {
-                    ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
-                        .frame(width: geo.size.width)
-                }
-                .buttonStyle(.plain)
-                .focused(tvFocusTarget, equals: .scrubber)
-                    .onMoveCommand { direction in
-                        let base = isScrubbing ? scrubValue : currentTime
-                        let delta: Double
-                        switch direction {
-                        case .left: delta = -10
-                        case .right: delta = 10
-                        case .up, .down:
-                            // Ohne dieses explizite Zurückschicken übernimmt
-                            // `.onMoveCommand` JEDE Richtung auf diesem View —
-                            // die native Fokus-Engine würde hoch/runter sonst
-                            // nie mehr bearbeiten und der Fokus bliebe für immer
-                            // auf dem Scrub-Balken hängen.
-                            tvFocusTarget.wrappedValue = .playPause
-                            return
-                        default: return
-                        }
-                        scrubValue = min(max(duration, 1), max(0, base + delta))
-                        isScrubbing = true
-                        scrubCommitTask?.cancel()
-                        scrubCommitTask = Task {
-                            try? await Task.sleep(nanoseconds: 400_000_000)
-                            if Task.isCancelled { return }
-                            onScrubEnd(scrubValue)
-                            isScrubbing = false
-                        }
-                    }
+                // `Slider` existiert nicht auf tvOS. Frühere Anläufe machten die Zeitleiste
+                // selbst fokussierbar (±10s per Pfeiltaste) — nach mehreren gescheiterten
+                // Fixversuchen (kein sichtbarer Fokus, Fokus blieb nach hoch/runter hängen,
+                // zu dicker nativer Rahmen) hat der User sich am 2026-09-04 explizit dagegen
+                // entschieden: "Mir wäre lieber, wenn wir das über Pfeiltasten lösen" —
+                // gemeint ist Navigation zu den bestehenden ±15s-Buttons + wiederholtes
+                // Klicken dort für eine Geschwindigkeits-Eskalation (siehe `boostedSkip` in
+                // `PlayerView`). Die Zeitleiste hier ist auf tvOS deshalb bewusst rein
+                // visuell, nicht mehr interaktiv.
+                ProgressView(value: isScrubbing ? scrubValue : currentTime, total: max(duration, 1))
+                    .frame(width: geo.size.width)
                 #else
                 Slider(
                     value: Binding(
