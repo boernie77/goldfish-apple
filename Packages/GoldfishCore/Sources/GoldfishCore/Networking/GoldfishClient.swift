@@ -508,14 +508,16 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/metadata/\(metadataId)/trailer")
     }
 
-    /// Server extrahiert per yt-dlp eine direkt abspielbare Stream-URL (kein
-    /// WebKit auf tvOS nötig, siehe CLAUDE.md "Trailer"). Kann fehlschlagen
-    /// (502), wenn die Extraktion gerade nicht klappt — Aufrufer sollte dann
-    /// auf ein externes Öffnen zurückfallen, nicht hart scheitern.
+    /// Server lädt den Trailer per yt-dlp herunter/muxt ihn (kein WebKit auf
+    /// tvOS nötig, siehe CLAUDE.md "Trailer") und liefert eine RELATIVE URL
+    /// zur fertigen Datei (`/api/trailer-file/{key}`) — gegen `baseURL`
+    /// aufgelöst, damit sie direkt an `AVPlayer` gegeben werden kann. Kann
+    /// fehlschlagen (502), wenn der Download gerade nicht klappt — Aufrufer
+    /// sollte dann auf ein externes Öffnen zurückfallen, nicht hart scheitern.
     public func fetchTrailerStreamURL(metadataId: Int64) async throws -> URL {
         struct Response: Decodable { let url: String }
         let resp: Response = try await perform("/api/metadata/\(metadataId)/trailer-stream")
-        guard let url = URL(string: resp.url) else {
+        guard let url = URL(string: resp.url, relativeTo: baseURL)?.absoluteURL else {
             throw URLError(.badURL)
         }
         return url
