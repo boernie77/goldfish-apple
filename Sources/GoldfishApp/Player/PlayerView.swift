@@ -480,10 +480,24 @@ struct PlayerView: View {
     private func resetAutoHide() {
         controlsVisible = true
         hideControlsTask?.cancel()
+        // User-Report 2026-09-04 (tvOS, aber plattformunabhängiger Bug): die Steuerelemente
+        // verschwanden dauerhaft nicht mehr, auch ganz ohne jede Fernbedienungs-Eingabe. Ursache:
+        // die alte Fassung prüfte NUR EINMALIG nach 3,5s, ob `isPlaying` gerade true ist — traf
+        // dieser eine Check ausgerechnet auf eine kurze `timeControlStatus`-Schwankung (z. B.
+        // kurzes Nachpuffern bei Transcode/HLS, siehe auch die "stall danger"-Warnung weiter
+        // oben in dieser Datei), gab die Prüfung endgültig auf und NICHTS versuchte es je wieder
+        // — die Steuerelemente blieben für den Rest der Wiedergabe sichtbar. Fix: statt einer
+        // einmaligen Prüfung wiederholt alle 3,5s nachsehen, bis entweder wirklich ausgeblendet
+        // werden kann oder der Task abgebrochen wird (neue Nutzer-Aktivität/Schließen).
         hideControlsTask = Task {
-            try? await Task.sleep(nanoseconds: 3_500_000_000)
-            guard !Task.isCancelled, isPlaying else { return }
-            controlsVisible = false
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
+                if Task.isCancelled { return }
+                if isPlaying {
+                    controlsVisible = false
+                    return
+                }
+            }
         }
     }
 
@@ -1104,8 +1118,8 @@ private struct PlayerControlsBar: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white)
 
-            HStack(spacing: spacing(compact: 8, regular: 16, tv: 28)) {
-                HStack(spacing: spacing(compact: 6, regular: 12, tv: 20)) {
+            HStack(spacing: spacing(compact: 8, regular: 16, tv: 36)) {
+                HStack(spacing: spacing(compact: 6, regular: 12, tv: 26)) {
                     if let onClose {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -1140,9 +1154,9 @@ private struct PlayerControlsBar: View {
                 }
                 .foregroundStyle(.white)
 
-                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 24))
+                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 30))
 
-                HStack(spacing: spacing(compact: 10, regular: 18, tv: 32)) {
+                HStack(spacing: spacing(compact: 10, regular: 18, tv: 42)) {
                     Button { onPrev() } label: {
                         Image(systemName: "backward.end.fill")
                     }.disabled(!hasPrev).opacity(hasPrev ? 1 : 0.35)
@@ -1164,8 +1178,8 @@ private struct PlayerControlsBar: View {
                 }
                 .font(.title3)
 
-                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 24))
-                HStack(spacing: spacing(compact: 8, regular: 12, tv: 26)) {
+                Spacer(minLength: spacing(compact: 6, regular: 12, tv: 30))
+                HStack(spacing: spacing(compact: 8, regular: 12, tv: 32)) {
                     if let onToggleFavorite {
                         Button(action: onToggleFavorite) {
                             Image(systemName: isFavorite ? "heart.fill" : "heart")
@@ -1238,7 +1252,7 @@ private struct PlayerControlsBar: View {
         // tvOS-Fix 2026-09-04: die 560pt-Deckelung war für iPhone/iPad/Mac gedacht — mit den
         // größeren tvOS-Abständen oben (siehe `spacing(...)`) hätte sie den ganzen Effekt
         // sofort wieder zunichtegemacht (Inhalt zusammengequetscht statt nur breiter verteilt).
-        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 900))
+        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 1050))
         .padding(.horizontal, isCompact ? 8 : 40)
     }
 
