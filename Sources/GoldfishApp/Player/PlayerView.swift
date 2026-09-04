@@ -1,6 +1,5 @@
 import SwiftUI
 import AVKit
-import MediaPlayer
 import GoldfishCore
 #if os(macOS)
 import AppKit
@@ -77,13 +76,6 @@ struct PlayerView: View {
     // eigentlichen Segment-Laden fest. Der zuverlässige Kanal dafür ist NICHT `.status`,
     // sondern `AVPlayerItemNewErrorLogEntry` (das native HTTP-Error-Log jedes Requests).
     @State private var errorLogObserverToken: NSObjectProtocol?
-    #if os(tvOS)
-    // tvOS-Fix 2026-09-04: Opaque Target-Handles von `MPRemoteCommandCenter.addTarget`,
-    // müssen für `removeTarget` in `teardown()` aufbewahrt werden (siehe attachObservers).
-    @State private var playCommandTarget: Any?
-    @State private var pauseCommandTarget: Any?
-    @State private var toggleCommandTarget: Any?
-    #endif
 
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -236,23 +228,25 @@ struct PlayerView: View {
                     NativePlayerView(player: player)
                         .ignoresSafeArea()
                     #if os(tvOS)
-                    // tvOS-Fix 2026-09-04 (User-Report: mittlere Fernbedienungstaste bringt
-                    // die ausgeblendeten Steuerelemente nicht zurück): `isUserInteractionEnabled
-                    // = false` auf der Video-Fläche (siehe NativePlayerView.swift, verhindert
-                    // Fokus-Diebstahl durch AVPlayerViewController) blockiert NICHT NUR den
-                    // Fokus, sondern jede Eingabe darauf — inklusive `.onTapGesture`, das hier
-                    // vorher direkt auf der Video-Fläche saß und dadurch nie mehr feuerte.
-                    // Eigener, garantiert fokussierbarer `Button` obendrüber fängt den
-                    // Select-Klick ab. `.disabled(controlsVisible)`, damit er nur dann
-                    // Fokus beansprucht, wenn die Steuerelemente ausgeblendet sind — sonst
-                    // würde er mit den echten Steuerelement-Buttons um den Fokus konkurrieren.
-                    Button {
-                        toggleControlsVisibility()
-                    } label: {
-                        Color.clear.contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(controlsVisible)
+                    // tvOS-Fix 2026-09-04, zweiter Anlauf. Hintergrund: `isUserInteractionEnabled
+                    // = false` auf der Video-Fläche (NativePlayerView.swift, gegen Fokus-Diebstahl
+                    // durch AVPlayerViewController) blockiert dort JEDE Eingabe — der frühere
+                    // `.onTapGesture` direkt auf der Video-Fläche feuerte deshalb nie. Der erste
+                    // Ersatz (unsichtbarer Vollbild-`Button`) hatte zwei neue Fehler (User-Fotos):
+                    // (a) sobald er Fokus bekam, malte tvOS seinen nativen weißen "Lift"-Effekt
+                    //     über den GANZEN Bildschirm ("großes weißes Fenster", nicht wegzubekommen),
+                    // (b) Pfeiltasten bewegten den Fokus auf diesen Button statt die Leiste zu holen.
+                    // Jetzt: eine unsichtbare, fokussierbare Fläche OHNE Button-Semantik und mit
+                    // `.focusEffectDisabled()` (kein Lift), die nur fokussierbar ist, solange die
+                    // Leiste ausgeblendet ist — Select (Tap) UND jede Pfeiltaste holen die Leiste
+                    // zurück. Sobald sie sichtbar ist, verliert diese Fläche die Fokussierbarkeit
+                    // und die Fokus-Engine springt auf die echten Steuerelement-Buttons.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .focusable(!controlsVisible)
+                        .focusEffectDisabled()
+                        .onTapGesture { resetAutoHide() }
+                        .onMoveCommand { _ in resetAutoHide() }
                     #endif
                 }
             } else {
@@ -344,7 +338,28 @@ struct PlayerView: View {
             }
             .opacity(controlsVisible ? 1 : 0)
             .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+            #if os(tvOS)
+            // tvOS-Fix 2026-09-04: Opacity 0 nimmt die Buttons NICHT aus der Fokus-Engine —
+            // eine unsichtbare Leiste könnte sonst weiterhin Fokus fangen und ein Select
+            // würde blind z. B. 15s springen. Ausgeblendet = nicht fokussierbar; der
+            // Fokus geht dann auf die Vollbild-Fläche (siehe `Color.clear.focusable(...)`).
+            .disabled(!controlsVisible)
+            #endif
         }
+        #if os(tvOS)
+        // tvOS-Fix 2026-09-04: physische Play/Pause-Taste der Fernbedienung. Vorher über
+        // `MPRemoteCommandCenter` (Now-Playing-Kanal) — funktionierte nur für die erste
+        // Pause, danach nicht mehr für Play: nach `pause()` gilt die App für tvOS nicht
+        // mehr als aktiv abspielend und die Kommandos werden nicht mehr zugestellt.
+        // `.onPlayPauseCommand` ist der fokus-basierte SwiftUI-Weg: feuert für die
+        // fokussierte View ODER einen Vorfahren, also sowohl wenn die unsichtbare
+        // Vollbild-Fläche als auch wenn ein Leisten-Button den Fokus hat. Genau EIN
+        // Kanal — kein Doppel-Toggle mehr (pause+play = nichts) möglich.
+        .onPlayPauseCommand {
+            togglePlay()
+            resetAutoHide()
+        }
+        #endif
         .task(id: item.id) { await setUp() }
         .onDisappear {
             hideControlsTask?.cancel()
@@ -537,15 +552,6 @@ struct PlayerView: View {
         didEndObserverToken = nil
         if let token = errorLogObserverToken { NotificationCenter.default.removeObserver(token) }
         errorLogObserverToken = nil
-        #if os(tvOS)
-        let center = MPRemoteCommandCenter.shared()
-        if let target = playCommandTarget { center.playCommand.removeTarget(target) }
-        if let target = pauseCommandTarget { center.pauseCommand.removeTarget(target) }
-        if let target = toggleCommandTarget { center.togglePlayPauseCommand.removeTarget(target) }
-        playCommandTarget = nil
-        pauseCommandTarget = nil
-        toggleCommandTarget = nil
-        #endif
         if let player {
             // Capture + pause synchronously — by the time an async Task actually runs,
             // `self.player` would already be nil below and saveResume() would no-op.
@@ -921,31 +927,6 @@ struct PlayerView: View {
             }
             errorMessage = "Stream-Fehler (\(event.errorStatusCode)): \(comment)"
         }
-
-        #if os(tvOS)
-        // tvOS-Fix 2026-09-04 (User-Report: die physische Play/Pause-Taste auf der
-        // Fernbedienung tut nichts): dieselbe Ursache wie beim Tap-to-reveal oben —
-        // `isUserInteractionEnabled = false` auf der Video-Fläche unterbindet auch die
-        // Weiterleitung der Hardware-Fernbedienungstaste, die normalerweise automatisch
-        // von `AVPlayerViewController` selbst behandelt wird, solange er Teil der
-        // interaktiven Fokus-Kette ist. `MPRemoteCommandCenter` ist der dafür vorgesehene,
-        // fokus-UNABHÄNGIGE Kanal (dieselbe API, über die auch Sperrbildschirm-/
-        // AirPods-Fernbedienungstasten laufen) — Play/Pause/Toggle darüber ans bestehende
-        // `togglePlay()` durchreichen, unabhängig davon, was gerade fokussiert ist.
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.isEnabled = true
-        center.pauseCommand.isEnabled = true
-        center.togglePlayPauseCommand.isEnabled = true
-        playCommandTarget = center.playCommand.addTarget { [weak player] _ in
-            player?.play(); return .success
-        }
-        pauseCommandTarget = center.pauseCommand.addTarget { [weak player] _ in
-            player?.pause(); return .success
-        }
-        toggleCommandTarget = center.togglePlayPauseCommand.addTarget { _ in
-            togglePlay(); return .success
-        }
-        #endif
     }
 
     /// Unconditional "gesehen"-Markierung beim echten Wiedergabe-Ende — Ergänzung zu
