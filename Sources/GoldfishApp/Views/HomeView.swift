@@ -12,6 +12,31 @@ struct HomeView: View {
     /// ohne Binding hier hätte `MainTabView` keine Sicht auf die Navigationstiefe.
     @Binding var path: NavigationPath
 
+    // User-Anfrage 2026-09-04: "Ich hätte gerne das Suchfeld schon auf der
+    // Startseite (also zusätzlich)" — library-übergreifend, analog zum
+    // Browser (CLAUDE.md "Startseite (Home-View)": Suchfeld matcht Titel +
+    // Schauspieler über alle Libraries mit ACL-Zugriff). `client.fetchItems`
+    // ohne `libraryId` macht serverseitig bereits genau das (ACL-sicher).
+    #if os(tvOS)
+    @State private var search = ""
+    @State private var searchResults: [Item] = []
+    @State private var isSearching = false
+    @State private var showTVSearchSheet = false
+    @Namespace private var searchFocusNamespace
+    @State private var searchReloadToken = 0
+    #endif
+
+    // Unconditional (nicht nur tvOS) deklariert, damit der if-else-Zweig in `body`
+    // unten ohne #if-Verzweigung mitten in der ViewBuilder-Kette auskommt (das hatte
+    // sich in `PlayerView` bereits als Swift-Parser-Falle erwiesen).
+    private var tvSearchActive: Bool {
+        #if os(tvOS)
+        !search.isEmpty
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             Group {
@@ -28,6 +53,12 @@ struct HomeView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(isLoading)
                     }
+                } else if tvSearchActive {
+                    #if os(tvOS)
+                    tvSearchResultsView
+                    #else
+                    EmptyView()
+                    #endif
                 } else if sections.isEmpty {
                     ContentUnavailableMessage(text: "Keine Bibliotheken auf der Startseite sichtbar.")
                 } else {
@@ -86,6 +117,26 @@ struct HomeView: View {
             .navigationDestination(for: ItemNavTarget.self) { target in
                 ItemDetailView(item: target.item, queue: target.queue)
             }
+            #if os(tvOS)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showTVSearchSheet = true
+                    } label: {
+                        Image(systemName: search.isEmpty ? "magnifyingglass" : "magnifyingglass.circle.fill")
+                    }
+                }
+            }
+            .sheet(isPresented: $showTVSearchSheet) {
+                TVSearchSheet(search: $search)
+            }
+            .onChange(of: search) { _ in
+                Task {
+                    await loadSearchResults()
+                    searchReloadToken += 1
+                }
+            }
+            #endif
             .task { await load() }
             .refreshable { await load() }
             .onChange(of: scenePhase) { phase in
@@ -111,6 +162,61 @@ struct HomeView: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    #if os(tvOS)
+    private func loadSearchResults() async {
+        guard !search.isEmpty else {
+            searchResults = []
+            return
+        }
+        isSearching = true
+        defer { isSearching = false }
+        do {
+            // Kein `libraryId` → serverseitig library-übergreifend über alle
+            // ACL-zugänglichen Bibliotheken (CLAUDE.md "Startseite (Home-View)").
+            searchResults = try await client.fetchItems(search: search)
+        } catch {
+            if GoldfishClient.isAuthError(error) {
+                client.markSessionInvalid()
+                return
+            }
+            searchResults = []
+        }
+    }
+
+    /// Ersetzt die normalen Home-Streifen, solange eine Suche aktiv ist. Gleicher
+    /// `.prefersDefaultFocus`/`.id`-Fix wie in `ItemGridView` (User-Report: "Man
+    /// kommt mit dem Cursor nicht hin" — ohne den Fix bleibt der Fokus nach dem
+    /// Sheet-Dismiss auf dem 🔍-Button hängen, weil sich nur der Grid-INHALT
+    /// ändert, nicht die Grid-View selbst).
+    private var tvSearchResultsView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("\(searchResults.count) Treffer")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+
+                if isSearching && searchResults.isEmpty {
+                    ProgressView().padding(.top, 40)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 220), spacing: 48, alignment: .top)], spacing: 48) {
+                        ForEach(searchResults) { item in
+                            ItemCard(item: item, width: 220, queue: searchResults)
+                                .frame(width: 220)
+                                .prefersDefaultFocus(item.id == searchResults.first?.id, in: searchFocusNamespace)
+                        }
+                    }
+                    .id(searchReloadToken)
+                    .padding(.horizontal)
+                    .padding(.top, 24)
+                }
+            }
+            .padding(.top, 68)
+            .padding(.bottom, 16)
+        }
+    }
+    #endif
 }
 
 /// Eine Kachel-Reihe MIT groß-fetter Überschrift, im selben Stil wie ein

@@ -59,6 +59,15 @@ struct ItemGridView: View {
     // Toolbar-TextField (siehe Kommentar dort), tvOS hatte GAR KEINEN Einstieg.
     // Gleiches Sheet-statt-Menü-Muster wie Sortieren/Filter.
     @State private var showTVSearchSheet = false
+    // User-Anfrage 2026-09-04 (Folge-Report: "Suchergebnisse kann ich leider nicht
+    // auswählen. Man kommt mit dem Cursor nicht hin"): nach Sheet-Dismiss bleibt der
+    // native tvOS-Fokus auf dem 🔍-Toolbar-Button hängen, weil sich der GRID-INHALT
+    // ändert, aber die GRID-VIEW SELBST nicht neu erscheint (kein automatischer
+    // Default-Fokus-Lauf). Fix: `.id(searchReloadToken)` auf dem Grid erzwingt bei
+    // jeder Textsuche eine frische Identität → tvOS berechnet Default-Fokus neu,
+    // `.prefersDefaultFocus` markiert dafür die erste Kachel.
+    @Namespace private var gridFocusNamespace
+    @State private var searchReloadToken = 0
     #endif
 
     /// Custom init only to set the sort defaults from `library.kind` — everything else keeps
@@ -132,12 +141,15 @@ struct ItemGridView: View {
                 // (nur ums Poster) — siehe Kommentar dort. Kein äußerer Link mehr nötig.
                 FolderCard(tile: tile, library: library)
                     .frame(width: cardWidth)
+                    .prefersDefaultFocus(tile.id == displayedFolders.first?.id, in: gridFocusNamespace)
             }
             ForEach(displayedItems) { item in
                 ItemCard(item: item, width: cardWidth, queue: items)
                     .frame(width: cardWidth)
+                    .prefersDefaultFocus(displayedFolders.isEmpty && item.id == displayedItems.first?.id, in: gridFocusNamespace)
             }
         }
+        .id(searchReloadToken)
         #else
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(displayedFolders) { tile in
@@ -405,7 +417,14 @@ struct ItemGridView: View {
         }
         #endif
         .task { await load() }
-        .onChange(of: search) { _ in Task { await load() } }
+        .onChange(of: search) { _ in
+            Task {
+                await load()
+                #if os(tvOS)
+                searchReloadToken += 1
+                #endif
+            }
+        }
         .onChange(of: sort) { newValue in
             ascending = newValue.defaultAscending
             UserDefaults.standard.set(newValue.rawValue, forKey: sortStorageKey)
@@ -1068,7 +1087,9 @@ private struct TVFilterSheet: View {
 /// übrigens auch noch fehlt, ist ein Suchfeld"). Gleiches Sheet-Muster wie Sortieren/
 /// Filter — ein `TextField` reicht hier, tvOS öffnet dafür automatisch seine native
 /// Tastatur, sobald es fokussiert wird (identisches Verhalten wie im Login-Formular).
-private struct TVSearchSheet: View {
+// Nicht `private` — wird auch von `HomeView` für die library-übergreifende
+// Startseiten-Suche wiederverwendet (User-Anfrage 2026-09-04).
+struct TVSearchSheet: View {
     @Binding var search: String
     @Environment(\.dismiss) private var dismiss
 
