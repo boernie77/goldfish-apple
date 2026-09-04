@@ -597,17 +597,20 @@ struct FolderCard: View {
 
     var body: some View {
         #if os(tvOS)
-        VStack(alignment: .leading, spacing: 6) {
+        // Fünfter Anlauf 2026-09-04 (User-Foto-Beleg: der native Fokus-Rahmen überlappt
+        // sichtbar den Titeltext darunter, macht ihn kaum lesbar) — NICHT wieder versuchen,
+        // den Rahmen selbst wegzubekommen (vier Ansätze bereits gescheitert: .buttonStyle(.card),
+        // .focusEffectDisabled(), Struktur-Split Poster/Titel, .buttonBorderShape — alle drei
+        // letzteren stecken unten noch drin, halfen aber nicht vollständig). Stattdessen
+        // Workaround am eigentlichen Symptom: großzügiger Abstand zwischen Poster und
+        // Titeltext, damit der überschießende Rahmen selbst wenn er weiterhin übergreift,
+        // den Text nicht mehr erreicht.
+        VStack(alignment: .leading, spacing: 24) {
             NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
                 posterSection
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
-            // vierter Anlauf: `.buttonBorderShape` teilt dem System die TATSÄCHLICHE
-            // Form des Inhalts mit (Cornerradius 8, wie `posterSection`s eigenes
-            // `.clipShape`) — der native Fokushintergrund folgt dann exakt dieser
-            // Form/Größe statt einer generischen, zu großen Standard-Box mit
-            // sichtbarem Rand-Abstand zum Poster.
             .buttonBorderShape(.roundedRectangle(radius: 8))
 
             titleSection
@@ -731,15 +734,14 @@ struct ItemCard: View {
 
     var body: some View {
         #if os(tvOS)
-        VStack(alignment: .leading, spacing: 4) {
+        // Fünfter Anlauf — siehe ausführlicher Kommentar bei `FolderCard`: großzügiger
+        // Abstand statt eines weiteren Versuchs, den nativen Fokus-Rahmen selbst zu entfernen.
+        VStack(alignment: .leading, spacing: 24) {
             NavigationLink(value: ItemNavTarget(item: item, queue: queue)) {
                 posterSection
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
-            // Siehe Kommentar bei FolderCard: `.buttonBorderShape` lässt den nativen
-            // Fokushintergrund der tatsächlichen Poster-Form/-Größe folgen statt
-            // einer generischen Box mit sichtbarem Rand-Abstand.
             .buttonBorderShape(.roundedRectangle(radius: 8))
 
             titleSection
