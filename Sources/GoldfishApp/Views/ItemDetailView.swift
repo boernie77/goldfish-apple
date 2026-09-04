@@ -239,13 +239,10 @@ struct ItemDetailView: View {
                 actionButtonsRow
                 #endif
 
-                // User-Anfrage 2026-09-03: "der Downloadbereich kann bei Apple TV eigentlich
-                // entfernt werden" — konsequent auch der Download-Button selbst hier, sonst
-                // könnte man auf tvOS einen Download starten, ohne je einen Ort zu haben, ihn
-                // zu sehen oder abzuspielen (kein Downloads-Tab mehr, siehe RootView).
-                #if !os(tvOS)
+                // User-Anfrage 2026-09-03, zurückgenommen 2026-09-04 ("könnte doch nützlich
+                // sein"): Download-Button ist jetzt auch auf tvOS wieder da, passend zum
+                // wieder eingeblendeten Downloads-Tab (siehe RootView).
                 DownloadButtonRow(item: selectedItem)
-                #endif
             }
             .padding()
         }
