@@ -63,11 +63,16 @@ struct ItemGridView: View {
     // auswählen. Man kommt mit dem Cursor nicht hin"): nach Sheet-Dismiss bleibt der
     // native tvOS-Fokus auf dem 🔍-Toolbar-Button hängen, weil sich der GRID-INHALT
     // ändert, aber die GRID-VIEW SELBST nicht neu erscheint (kein automatischer
-    // Default-Fokus-Lauf). Fix: `.id(searchReloadToken)` auf dem Grid erzwingt bei
-    // jeder Textsuche eine frische Identität → tvOS berechnet Default-Fokus neu,
-    // `.prefersDefaultFocus` markiert dafür die erste Kachel.
-    @Namespace private var gridFocusNamespace
-    @State private var searchReloadToken = 0
+    // Default-Fokus-Lauf).
+    // ERSTER Fixversuch (`.id(searchReloadToken)` + `.prefersDefaultFocus`) hatte
+    // einen neuen Bug: bei genau 1 Treffer funktionierte die Auswahl, ab 2+ Treffern
+    // ließ sich GAR KEINE Kachel mehr fokussieren (User-Report). Vermutlich bricht
+    // `.prefersDefaultFocus` in Kombination mit `.id()`-Neuerzeugung bei mehreren
+    // Kandidaten die Fokus-Auflösung komplett, statt nur den "falschen" Standard zu
+    // wählen. Fix: expliziter `@FocusState` + verzögerte Zuweisung (`Task.yield()`)
+    // — dasselbe bereits bewährte Muster wie beim Play/Pause-Refokus im Player
+    // (siehe `PlayerView.resetAutoHide()`).
+    @FocusState private var focusedCardID: AnyHashable?
     #endif
 
     /// Custom init only to set the sort defaults from `library.kind` — everything else keeps
@@ -141,15 +146,14 @@ struct ItemGridView: View {
                 // (nur ums Poster) — siehe Kommentar dort. Kein äußerer Link mehr nötig.
                 FolderCard(tile: tile, library: library)
                     .frame(width: cardWidth)
-                    .prefersDefaultFocus(tile.id == displayedFolders.first?.id, in: gridFocusNamespace)
+                    .focused($focusedCardID, equals: AnyHashable(tile.id))
             }
             ForEach(displayedItems) { item in
                 ItemCard(item: item, width: cardWidth, queue: items)
                     .frame(width: cardWidth)
-                    .prefersDefaultFocus(displayedFolders.isEmpty && item.id == displayedItems.first?.id, in: gridFocusNamespace)
+                    .focused($focusedCardID, equals: AnyHashable(item.id))
             }
         }
-        .id(searchReloadToken)
         #else
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(displayedFolders) { tile in
@@ -421,7 +425,12 @@ struct ItemGridView: View {
             Task {
                 await load()
                 #if os(tvOS)
-                searchReloadToken += 1
+                await Task.yield()
+                if let first = displayedFolders.first {
+                    focusedCardID = AnyHashable(first.id)
+                } else if let first = displayedItems.first {
+                    focusedCardID = AnyHashable(first.id)
+                }
                 #endif
             }
         }

@@ -22,8 +22,10 @@ struct HomeView: View {
     @State private var searchResults: [Item] = []
     @State private var isSearching = false
     @State private var showTVSearchSheet = false
-    @Namespace private var searchFocusNamespace
-    @State private var searchReloadToken = 0
+    // Gleicher Fix wie in `ItemGridView` (User-Report: bei 2+ Treffern ließ sich
+    // mit `.prefersDefaultFocus` + `.id()` gar keine Kachel mehr fokussieren) —
+    // expliziter `@FocusState` + verzögerte Zuweisung statt Default-Fokus-Trick.
+    @FocusState private var focusedSearchResultID: Item.ID?
     #endif
 
     // Unconditional (nicht nur tvOS) deklariert, damit der if-else-Zweig in `body`
@@ -133,7 +135,8 @@ struct HomeView: View {
             .onChange(of: search) { _ in
                 Task {
                     await loadSearchResults()
-                    searchReloadToken += 1
+                    await Task.yield()
+                    focusedSearchResultID = searchResults.first?.id
                 }
             }
             #endif
@@ -184,11 +187,11 @@ struct HomeView: View {
         }
     }
 
-    /// Ersetzt die normalen Home-Streifen, solange eine Suche aktiv ist. Gleicher
-    /// `.prefersDefaultFocus`/`.id`-Fix wie in `ItemGridView` (User-Report: "Man
-    /// kommt mit dem Cursor nicht hin" — ohne den Fix bleibt der Fokus nach dem
-    /// Sheet-Dismiss auf dem 🔍-Button hängen, weil sich nur der Grid-INHALT
-    /// ändert, nicht die Grid-View selbst).
+    /// Ersetzt die normalen Home-Streifen, solange eine Suche aktiv ist. Fokus-Fix
+    /// wie in `ItemGridView` (User-Report: "Man kommt mit dem Cursor nicht hin" —
+    /// ohne den Fix bleibt der Fokus nach dem Sheet-Dismiss auf dem 🔍-Button
+    /// hängen; ein erster Versuch mit `.prefersDefaultFocus`+`.id()` brach die
+    /// Fokussierbarkeit sogar komplett, sobald es 2+ Treffer gab).
     private var tvSearchResultsView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -204,10 +207,9 @@ struct HomeView: View {
                         ForEach(searchResults) { item in
                             ItemCard(item: item, width: 220, queue: searchResults)
                                 .frame(width: 220)
-                                .prefersDefaultFocus(item.id == searchResults.first?.id, in: searchFocusNamespace)
+                                .focused($focusedSearchResultID, equals: item.id)
                         }
                     }
-                    .id(searchReloadToken)
                     .padding(.horizontal)
                     .padding(.top, 24)
                 }
