@@ -1336,6 +1336,20 @@ private struct ScrubberWithPreview: View {
     #if os(macOS)
     @State private var hoverFraction: CGFloat?
     #endif
+    #if os(tvOS)
+    // tvOS-Fix 2026-09-04 (User-Report: "Spulen über die Zeitleiste geht nicht,
+    // wenn ich lange auf der rechten Pfeiltaste bleibe"): die Siri-Remote feuert
+    // `onMoveCommand` bei gehaltener Taste wiederholt (Auto-Repeat), und
+    // `onScrubEnd` löst bei einer Transcode-Session `restartTranscodeSession`
+    // aus — das reißt den AVPlayer komplett ab und baut einen neuen auf. Ohne
+    // Debounce riss jedes Auto-Repeat-Event den gerade erst neu aufgebauten
+    // Player sofort wieder ein, bevor er überhaupt etwas anzeigen konnte —
+    // sichtbar passierte nie ein Sprung. Jetzt: `scrubValue` akkumuliert
+    // während des Haltens (Basis ist `scrubValue`, nicht `currentTime`, die ja
+    // noch gar nicht aktualisiert wurde), der echte Seek feuert erst, wenn für
+    // 400ms kein weiteres Move-Event mehr kam.
+    @State private var scrubCommitTask: Task<Void, Never>?
+    #endif
 
     private var previewTime: Double? {
         if isScrubbing { return scrubValue }
@@ -1359,19 +1373,20 @@ private struct ScrubberWithPreview: View {
                     .focusable(true)
                     .onMoveCommand { direction in
                         let base = isScrubbing ? scrubValue : currentTime
+                        let delta: Double
                         switch direction {
-                        case .left:
-                            scrubValue = max(0, base - 10)
-                            isScrubbing = true
+                        case .left: delta = -10
+                        case .right: delta = 10
+                        default: return
+                        }
+                        scrubValue = min(max(duration, 1), max(0, base + delta))
+                        isScrubbing = true
+                        scrubCommitTask?.cancel()
+                        scrubCommitTask = Task {
+                            try? await Task.sleep(nanoseconds: 400_000_000)
+                            if Task.isCancelled { return }
                             onScrubEnd(scrubValue)
                             isScrubbing = false
-                        case .right:
-                            scrubValue = min(max(duration, 1), base + 10)
-                            isScrubbing = true
-                            onScrubEnd(scrubValue)
-                            isScrubbing = false
-                        default:
-                            break
                         }
                     }
                 #else
