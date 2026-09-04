@@ -20,16 +20,9 @@ struct ItemDetailView: View {
     // liefert (gleiches Verhalten wie der Browser: Button ist standardmäßig
     // versteckt).
     @State private var trailerKey: String? = nil
-    #if !os(tvOS)
     @State private var showTrailer = false
-    #else
-    // tvOS hat keine YouTube-Wiedergabe im eigenen Prozess (kein WebKit) —
-    // `openURL` reicht an die YouTube-App weiter, FALLS installiert. Ohne
-    // App passierte bisher lautlos gar nichts (User-Bericht 2026-09-04:
-    // "Auf Apple TV passiert gar nichts") — jetzt zeigt ein Alert klar an,
-    // woran es liegt, statt den Klick wirkungslos verpuffen zu lassen.
-    @State private var showTrailerUnavailableAlert = false
-    #endif
+    @State private var trailerStreamURL: URL? = nil
+    @State private var isLoadingTrailer = false
     @State private var isFavorite: Bool
     @State private var isWatched: Bool
     @State private var showResumePrompt = false
@@ -310,19 +303,11 @@ struct ItemDetailView: View {
         .sheet(isPresented: $showingAddToPlaylist) {
             AddToPlaylistSheet(item: selectedItem)
         }
-        #if !os(tvOS)
-        .sheet(isPresented: $showTrailer) {
-            if let trailerKey {
-                TrailerSheet(youtubeKey: trailerKey, serverBaseURL: client.baseURL)
+        .fullScreenCoverCompat(isPresented: $showTrailer) {
+            if let trailerStreamURL {
+                TrailerPlayerView(streamURL: trailerStreamURL)
             }
         }
-        #else
-        .alert("Trailer kann nicht abgespielt werden", isPresented: $showTrailerUnavailableAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Dafür wird die YouTube-App auf diesem Apple TV benötigt.")
-        }
-        #endif
     }
 
     private var sizeLabel: String? {
@@ -371,25 +356,16 @@ struct ItemDetailView: View {
 
             if let trailerKey {
                 Button {
-                    #if os(tvOS)
-                    // WKWebView/WebKit existiert auf tvOS nicht (siehe
-                    // OIDCLoginView.swift) — der Trailer wird stattdessen extern
-                    // in der YouTube-App geöffnet. Die https-watch-URL allein
-                    // reichte NICHT (User-Bericht 2026-09-04: "die YouTube-App
-                    // wäre installiert", trotzdem Alert) — tvOS hat kein
-                    // Safari/Systembrowser, das https-Universal-Link-Handoff
-                    // an eine andere App funktioniert dort offenbar anders als
-                    // auf iOS. Erst das dedizierte `youtube://`-URL-Schema
-                    // versuchen (das die YouTube-App seit jeher unterstützt),
-                    // erst bei dessen Fehlschlag auf https zurückfallen.
-                    openTrailerOnTV(trailerKey)
-                    #else
-                    showTrailer = true
-                    #endif
+                    Task { await playTrailer(trailerKey) }
                 } label: {
-                    Image(systemName: "film")
+                    if isLoadingTrailer {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "film")
+                    }
                 }
                 .buttonStyle(.bordered)
+                .disabled(isLoadingTrailer)
             }
         }
     }
@@ -405,32 +381,50 @@ struct ItemDetailView: View {
         trailerKey = trailer.key
     }
 
-    #if os(tvOS)
-    /// User-Bericht 2026-09-04: `youtube://watch?v=<key>` öffnet auf Apple TV
-    /// zwar die YouTube-App (accepted=true), aber landet auf deren normaler
-    /// Startseite statt direkt beim Video — die App nimmt den Aufruf zwar
-    /// entgegen, wertet den `watch?v=`-Query-Teil aber offenbar nicht aus.
-    /// `vnd.youtube://<key>` ist das ÄLTERE, historisch dokumentierte
-    /// "direktes Video"-Schema (ohne Query-String) — wird zusätzlich VOR
-    /// der `watch?v=`-Variante versucht, falls die tvOS-App das (noch)
-    /// unterstützt. Beide sind reine Versuche ohne Erfolgsgarantie — tvOS
-    /// hat keinerlei WebKit/eigenen Player, ein zuverlässiges In-App-Fenster
-    /// wie auf Mac/iOS ist auf dieser Plattform technisch nicht möglich
-    /// (siehe [[project_feature_trailer_apple]]).
-    private func openTrailerOnTV(_ key: String) {
+    /// Der Server extrahiert per yt-dlp eine direkt abspielbare Stream-URL
+    /// (siehe CLAUDE.md "Trailer" + `internal/ytdlp`) — kein WebKit in der
+    /// App nötig, funktioniert dadurch gleich auf Mac/iOS/tvOS. Schlägt die
+    /// Extraktion fehl (502, z. B. YouTube-seitige Drosselung), fällt die App
+    /// auf ein externes Öffnen zurück statt hart zu scheitern: Mac/iOS haben
+    /// einen echten Browser (öffnet dort einfach die Watch-Seite), tvOS
+    /// versucht zuerst das YouTube-App-URL-Schema.
+    private func playTrailer(_ key: String) async {
+        guard let metadataId = item.metadataId else { return }
+        isLoadingTrailer = true
+        defer { isLoadingTrailer = false }
+        if let streamURL = try? await client.fetchTrailerStreamURL(metadataId: metadataId) {
+            trailerStreamURL = streamURL
+            showTrailer = true
+        } else {
+            openTrailerExternally(key)
+        }
+    }
+
+    private func openTrailerExternally(_ key: String) {
+        #if os(tvOS)
+        // WKWebView/WebKit existiert auf tvOS nicht (siehe OIDCLoginView.swift)
+        // — als letzter Ausweg extern in der YouTube-App versuchen.
+        // `vnd.youtube://<key>` ist das ältere, historisch dokumentierte
+        // "direktes Video"-Schema, `youtube://watch?v=<key>` das neuere (öffnet
+        // laut User-Bericht 2026-09-04 aber teils nur die App-Startseite statt
+        // des Videos — keine Erfolgsgarantie, tvOS hat schlicht keinen
+        // zuverlässigen Weg für ein eigenes In-App-Fenster ohne Extraktion).
         let candidates = [
             "vnd.youtube://\(key)",
             "youtube://watch?v=\(key)",
             "https://www.youtube.com/watch?v=\(key)",
         ].compactMap(URL.init(string:))
         tryOpen(candidates, index: 0)
+        #else
+        if let url = URL(string: "https://www.youtube.com/watch?v=\(key)") {
+            openURL(url)
+        }
+        #endif
     }
 
+    #if os(tvOS)
     private func tryOpen(_ urls: [URL], index: Int) {
-        guard index < urls.count else {
-            showTrailerUnavailableAlert = true
-            return
-        }
+        guard index < urls.count else { return }
         openURL(urls[index]) { accepted in
             if !accepted { tryOpen(urls, index: index + 1) }
         }

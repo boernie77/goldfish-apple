@@ -508,6 +508,19 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/metadata/\(metadataId)/trailer")
     }
 
+    /// Server extrahiert per yt-dlp eine direkt abspielbare Stream-URL (kein
+    /// WebKit auf tvOS nötig, siehe CLAUDE.md "Trailer"). Kann fehlschlagen
+    /// (502), wenn die Extraktion gerade nicht klappt — Aufrufer sollte dann
+    /// auf ein externes Öffnen zurückfallen, nicht hart scheitern.
+    public func fetchTrailerStreamURL(metadataId: Int64) async throws -> URL {
+        struct Response: Decodable { let url: String }
+        let resp: Response = try await perform("/api/metadata/\(metadataId)/trailer-stream")
+        guard let url = URL(string: resp.url) else {
+            throw URLError(.badURL)
+        }
+        return url
+    }
+
     /// Bio-Daten + volle Filmografie einer Person (live von TMDB, serverseitig
     /// gecacht). Gegenstück zum Browser `GET /api/person/{tmdbId}`.
     public func fetchPersonDetails(tmdbId: Int64) async throws -> PersonDetails {
