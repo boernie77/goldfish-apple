@@ -1102,6 +1102,13 @@ struct TVSearchSheet: View {
                 Button("Fertig") { dismiss() }
             }
             TextField("Titel oder Schauspieler…", text: $search)
+                // tvOS-Fix 2026-09-04 (User-Report: Schrift beim ersten Öffnen winzig,
+                // erst beim erneuten Öffnen des Sheets korrekt groß): bekannte tvOS-
+                // `.sheet`-Eigenheit — die erste Präsentation übernimmt die Umgebungs-
+                // Schriftgröße offenbar nicht sauber, ein späteres Neu-Layout (z. B. beim
+                // zweiten Öffnen) schon. Explizite feste Größe statt automatischer
+                // Auflösung umgeht das komplett, unabhängig vom Presentation-Zeitpunkt.
+                .font(.system(size: 40))
                 .tvLoginFieldStyle()
             if !search.isEmpty {
                 Button {
