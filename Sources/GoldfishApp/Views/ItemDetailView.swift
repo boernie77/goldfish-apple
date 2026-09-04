@@ -22,6 +22,13 @@ struct ItemDetailView: View {
     @State private var trailerKey: String? = nil
     #if !os(tvOS)
     @State private var showTrailer = false
+    #else
+    // tvOS hat keine YouTube-Wiedergabe im eigenen Prozess (kein WebKit) —
+    // `openURL` reicht an die YouTube-App weiter, FALLS installiert. Ohne
+    // App passierte bisher lautlos gar nichts (User-Bericht 2026-09-04:
+    // "Auf Apple TV passiert gar nichts") — jetzt zeigt ein Alert klar an,
+    // woran es liegt, statt den Klick wirkungslos verpuffen zu lassen.
+    @State private var showTrailerUnavailableAlert = false
     #endif
     @State private var isFavorite: Bool
     @State private var isWatched: Bool
@@ -309,6 +316,12 @@ struct ItemDetailView: View {
                 TrailerSheet(youtubeKey: trailerKey)
             }
         }
+        #else
+        .alert("Trailer kann nicht abgespielt werden", isPresented: $showTrailerUnavailableAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Dafür wird die YouTube-App auf diesem Apple TV benötigt.")
+        }
         #endif
     }
 
@@ -361,10 +374,13 @@ struct ItemDetailView: View {
                     #if os(tvOS)
                     // WKWebView/WebKit existiert auf tvOS nicht (siehe
                     // OIDCLoginView.swift) — der Trailer wird stattdessen extern
-                    // in der YouTube-App geöffnet (falls installiert; ohne
-                    // YouTube-App tut sich auf tvOS mangels Systembrowser nichts).
+                    // in der YouTube-App geöffnet (falls installiert).
                     if let url = URL(string: "https://www.youtube.com/watch?v=\(trailerKey)") {
-                        openURL(url)
+                        openURL(url) { accepted in
+                            if !accepted { showTrailerUnavailableAlert = true }
+                        }
+                    } else {
+                        showTrailerUnavailableAlert = true
                     }
                     #else
                     showTrailer = true

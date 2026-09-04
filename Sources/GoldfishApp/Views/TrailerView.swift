@@ -37,16 +37,40 @@ struct TrailerSheet: View {
     }
 }
 
-/// Lädt den YouTube-Embed direkt mit Autoplay — exakt das gleiche iframe-Muster
-/// wie der Browser (`https://www.youtube.com/embed/<key>?autoplay=1`). Beim
-/// Schließen des Sheets wird die ganze WKWebView-Instanz verworfen (SwiftUI
-/// entfernt sie aus der View-Hierarchie), das stoppt die Wiedergabe zuverlässig
-/// — kein manuelles `stopLoading()`/HTML-Leeren wie im Browser nötig, dort blieb
-/// sonst YouTube im Hintergrund-Tab weiterlaufen (das Problem gibt es hier nicht,
-/// weil das komplette WKWebView-Objekt weg ist, nicht nur sein `src`).
-private func trailerRequest(_ key: String) -> URLRequest {
-    let url = URL(string: "https://www.youtube.com/embed/\(key)?autoplay=1&playsinline=1")!
-    return URLRequest(url: url)
+/// **Wichtig — YouTube-Fehler 153 ("Fehler bei der Konfiguration des
+/// Videoplayers"):** ein direktes `webView.load(URLRequest(url:
+/// youtube.com/embed/…))` navigiert den WKWebView SELBST zur Embed-URL —
+/// die Embed-Seite ist dann das TOP-Level-Dokument ohne jede Parent-Seite/
+/// -Origin. YouTubes Player-Skript prüft genau das (Referrer/Parent-Frame)
+/// und verweigert die Wiedergabe mit Fehler 153 + einem nutzlosen "Auf
+/// YouTube ansehen"-Link (User-Bericht 2026-09-04, nur auf iOS reproduziert,
+/// macOS lief zufällig durch). Fix: eine winzige lokale HTML-Seite MIT einem
+/// echten `<iframe>` drumherum laden (`loadHTMLString`, `baseURL =
+/// https://www.youtube.com` gibt der Seite eine gültige Origin) — exakt das
+/// Muster, das der Browser-Trailer-Dialog (`app.js`, echtes `<iframe>` in
+/// `#trailerFrameWrap`) ohnehin die ganze Zeit nutzt.
+private func trailerHTML(_ key: String) -> String {
+    """
+    <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>html,body{margin:0;background:#000;height:100%}
+    iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:0}</style>
+    </head><body>
+    <iframe src="https://www.youtube.com/embed/\(key)?autoplay=1&playsinline=1"
+      allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </body></html>
+    """
+}
+
+private func makeTrailerWebView() -> WKWebView {
+    let config = WKWebViewConfiguration()
+    // Ohne das bleibt Autoplay mit Ton auf iOS/macOS stumm bis zu einem
+    // manuellen Tap auf den Play-Button im Player — wir wollen aber sofort
+    // starten (User-Vorgabe: "soll direkt das Video starten").
+    config.mediaTypesRequiringUserActionForPlayback = []
+    #if os(iOS)
+    config.allowsInlineMediaPlayback = true
+    #endif
+    return WKWebView(frame: .zero, configuration: config)
 }
 
 #if os(iOS)
@@ -54,8 +78,8 @@ struct TrailerWebViewRepresentable: UIViewRepresentable {
     let youtubeKey: String
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.load(trailerRequest(youtubeKey))
+        let webView = makeTrailerWebView()
+        webView.loadHTMLString(trailerHTML(youtubeKey), baseURL: URL(string: "https://www.youtube.com"))
         return webView
     }
 
@@ -66,8 +90,8 @@ struct TrailerWebViewRepresentable: NSViewRepresentable {
     let youtubeKey: String
 
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.load(trailerRequest(youtubeKey))
+        let webView = makeTrailerWebView()
+        webView.loadHTMLString(trailerHTML(youtubeKey), baseURL: URL(string: "https://www.youtube.com"))
         return webView
     }
 
