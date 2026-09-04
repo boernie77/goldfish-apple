@@ -374,14 +374,15 @@ struct ItemDetailView: View {
                     #if os(tvOS)
                     // WKWebView/WebKit existiert auf tvOS nicht (siehe
                     // OIDCLoginView.swift) — der Trailer wird stattdessen extern
-                    // in der YouTube-App geöffnet (falls installiert).
-                    if let url = URL(string: "https://www.youtube.com/watch?v=\(trailerKey)") {
-                        openURL(url) { accepted in
-                            if !accepted { showTrailerUnavailableAlert = true }
-                        }
-                    } else {
-                        showTrailerUnavailableAlert = true
-                    }
+                    // in der YouTube-App geöffnet. Die https-watch-URL allein
+                    // reichte NICHT (User-Bericht 2026-09-04: "die YouTube-App
+                    // wäre installiert", trotzdem Alert) — tvOS hat kein
+                    // Safari/Systembrowser, das https-Universal-Link-Handoff
+                    // an eine andere App funktioniert dort offenbar anders als
+                    // auf iOS. Erst das dedizierte `youtube://`-URL-Schema
+                    // versuchen (das die YouTube-App seit jeher unterstützt),
+                    // erst bei dessen Fehlschlag auf https zurückfallen.
+                    openTrailerOnTV(trailerKey)
                     #else
                     showTrailer = true
                     #endif
@@ -403,6 +404,25 @@ struct ItemDetailView: View {
         guard let trailer = try? await client.fetchTrailer(metadataId: metadataId) else { return }
         trailerKey = trailer.key
     }
+
+    #if os(tvOS)
+    private func openTrailerOnTV(_ key: String) {
+        guard let ytAppURL = URL(string: "youtube://watch?v=\(key)") else {
+            showTrailerUnavailableAlert = true
+            return
+        }
+        openURL(ytAppURL) { accepted in
+            if accepted { return }
+            guard let watchURL = URL(string: "https://www.youtube.com/watch?v=\(key)") else {
+                showTrailerUnavailableAlert = true
+                return
+            }
+            openURL(watchURL) { accepted in
+                if !accepted { showTrailerUnavailableAlert = true }
+            }
+        }
+    }
+    #endif
 
     private func variantLabel(_ variant: Item) -> String {
         var parts: [String] = []

@@ -37,28 +37,26 @@ struct TrailerSheet: View {
     }
 }
 
-/// **Wichtig — YouTube-Fehler 153 ("Fehler bei der Konfiguration des
-/// Videoplayers"):** ein direktes `webView.load(URLRequest(url:
-/// youtube.com/embed/…))` navigiert den WKWebView SELBST zur Embed-URL —
-/// die Embed-Seite ist dann das TOP-Level-Dokument ohne jede Parent-Seite/
-/// -Origin. YouTubes Player-Skript prüft genau das (Referrer/Parent-Frame)
-/// und verweigert die Wiedergabe mit Fehler 153 + einem nutzlosen "Auf
-/// YouTube ansehen"-Link (User-Bericht 2026-09-04, nur auf iOS reproduziert,
-/// macOS lief zufällig durch). Fix: eine winzige lokale HTML-Seite MIT einem
-/// echten `<iframe>` drumherum laden (`loadHTMLString`, `baseURL =
-/// https://www.youtube.com` gibt der Seite eine gültige Origin) — exakt das
-/// Muster, das der Browser-Trailer-Dialog (`app.js`, echtes `<iframe>` in
-/// `#trailerFrameWrap`) ohnehin die ganze Zeit nutzt.
-private func trailerHTML(_ key: String) -> String {
-    """
-    <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>html,body{margin:0;background:#000;height:100%}
-    iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:0}</style>
-    </head><body>
-    <iframe src="https://www.youtube.com/embed/\(key)?autoplay=1&playsinline=1"
-      allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-    </body></html>
-    """
+/// **Verlauf (User-Berichte 2026-09-04, zwei gescheiterte Anläufe):**
+/// 1. Direktes `webView.load(URLRequest(embed-URL))` navigiert den WKWebView
+///    SELBST zur Embed-Seite — ohne jede Parent-Seite/-Origin verweigerte
+///    YouTube mit Fehler 153 ("Fehler bei der Konfiguration des Videoplayers").
+/// 2. Der naheliegende Fix — ein `<iframe>` in einer lokalen HTML-Seite via
+///    `loadHTMLString(..., baseURL: "https://www.youtube.com")` — führte zu
+///    einem NEUEN Fehler ("Video nicht verfügbar", 152-4): die `baseURL` war
+///    ebenfalls `youtube.com`, ein Embed, dessen Parent-Origin YouTube selbst
+///    ist, wird von YouTubes eigenen Anti-Embedding-Checks als ungültig
+///    erkannt (kein echtes Drittanbieter-Embedding).
+///
+/// **Aktuelle, robuste Lösung:** GAR KEIN `/embed/`-iframe mehr — stattdessen
+/// die normale öffentliche `youtube.com/watch?v=…`-Seite direkt laden, exakt
+/// so, als würde man sie in Safari öffnen. Das ist die einzige Variante, die
+/// nicht von Embedding-spezifischen Restriktionen (Studio-seitig deaktiviertes
+/// Embedding, Origin-Checks) betroffen sein kann, weil es kein Embedding ist.
+/// Kompromiss: zeigt YouTubes normale mobile Oberfläche statt eines
+/// chromelosen Players (kein 1:1-Look wie der Browser-Dialog mehr möglich).
+private func trailerWatchURL(_ key: String) -> URL {
+    URL(string: "https://www.youtube.com/watch?v=\(key)")!
 }
 
 private func makeTrailerWebView() -> WKWebView {
@@ -79,7 +77,7 @@ struct TrailerWebViewRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = makeTrailerWebView()
-        webView.loadHTMLString(trailerHTML(youtubeKey), baseURL: URL(string: "https://www.youtube.com"))
+        webView.load(URLRequest(url: trailerWatchURL(youtubeKey)))
         return webView
     }
 
@@ -91,7 +89,7 @@ struct TrailerWebViewRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let webView = makeTrailerWebView()
-        webView.loadHTMLString(trailerHTML(youtubeKey), baseURL: URL(string: "https://www.youtube.com"))
+        webView.load(URLRequest(url: trailerWatchURL(youtubeKey)))
         return webView
     }
 
