@@ -76,9 +76,11 @@ targets:
       path: Sources/GoldfishApp/Resources/Info-iOS.plist
       properties:
         CFBundleDisplayName: Goldfish
-        # Siehe Kommentar beim GoldfishMac-Target: 0.1 → 0.2 → 0.3 … bei jedem Build.
-        CFBundleShortVersionString: "0.9"
-        CFBundleVersion: "182"
+        # User-Anfrage 2026-09-05: "Wir haben ja an der iOS App einiges
+        # verbessert. Bitte baue Version 1.0" — erster echter
+        # Marketing-Versionssprung (vorher 0.1 → 0.9 informell hochgezählt).
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "183"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -99,8 +101,8 @@ targets:
         # nur Xcode-intern) — verifiziert 2026-09-03. Bleibt deshalb dauerhaft
         # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
-        MARKETING_VERSION: "0.9"
-        CURRENT_PROJECT_VERSION: "182"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "183"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"
