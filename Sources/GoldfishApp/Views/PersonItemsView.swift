@@ -66,6 +66,15 @@ struct PersonItemsView: View {
                 let r = rhs.height.map { h in max(Double(h), Double(rhs.width ?? 0) * 9.0 / 16.0) } ?? 0
                 return l < r
             }
+        case .filename:
+            // Letztes Pfadsegment (physischer Dateiname) — gleiche Idee wie der Server-Sort
+            // `sort=filename` (NATSORT über i.title), hier vereinfacht per String-Vergleich
+            // über das letzte relPath-Segment, da diese Liste bereits vollständig geladen ist.
+            sorted = list.sorted {
+                let l = ($0.relPath ?? "").components(separatedBy: "/").last ?? ""
+                let r = ($1.relPath ?? "").components(separatedBy: "/").last ?? ""
+                return l.localizedStandardCompare(r) == .orderedAscending
+            }
         }
         return ascending ? sorted : sorted.reversed()
     }

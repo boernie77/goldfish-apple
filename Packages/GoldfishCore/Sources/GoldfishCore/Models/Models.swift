@@ -286,6 +286,13 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
     /// Bibliotheken ist HIER kein Rescan nötig — Server-Items haben Breite/Höhe schon seit
     /// ihrem ursprünglichen Scan in der DB.
     case resolution
+    /// User-Anfrage 2026-09-05 ("Tatort"-Session): Server bekam einen neuen Sort-Key
+    /// `filename`, der IMMER nach dem physischen Dateinamen sortiert (NATSORT), nie nach
+    /// einem eventuellen TMDB-Titel wie `.title` — nützlich für Serien, deren Dateinamen
+    /// Jahr+Episodennummer tragen, aber nicht durchgängig pro Folge TMDB-gematcht sind
+    /// (siehe CLAUDE.md „Flache library-weite Sort-Modi" im Server-Repo). rawValue
+    /// "filename" matcht direkt den Server-Query-Parameter.
+    case filename
 
     public var id: String { rawValue }
 
@@ -298,12 +305,13 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
         case .rating: return "Bewertung"
         case .played: return "Zuletzt abgespielt"
         case .resolution: return "Auflösung"
+        case .filename: return "Dateiname"
         }
     }
 
     /// Matches the server's per-field default direction (grid.js `sortDefaultDir`).
     public var defaultAscending: Bool {
-        self == .title
+        self == .title || self == .filename
     }
 }
 

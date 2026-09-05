@@ -27,7 +27,7 @@ struct ShowSeasonsView: View {
                 ProgressView()
             } else if let errorMessage {
                 ContentUnavailableMessage(text: errorMessage)
-            } else if let seasons {
+            } else if let seasons, !seasons.seasons.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let show = seasons.show {
@@ -46,6 +46,17 @@ struct ShowSeasonsView: View {
                     }
                     .padding()
                 }
+            } else {
+                // Fallback (User-Report 2026-09-05, "Tatort" mit Kommissar-Unterordnern
+                // statt TMDB-Sendejahr-Staffeln): eine leere `seasons`-Liste bedeutete
+                // bisher einen stillen leeren Bildschirm — die physische Struktur passt
+                // hier schlicht nicht zu TMDB-Staffeln (oder der Ordner ist noch nicht
+                // TMDB-zugeordnet). Statt dort hängenzubleiben: normale Ordner-/Dateiliste
+                // dieses Ordners zeigen (mit Unterordner-Kacheln, da Show-Root-Ordner i.d.R.
+                // sinnvolle Unterstruktur wie Kommissar-Duos haben können) — mirrort den
+                // Web-Client-Fix in grid.js (dort zusätzlich per localStorage persistiert,
+                // hier reicht der Re-Render, da SwiftUI beim erneuten Öffnen ohnehin neu lädt).
+                ItemGridView(library: library, folder: folder, showsFolderTiles: true)
             }
         }
         .navigationTitle(seasons?.show?.title ?? folder.components(separatedBy: "/").last ?? "")

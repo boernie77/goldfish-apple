@@ -154,6 +154,15 @@ struct ItemGridView: View {
                     .focused($focusedCardID, equals: AnyHashable(item.id))
             }
         }
+        // User-Anfrage 2026-09-05: "von der Buchstabenleiste von jedem Buchstaben nach
+        // links in das Grid springen können" — AlphabetSidebar sitzt als .overlay(trailing)
+        // ÜBER dieser ScrollView, nicht als HStack-Nachbar; ohne explizite focusSection()
+        // behandelte die tvOS-Fokus-Engine Grid und Sidebar teils als eine einzige Region
+        // und verweigerte die Links-Navigation von einem Buchstaben zurück ins Grid
+        // (bekannter tvOS-Effekt bei überlagerten statt nebeneinander liegenden
+        // Fokus-Containern). .focusSection() markiert das Grid explizit als eigene
+        // Fokus-Region — Standard-Apple-Empfehlung für genau diesen Fall.
+        .focusSection()
         #else
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(displayedFolders) { tile in
@@ -226,8 +235,14 @@ struct ItemGridView: View {
                             .padding(.trailing, 4)
                             // tvOS-Fix 2026-09-03 (User: "Buchstabenleiste etwas nach unten"):
                             // vertikal zentriert saß die Leiste zu nah an der Toolbar-Zeile.
+                            // tvOS-Fix 2026-09-05 (User: "von der Buchstabenleiste von jedem
+                            // Buchstaben nach links ins Grid springen können"): eigene
+                            // focusSection() (siehe itemGrid-Kommentar) macht die Sidebar zur
+                            // eigenen Fokus-Region — ohne das blieb ⬅ von einem Buchstaben aus
+                            // öfter wirkungslos, statt Fokus ins Grid zu übergeben.
                             #if os(tvOS)
                             .offset(y: 40)
+                            .focusSection()
                             #endif
                     }
                 }
@@ -624,6 +639,11 @@ struct ItemGridView: View {
         case .rating:
             return tiles.sorted { precedes($0.metadata?.rating, $1.metadata?.rating, ascending: ascending) }
         case .duration, .resolution, .played:
+            return tiles
+        case .filename:
+            // Ein Ordner-/Show-Tile hat keinen eigenen "Dateinamen" — die Sortierung
+            // wirkt hier sinnvoll nur auf die flache Item-Liste (bereits server-seitig
+            // via sort=filename), Kacheln bleiben in Server-Reihenfolge (NATSORT-Name).
             return tiles
         }
     }

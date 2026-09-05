@@ -36,7 +36,7 @@ targets:
         # "Build NNNN"-Zähler (siehe Memory feedback_apple_versioning). Nächster
         # Bump: 0.1 → 0.2 → 0.3 … Sichtbar in Settings → Account → "Version".
         CFBundleShortVersionString: "0.9"
-        CFBundleVersion: "182"
+        CFBundleVersion: "183"
     # App Sandbox intentionally OFF (2026-08-19) — see GoldfishMac.entitlements for the
     # full story: Security-Scoped-Bookmarks failed unpredictably even for internal APFS
     # folders under a free "Personal Team" signature, not just exFAT USB-sticks. Goldfish
@@ -50,7 +50,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.mac
         MARKETING_VERSION: "0.9"
-        CURRENT_PROJECT_VERSION: "182"
+        CURRENT_PROJECT_VERSION: "183"
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
         # Bezahltes Apple Developer Program-Team (seit 2026-09-03, Bestätigung
@@ -80,7 +80,7 @@ targets:
         # verbessert. Bitte baue Version 1.0" — erster echter
         # Marketing-Versionssprung (vorher 0.1 → 0.9 informell hochgezählt).
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "183"
+        CFBundleVersion: "184"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -102,7 +102,7 @@ targets:
         # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "183"
+        CURRENT_PROJECT_VERSION: "184"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -122,12 +122,12 @@ targets:
       properties:
         CFBundleDisplayName: Goldfish
         CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
+        CFBundleVersion: "2"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
         MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "2"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9
         GENERATE_INFOPLIST_FILE: NO
