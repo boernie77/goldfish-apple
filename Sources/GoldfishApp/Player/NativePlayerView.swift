@@ -41,7 +41,6 @@ struct NativePlayerView: UIViewControllerRepresentable {
         let vc = AVPlayerViewController()
         vc.player = player
         vc.showsPlaybackControls = false
-        #if os(tvOS)
         // tvOS-Fix 2026-09-03 (User-Report: "Player spielt nichts ab, Steuerelemente nicht
         // auswählbar/kein sichtbarer Fokus"): `AVPlayerViewController`s View ist auf tvOS von
         // Haus aus Teil der Fokus-Kette der Siri-Remote — das gilt auch bei
@@ -54,8 +53,13 @@ struct NativePlayerView: UIViewControllerRepresentable {
         // der View selbst: `isUserInteractionEnabled = false` nimmt sie komplett aus der
         // Fokus-Kette, die Fokus-Engine zieht direkt zu den eigenen Controls weiter. Rein
         // visuell/interaktiv, betrifft NICHT die Video-Wiedergabe selbst.
+        //
+        // iOS-Fix 2026-09-05 (User-Report: "Steuerelemente blenden sich beim Tippen auf den
+        // Bildschirm nicht wieder ein"): derselbe Effekt gilt auch auf iOS, nur unbemerkt
+        // geblieben, weil hier nie ein eigener Tap-Layer über der Video-Fläche lag (siehe
+        // PlayerView.swift) — die noch interaktive `AVPlayerViewController`-View schluckte den
+        // Tap einfach, statt ihn an SwiftUI durchzureichen. Jetzt für iOS UND tvOS deaktiviert.
         vc.view.isUserInteractionEnabled = false
-        #endif
         return vc
     }
 

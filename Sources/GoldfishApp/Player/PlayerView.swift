@@ -271,6 +271,16 @@ struct PlayerView: View {
                         .focused($tvFocusTarget, equals: .videoSurface)
                         .onTapGesture { resetAutoHide() }
                         .onMoveCommand { _ in resetAutoHide() }
+                    #else
+                    // iOS-Fix 2026-09-05 (User-Report: "Steuerelemente blenden sich beim
+                    // Tippen auf den Bildschirm nicht wieder ein"): fehlte hier komplett —
+                    // anders als im macOS-Zweig oben (`.onTapGesture` direkt auf
+                    // `NativePlayerView`) gab es für iOS überhaupt keinen Tap-Handler, der
+                    // `NativePlayerView`-Interaktion (`AVPlayerViewController`) war noch dazu
+                    // interaktiv und schluckte den Tap (siehe NativePlayerView.swift-Fix).
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { toggleControlsVisibility() }
                     #endif
                 }
             } else {
