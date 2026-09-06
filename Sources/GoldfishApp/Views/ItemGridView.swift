@@ -589,11 +589,38 @@ struct ItemGridView: View {
             async let foldersTask: [FolderTile] = effectivelyShowsFolderTiles && search.isEmpty && !favoritesOnly
                 ? client.fetchFolders(libraryId: library.id, parent: folder)
                 : []
+            var fetchedItems = try await itemsTask
+            // 🔴 Bug (user report 2026-09-06, screenshots: opening a show tile showed
+            // ALL folders AND all episodes at once; going into a folder showed that
+            // same folder plus the episode again): the server has no "direct children
+            // of an arbitrary subpath" query mode (internal/store/sqlite.go ListItems:
+            // folder="" = everything, folder="/" = only true root files, folder="<path>"
+            // = everything recursively under path) — so whenever `folder` is a non-root
+            // subpath, `effectiveFolder = folder` above pulls back EVERY item recursively
+            // nested underneath, not just the ones directly in this folder. That's fine
+            // when we're showing a flat file list (showsFolderTiles=false, mirrors the
+            // web app's default "no drilldown" behavior — see grid.js), but when folder
+            // TILES are also shown (a show root or a drilldown-enabled folder), those
+            // recursively-fetched items duplicate what the folder tiles already
+            // represent. The web app never has this problem because its non-flat views
+            // either request folder="/" (true library root) or skip folder tiles
+            // entirely. Fix: when we're about to show folder tiles for a non-root
+            // subpath, filter items down to true direct children (no further "/" in
+            // relPath past the current folder prefix) — same end result as if the
+            // server understood "direct children of X".
+            if effectivelyShowsFolderTiles, let folder, !folder.isEmpty {
+                let prefix = folder + "/"
+                fetchedItems = fetchedItems.filter { item in
+                    guard let relPath = item.relPath, relPath.hasPrefix(prefix) else { return false }
+                    let remainder = relPath.dropFirst(prefix.count)
+                    return !remainder.contains("/")
+                }
+            }
             // Same-metadataId duplicates (multiple file variants of one movie/episode)
             // collapse into a single tile with a "×N" badge — matches the web app's
             // `groupVariants`, was missing entirely here (real bug hit 2026-08-19: user
             // saw duplicate movies as two separate tiles).
-            items = groupVariants(try await itemsTask)
+            items = groupVariants(fetchedItems)
             folders = sortFolderTiles(try await foldersTask)
             errorMessage = nil
         } catch {
