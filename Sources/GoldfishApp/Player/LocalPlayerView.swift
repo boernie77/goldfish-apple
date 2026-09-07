@@ -98,6 +98,9 @@ struct LocalPlayerView: View {
                 if hostWindow !== window {
                     hostWindow = window
                     PlayerLaunchCoordinator.shared.localPlayerWindow = window
+                    // Gleicher Fix wie PlayerView (Bug 2026-09-07, zweite Runde) — siehe dort
+                    // für die volle Begründung.
+                    window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
                 }

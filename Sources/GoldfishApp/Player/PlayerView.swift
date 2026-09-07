@@ -220,6 +220,19 @@ struct PlayerView: View {
                 if hostWindow !== window {
                     hostWindow = window
                     PlayerLaunchCoordinator.shared.playerWindow = window
+                    // Bug 2026-09-07 (User-Report, zweite Runde: das isFullScreenTransitioning-
+                    // Gate allein reichte NICHT — der User bestätigte, dass der Zwei-Klick-Bug
+                    // selbst dann noch auftrat, wenn `sizeWindowToVideo` längst abgeschlossen
+                    // war, bevor überhaupt auf Vollbild geklickt wurde). Root Cause vermutlich
+                    // ein bekanntes SwiftUI/AppKit-Timing-Problem: für ein per `openWindow(id:)`
+                    // aus einem Coordinator heraus geöffnetes Fenster setzt SwiftUI das
+                    // `.fullScreenPrimary`-Collection-Behavior nicht zuverlässig VOR dem ersten
+                    // `toggleFullScreen`-Aufruf — der erste Versuch "verpufft" dadurch (Fenster
+                    // bleibt windowed, teils sogar kurz kleiner durch einen AppKit-Zoom-Fallback),
+                    // erst der zweite Aufruf trifft auf ein Fenster mit korrekt gesetztem
+                    // Verhalten. Explizit direkt beim Erfassen des Fensters setzen, statt auf
+                    // SwiftUIs impliziten Default zu vertrauen.
+                    window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
                 }
