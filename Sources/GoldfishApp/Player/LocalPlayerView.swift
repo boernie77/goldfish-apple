@@ -98,11 +98,18 @@ struct LocalPlayerView: View {
                 if hostWindow !== window {
                     hostWindow = window
                     PlayerLaunchCoordinator.shared.localPlayerWindow = window
-                    // Gleicher Fix wie PlayerView (Bug 2026-09-07, zweite Runde) — siehe dort
-                    // für die volle Begründung.
+                    // Gleicher Fix wie PlayerView (Bug 2026-09-07) — siehe dort für die volle
+                    // Begründung, inkl. des automatischen Vollbild-Starts.
                     window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
+                    if !window.styleMask.contains(.fullScreen) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            if hostWindow === window, !window.styleMask.contains(.fullScreen) {
+                                window.toggleFullScreen(nil)
+                            }
+                        }
+                    }
                 }
             }
             .frame(width: 0, height: 0)

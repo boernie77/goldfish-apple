@@ -220,21 +220,31 @@ struct PlayerView: View {
                 if hostWindow !== window {
                     hostWindow = window
                     PlayerLaunchCoordinator.shared.playerWindow = window
-                    // Bug 2026-09-07 (User-Report, zweite Runde: das isFullScreenTransitioning-
-                    // Gate allein reichte NICHT — der User bestätigte, dass der Zwei-Klick-Bug
-                    // selbst dann noch auftrat, wenn `sizeWindowToVideo` längst abgeschlossen
-                    // war, bevor überhaupt auf Vollbild geklickt wurde). Root Cause vermutlich
-                    // ein bekanntes SwiftUI/AppKit-Timing-Problem: für ein per `openWindow(id:)`
-                    // aus einem Coordinator heraus geöffnetes Fenster setzt SwiftUI das
-                    // `.fullScreenPrimary`-Collection-Behavior nicht zuverlässig VOR dem ersten
-                    // `toggleFullScreen`-Aufruf — der erste Versuch "verpufft" dadurch (Fenster
-                    // bleibt windowed, teils sogar kurz kleiner durch einen AppKit-Zoom-Fallback),
-                    // erst der zweite Aufruf trifft auf ein Fenster mit korrekt gesetztem
-                    // Verhalten. Explizit direkt beim Erfassen des Fensters setzen, statt auf
-                    // SwiftUIs impliziten Default zu vertrauen.
+                    // `.fullScreenPrimary` explizit setzen statt auf SwiftUIs impliziten Default
+                    // zu vertrauen — für ein per `openWindow(id:)` aus einem Coordinator heraus
+                    // geöffnetes Fenster wird das Collection-Behavior sonst teils nicht
+                    // rechtzeitig gesetzt (bekanntes SwiftUI/AppKit-Timing-Problem, führte vorher
+                    // dazu, dass ein `toggleFullScreen`-Aufruf direkt danach "verpuffte").
                     window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
+                    // User-Anfrage 2026-09-07: Player soll IMMER direkt im Vollbild starten,
+                    // nicht erst normal groß öffnen und dann (beim ersten `presentationSize`-Tick,
+                    // siehe `sizeWindowToVideo`) sichtbar auf die Video-Zielgröße "springen". Löst
+                    // beides gleichzeitig: kein sichtbarer Sprung mehr (sizeWindowToVideo no-opt
+                    // dank des isFullScreen-Guards, sobald der Übergang hier lief) UND kein
+                    // manueller Klick auf den Vollbild-Button mehr nötig. Kleine Verzögerung, da
+                    // `toggleFullScreen` unmittelbar nach dem Erfassen des frisch geöffneten
+                    // Fensters unzuverlässig war (derselbe Timing-Grund wie beim
+                    // Collection-Behavior oben) — dem Fenster einen Moment geben, tatsächlich
+                    // `isVisible`/key zu werden, bevor der Übergang angestoßen wird.
+                    if !window.styleMask.contains(.fullScreen) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            if hostWindow === window, !window.styleMask.contains(.fullScreen) {
+                                window.toggleFullScreen(nil)
+                            }
+                        }
+                    }
                 }
             }
             .frame(width: 0, height: 0)
