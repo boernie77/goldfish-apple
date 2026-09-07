@@ -1,23 +1,22 @@
 import Foundation
+import os
 
 /// Zeitweiliger Diagnose-Logger für die Sandbox-Migrations-Tests 2026-09-07 (Vollbild-Start +
-/// Downloadordner-Zugriff) — schreibt in dieselbe Datei wie `AppDelegate.logWindowEvent`
-/// (`~/Desktop/goldfish-window-debug.log`), damit beide Diagnosen chronologisch in einem Log
-/// landen, ohne über Console.app zu müssen (siehe Memory feedback_nslog_console_unreliable —
-/// NSLog/Console.app war schon einmal unzuverlässig). Kann nach Abschluss der Testrunde wieder
-/// entfernt werden, ist bewusst simpel gehalten (kein Log-Rotation etc.).
+/// Downloadordner-Zugriff). Ursprünglich als Datei-Log nach `~/Desktop/goldfish-window-debug.log`
+/// gebaut (analog `AppDelegate.logWindowEvent`) — **funktionierte unter App Sandbox NICHT**:
+/// `~/Desktop/*` ist ohne die eigene `com.apple.security.files.desktop-folder.read-write`-
+/// Entitlement (die dieses Projekt bewusst NICHT hat, siehe GoldfishMac.entitlements — kein
+/// Anwendungsfall dafür, nur unnötige zusätzliche Berechtigung fürs App-Review) unter Sandbox
+/// blockiert; der `try?`-Write schluckte den Fehler still, die Log-Datei entstand nie (real
+/// erlebt: der Downloadordner-Fehler-Alert erschien korrekt, aber keine einzige Log-Zeile
+/// landete auf der Platte). `os.Logger`/Unified Logging braucht dagegen KEIN
+/// Dateisystem-Entitlement — Ausgabe abrufbar mit
+/// `log show --predicate 'subsystem == "com.goldfish.mac"' --last 10m` (oder `log stream`
+/// live mitlaufen lassen) direkt vom Terminal aus.
 public enum DebugLog {
-    private static let url = URL(fileURLWithPath: NSHomeDirectory() + "/Desktop/goldfish-window-debug.log")
+    private static let logger = Logger(subsystem: "com.goldfish.mac", category: "sandbox-debug")
 
     public static func write(_ message: String) {
-        let line = "\(Date()) \(message)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: url)
-        }
+        logger.log("\(message, privacy: .public)")
     }
 }

@@ -206,18 +206,30 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// folder picker (iOS). The URL must already be accessible (the picker grants that).
     public func setDownloadsDirectory(_ url: URL) {
         DebugLog.write("setDownloadsDirectory: picked url=\(url.path)")
+        // Bug gefixt 2026-09-07 (User-Report: "Konnte den Ordner nicht dauerhaft merken: The
+        // file … couldn't be opened" beim `bookmarkData(...)`-Aufruf): unter Sandbox reicht der
+        // implizite, transiente Zugriff, den `.fileImporter` für die Dauer des Completion-
+        // Closures gewährt, NICHT aus, um daraus einen SECURITY-SCOPED Bookmark zu erzeugen —
+        // `startAccessingSecurityScopedResource()` muss VORHER explizit aufgerufen werden.
+        // Exakt dasselbe Muster wie der bereits verifiziert funktionierende Fix in
+        // `AddLocalLibrarySheet` (SettingsView.swift): dort wird die Scope sofort im
+        // `.fileImporter`-Callback geclaimt, bevor `LocalLibraryManager.addLibrary` seinen
+        // eigenen `bookmarkData`-Aufruf macht — hier fehlte genau dieser vorgelagerte Schritt.
+        let started = url.startAccessingSecurityScopedResource()
+        DebugLog.write("setDownloadsDirectory: startAccessingSecurityScopedResource (pre-bookmark) = \(started)")
         do {
             let bookmark = try url.bookmarkData(options: Self.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             if downloadsDirIsSecurityScoped { downloadsDir.stopAccessingSecurityScopedResource() }
             UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
             downloadsDir = url
-            downloadsDirIsSecurityScoped = url.startAccessingSecurityScopedResource()
+            downloadsDirIsSecurityScoped = started
             usesCustomDirectory = true
-            DebugLog.write("setDownloadsDirectory: bookmark OK, startAccessing=\(downloadsDirIsSecurityScoped), usesCustomDirectory=\(usesCustomDirectory), downloadsDir=\(downloadsDir.path)")
+            DebugLog.write("setDownloadsDirectory: bookmark OK, isSecurityScoped=\(downloadsDirIsSecurityScoped), usesCustomDirectory=\(usesCustomDirectory), downloadsDir=\(downloadsDir.path)")
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             loadIndex()
         } catch {
             DebugLog.write("setDownloadsDirectory: bookmarkData FAILED — \(error)")
+            if started { url.stopAccessingSecurityScopedResource() }
             lastAccessWarning = "Konnte den Ordner nicht dauerhaft merken: \(error.localizedDescription)"
         }
     }

@@ -228,7 +228,19 @@ struct PlayerView: View {
                     window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
-                    DebugLog.write("PlayerView: window captured, isVisible=\(window.isVisible) isKey=\(window.isKeyWindow) styleMask=\(window.styleMask.rawValue) collectionBehavior=\(window.collectionBehavior.rawValue)")
+                    // Root Cause gefunden 2026-09-07 (per os.Logger-Diagnose): macOS stellt den
+                    // Fenster-Zustand der `WindowGroup(id: "player")` teils session-übergreifend
+                    // wieder her — ein frisch geöffnetes Fenster kann dadurch schon BEIM ERFASSEN
+                    // hier real im Vollbild sein (`styleMask.contains(.fullScreen)`), OHNE dass
+                    // je ein `will/didEnterFullScreen`-Übergang stattfand (der `isFullScreen`
+                    // hätte setzen können). `isFullScreen` blieb dadurch fälschlich `false` —
+                    // `sizeWindowToVideo` hielt das Fenster für windowed und rief
+                    // `setContentSize`/`.center()` auf einem TATSÄCHLICH fullscreen Fenster auf,
+                    // was es sichtbar aus dem Vollbild zwang (das gemeldete "wird erst kleiner").
+                    // Fix: Zustand hier sofort aus der echten `styleMask` synchronisieren, statt
+                    // ausschließlich auf künftige Übergangs-Notifications zu warten.
+                    isFullScreen = window.styleMask.contains(.fullScreen)
+                    DebugLog.write("PlayerView: window captured, isVisible=\(window.isVisible) isKey=\(window.isKeyWindow) styleMask=\(window.styleMask.rawValue) collectionBehavior=\(window.collectionBehavior.rawValue) syncedIsFullScreen=\(isFullScreen)")
                     // User-Anfrage 2026-09-07: Player soll IMMER direkt im Vollbild starten,
                     // nicht erst normal groß öffnen und dann (beim ersten `presentationSize`-Tick,
                     // siehe `sizeWindowToVideo`) sichtbar auf die Video-Zielgröße "springen". Löst

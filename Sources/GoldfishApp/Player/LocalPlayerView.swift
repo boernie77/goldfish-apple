@@ -103,6 +103,9 @@ struct LocalPlayerView: View {
                     window.collectionBehavior.insert(.fullScreenPrimary)
                     observeFullScreenChanges(for: window)
                     observeWindowClose(for: window)
+                    // Root Cause siehe PlayerView.swift — Fenster kann per macOS-
+                    // Zustandswiederherstellung schon beim Erfassen real fullscreen sein.
+                    isFullScreen = window.styleMask.contains(.fullScreen)
                     if !window.styleMask.contains(.fullScreen) {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             if hostWindow === window, !window.styleMask.contains(.fullScreen) {
