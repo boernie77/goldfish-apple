@@ -105,7 +105,6 @@ public final class DownloadManager: NSObject, ObservableObject {
             self.usesCustomDirectory = false
         }
         super.init()
-        DebugLog.write("DownloadManager.init: downloadsDir=\(downloadsDir.path) isSecurityScoped=\(downloadsDirIsSecurityScoped) usesCustomDirectory=\(usesCustomDirectory) hadBookmark=\(UserDefaults.standard.data(forKey: Self.bookmarkKey) != nil)")
 
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
@@ -205,7 +204,6 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// Call after the user picks a folder via NSOpenPanel (macOS) or a UIDocumentPicker
     /// folder picker (iOS). The URL must already be accessible (the picker grants that).
     public func setDownloadsDirectory(_ url: URL) {
-        DebugLog.write("setDownloadsDirectory: picked url=\(url.path)")
         // Bug gefixt 2026-09-07 (User-Report: "Konnte den Ordner nicht dauerhaft merken: The
         // file … couldn't be opened" beim `bookmarkData(...)`-Aufruf): unter Sandbox reicht der
         // implizite, transiente Zugriff, den `.fileImporter` für die Dauer des Completion-
@@ -216,7 +214,6 @@ public final class DownloadManager: NSObject, ObservableObject {
         // `.fileImporter`-Callback geclaimt, bevor `LocalLibraryManager.addLibrary` seinen
         // eigenen `bookmarkData`-Aufruf macht — hier fehlte genau dieser vorgelagerte Schritt.
         let started = url.startAccessingSecurityScopedResource()
-        DebugLog.write("setDownloadsDirectory: startAccessingSecurityScopedResource (pre-bookmark) = \(started)")
         do {
             let bookmark = try url.bookmarkData(options: Self.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             if downloadsDirIsSecurityScoped { downloadsDir.stopAccessingSecurityScopedResource() }
@@ -224,7 +221,6 @@ public final class DownloadManager: NSObject, ObservableObject {
             downloadsDir = url
             downloadsDirIsSecurityScoped = started
             usesCustomDirectory = true
-            DebugLog.write("setDownloadsDirectory: bookmark OK, isSecurityScoped=\(downloadsDirIsSecurityScoped), usesCustomDirectory=\(usesCustomDirectory), downloadsDir=\(downloadsDir.path)")
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             loadIndex()
         } catch {
@@ -481,15 +477,13 @@ public final class DownloadManager: NSObject, ObservableObject {
         guard usesCustomDirectory else { return true }
         let probe = downloadsDir.appendingPathComponent(".goldfish-write-check")
         let fm = FileManager.default
-        DebugLog.write("ensureWritableDownloadsDir: probing \(downloadsDir.path) isSecurityScoped=\(downloadsDirIsSecurityScoped)")
         if fm.createFile(atPath: probe.path, contents: Data()) {
             try? fm.removeItem(at: probe)
-            DebugLog.write("ensureWritableDownloadsDir: probe OK")
             return true
         }
         // Lost access to the custom folder — fall back so downloads keep working, and make
         // the loss visible via `usesCustomDirectory` flipping back to false in Settings.
-        DebugLog.write("ensureWritableDownloadsDir: probe FAILED, falling back to default dir")
+        DebugLog.write("ensureWritableDownloadsDir: probe FAILED for \(downloadsDir.path), falling back to default dir")
         lastAccessWarning = "Zugriff auf \"\(downloadsDir.lastPathComponent)\" verloren — wechsle zurück auf den Standard-Downloadordner. Bitte Ordner in den Einstellungen erneut auswählen."
         resetToDefaultDirectory()
         return false

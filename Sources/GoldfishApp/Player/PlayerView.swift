@@ -240,7 +240,6 @@ struct PlayerView: View {
                     // Fix: Zustand hier sofort aus der echten `styleMask` synchronisieren, statt
                     // ausschließlich auf künftige Übergangs-Notifications zu warten.
                     isFullScreen = window.styleMask.contains(.fullScreen)
-                    DebugLog.write("PlayerView: window captured, isVisible=\(window.isVisible) isKey=\(window.isKeyWindow) styleMask=\(window.styleMask.rawValue) collectionBehavior=\(window.collectionBehavior.rawValue) syncedIsFullScreen=\(isFullScreen)")
                     // User-Anfrage 2026-09-07: Player soll IMMER direkt im Vollbild starten,
                     // nicht erst normal groß öffnen und dann (beim ersten `presentationSize`-Tick,
                     // siehe `sizeWindowToVideo`) sichtbar auf die Video-Zielgröße "springen". Löst
@@ -253,9 +252,7 @@ struct PlayerView: View {
                     // `isVisible`/key zu werden, bevor der Übergang angestoßen wird.
                     if !window.styleMask.contains(.fullScreen) {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            DebugLog.write("PlayerView: asyncAfter fired, hostWindowMatches=\(hostWindow === window) isVisible=\(window.isVisible) isKey=\(window.isKeyWindow) styleMask=\(window.styleMask.rawValue) collectionBehavior=\(window.collectionBehavior.rawValue)")
                             if hostWindow === window, !window.styleMask.contains(.fullScreen) {
-                                DebugLog.write("PlayerView: calling toggleFullScreen(nil)")
                                 window.toggleFullScreen(nil)
                             }
                         }
@@ -525,20 +522,16 @@ struct PlayerView: View {
 
     private func observeFullScreenChanges(for window: NSWindow) {
         NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { _ in
-            DebugLog.write("PlayerView: willEnterFullScreen")
             isFullScreenTransitioning = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
-            DebugLog.write("PlayerView: didEnterFullScreen")
             isFullScreen = true
             isFullScreenTransitioning = false
         }
         NotificationCenter.default.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { _ in
-            DebugLog.write("PlayerView: willExitFullScreen")
             isFullScreenTransitioning = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
-            DebugLog.write("PlayerView: didExitFullScreen")
             isFullScreen = false
             isFullScreenTransitioning = false
         }
@@ -570,12 +563,7 @@ struct PlayerView: View {
     /// zuletzt geöffnet"), auf die neue Video-Breite umgerechnet und auf den sichtbaren
     /// Bildschirmbereich begrenzt.
     private func sizeWindowToVideo(_ videoSize: CGSize) {
-        DebugLog.write("PlayerView: sizeWindowToVideo called, isFullScreen=\(isFullScreen) isFullScreenTransitioning=\(isFullScreenTransitioning) styleMaskHasFullScreen=\(hostWindow?.styleMask.contains(.fullScreen) ?? false)")
-        guard let window = hostWindow, isFullScreen == false, isFullScreenTransitioning == false else {
-            DebugLog.write("PlayerView: sizeWindowToVideo SKIPPED (guard)")
-            return
-        }
-        DebugLog.write("PlayerView: sizeWindowToVideo PROCEEDING — this will resize the window")
+        guard let window = hostWindow, isFullScreen == false, isFullScreenTransitioning == false else { return }
         let aspect = videoSize.width / videoSize.height
         guard aspect.isFinite, aspect > 0 else { return }
 
