@@ -171,28 +171,45 @@ public final class DownloadManager: NSObject, ObservableObject {
         persistentBaseDirectory().appendingPathComponent("GoldfishDownloads", isDirectory: true)
     }
 
-    // Plain (non-security-scoped) bookmarks on both platforms — App Sandbox was removed
-    // from the Mac target 2026-08-19 (see `GoldfishMac.entitlements`), so there's no
-    // sandbox extension for `.withSecurityScope` to persist against. Gating on
-    // `startAccessingSecurityScopedResource()`'s return value used to make a custom
-    // Downloads folder silently fall back to nil (default dir) — was very likely the
-    // real cause of a "couldn't be moved… folder doesn't exist" download failure that
-    // showed up right after switching this build to a real Team signature.
+    // Security-scoped bookmarks on macOS (re-enabled 2026-09-07 together with App Sandbox,
+    // see GoldfishMac.entitlements + identical LocalLibraryManager.swift change) — only
+    // relevant for a CUSTOM user-picked Downloads folder; the default directory
+    // (`persistentBaseDirectory()` above) always lives inside the sandbox container and
+    // never needs a bookmark at all. iOS/tvOS keep `[]` (no local-folder-picker use case
+    // there beyond this one custom-downloads-dir path, and it was never the flaky case).
+    //
+    // IMPORTANT lesson from the 2026-08-19 removal: gating on
+    // `startAccessingSecurityScopedResource()`'s return value and returning `nil` on failure
+    // made a custom Downloads folder silently fall back to the default dir — likely the real
+    // cause of a "couldn't be moved… folder doesn't exist" failure back then. Keep returning
+    // the resolved URL regardless of whether `start` succeeds; `isSecurityScoped` (already
+    // part of this tuple) carries the real outcome so `resetToDefaultDirectory()`'s existing
+    // gate on it stays correct either way — never let this resolver itself decide to fall back.
+    #if os(macOS)
+    private static let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
+    private static let resolveOptions: URL.BookmarkResolutionOptions = [.withSecurityScope]
+    #else
+    private static let bookmarkOptions: URL.BookmarkCreationOptions = []
+    private static let resolveOptions: URL.BookmarkResolutionOptions = []
+    #endif
+
     private static func resolveBookmarkedDirectory() -> (url: URL, isSecurityScoped: Bool)? {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
         var isStale = false
-        guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) else { return nil }
-        return (url, false)
+        guard let url = try? URL(resolvingBookmarkData: data, options: resolveOptions, relativeTo: nil, bookmarkDataIsStale: &isStale) else { return nil }
+        let started = url.startAccessingSecurityScopedResource()
+        return (url, started)
     }
 
     /// Call after the user picks a folder via NSOpenPanel (macOS) or a UIDocumentPicker
     /// folder picker (iOS). The URL must already be accessible (the picker grants that).
     public func setDownloadsDirectory(_ url: URL) {
-        guard let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else { return }
+        guard let bookmark = try? url.bookmarkData(options: Self.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil) else { return }
 
+        if downloadsDirIsSecurityScoped { downloadsDir.stopAccessingSecurityScopedResource() }
         UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
         downloadsDir = url
-        downloadsDirIsSecurityScoped = false
+        downloadsDirIsSecurityScoped = url.startAccessingSecurityScopedResource()
         usesCustomDirectory = true
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         loadIndex()

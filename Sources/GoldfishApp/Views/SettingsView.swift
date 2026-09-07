@@ -678,6 +678,21 @@ private struct AddLocalLibrarySheet: View {
     @State private var kind = "movies"
     @State private var isAdding = false
     @State private var showingFolderPicker = false
+    // Bug gefixt 2026-09-07 (User-Report, echter externer USB-Stick: "Konnte keinen
+    // Zugriff auf den Ordner einrichten"): unter App Sandbox ist die Security-Scope-
+    // Freigabe eines `.fileImporter`-Ergebnisses nur kurzlebig — `rootURL` wurde hier
+    // aber nur in @State geparkt und erst beim SPÄTEREN Tap auf "Hinzufügen" (eigener
+    // Task-Block, potenziell lange nach dem Picker-Callback) an `addLibrary()`
+    // weitergereicht, das daraus per `.withSecurityScope` ein Bookmark bauen wollte —
+    // zu diesem Zeitpunkt war der Scope oft schon wieder abgelaufen. Fix: Zugriff
+    // SOFORT im Picker-Callback starten und bis zur Verwendung (oder Verwerfen)
+    // offenhalten.
+    @State private var rootURLIsScoped = false
+
+    private func releaseRootURLScope() {
+        if rootURLIsScoped { rootURL?.stopAccessingSecurityScopedResource() }
+        rootURLIsScoped = false
+    }
 
     var body: some View {
         NavigationStack {
@@ -751,6 +766,12 @@ private struct AddLocalLibrarySheet: View {
                             // 2026-08-19). Jetzt: bei Fehler Dialog offen lassen,
                             // Fehlertext direkt hier im Sheet zeigen.
                             let ok = await localLibrary.addLibrary(rootURL: rootURL, name: name, kind: kind)
+                            // Der hier gehaltene Scope hat seinen Zweck erfüllt, sobald
+                            // addLibrary() zurückkehrt — bei Erfolg hält `activeRoots`
+                            // (LocalLibraryManager) inzwischen seinen EIGENEN Start-Call
+                            // auf demselben Ordner, bei Misserfolg gibt es nichts mehr
+                            // freizugeben.
+                            releaseRootURLScope()
                             isAdding = false
                             if ok { dismiss() }
                         }
@@ -761,11 +782,17 @@ private struct AddLocalLibrarySheet: View {
             #if !os(tvOS)
             .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
                 if case .success(let url) = result {
+                    // Vorherige Auswahl (falls der User den Picker mehrfach öffnet)
+                    // zuerst sauber freigeben, dann den neuen Scope sofort claimen —
+                    // siehe Kommentar bei `rootURLIsScoped` oben.
+                    releaseRootURLScope()
                     rootURL = url
+                    rootURLIsScoped = url.startAccessingSecurityScopedResource()
                     if name.isEmpty { name = url.lastPathComponent }
                 }
             }
             #endif
+            .onDisappear { releaseRootURLScope() }
         }
         .frame(minWidth: 380, minHeight: 260)
     }

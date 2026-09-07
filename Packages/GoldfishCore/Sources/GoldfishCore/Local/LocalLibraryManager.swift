@@ -309,14 +309,21 @@ public final class LocalLibraryManager: ObservableObject {
         items.filter { libraryIds.contains($0.libraryId) }.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
     }
 
-    // Plain (non-security-scoped) bookmarks on both platforms — App Sandbox was removed
-    // from the Mac target 2026-08-19 (see `GoldfishMac.entitlements`), so there's no
-    // sandbox extension to persist and no `startAccessingSecurityScopedResource()` dance
-    // needed at all. `.withSecurityScope` bookmarks turned out to fail unpredictably even
-    // for internal APFS folders under a free "Personal Team" signature — not just the
-    // exFAT USB-stick case that started this investigation.
+    // Security-scoped bookmarks (re-enabled 2026-09-07 together with App Sandbox, see
+    // GoldfishMac.entitlements) — Sandbox was removed 2026-08-19 because `.withSecurityScope`
+    // bookmarks failed unpredictably even for internal APFS folders under the then-free
+    // "Personal Team" signature, not just the exFAT USB-stick case that started that
+    // investigation. Now running under a paid Developer team (SYQL3PUXA9) — second attempt
+    // for Mac App Store distribution. `#if os(macOS)` because iOS/tvOS never had (and don't
+    // need) this local-folder-access path at all; keeping `[]` there would be harmless but
+    // pointless since sandbox itself is unconditional on those platforms.
+    #if os(macOS)
+    private static let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
+    private static let resolveOptions: URL.BookmarkResolutionOptions = [.withSecurityScope]
+    #else
     private static let bookmarkOptions: URL.BookmarkCreationOptions = []
     private static let resolveOptions: URL.BookmarkResolutionOptions = []
+    #endif
 
     private func resolveRoot(for library: LocalLibrary) -> URL? {
         if let cached = activeRoots[library.id] {
@@ -324,6 +331,7 @@ public final class LocalLibraryManager: ObservableObject {
             // pulled out mid-session must flip to "unavailable" immediately, not only after
             // the app restarts and the bookmark cache is empty again.
             guard FileManager.default.fileExists(atPath: cached.path) else {
+                cached.stopAccessingSecurityScopedResource()
                 activeRoots[library.id] = nil
                 unavailableLibraryIds.insert(library.id)
                 return nil
@@ -336,6 +344,17 @@ public final class LocalLibraryManager: ObservableObject {
             unavailableLibraryIds.insert(library.id)
             return nil
         }
+        // Folder-scoped, not per-file: started once here and kept active for as long as the
+        // root stays cached in `activeRoots` — matches Apple's documented pattern for
+        // longer-lived access (stopped in `deleteLibrary`/`reconnectLibrary`/the invalidation
+        // branch above, NOT after every single read). Pairing every individual file access
+        // with its own start/stop would be both unnecessary and a correctness risk (nested
+        // start/stop calls on the same URL are refcounted; an unmatched extra `stop` here
+        // would cut off access for every other in-flight read of the same library).
+        guard url.startAccessingSecurityScopedResource() else {
+            unavailableLibraryIds.insert(library.id)
+            return nil
+        }
         unavailableLibraryIds.remove(library.id)
         activeRoots[library.id] = url
         return url
@@ -343,7 +362,11 @@ public final class LocalLibraryManager: ObservableObject {
 
     /// `rootURL` must come straight from a picker (`.fileImporter`/`NSOpenPanel`) — already
     /// accessible for this call, used both to create the persistable bookmark and as the
-    /// live root for the very first scan.
+    /// live root for the very first scan. Under Sandbox a URL fresh from the picker is
+    /// implicitly scoped for immediate use, but since it's cached long-term in `activeRoots`
+    /// here (same as a bookmark-resolved one), `startAccessingSecurityScopedResource()` is
+    /// called on it too so the later matching `stop` call in `deleteLibrary` is correct —
+    /// calling `start` on an already-accessible non-bookmark URL is documented as harmless.
     @discardableResult
     public func addLibrary(rootURL: URL, name: String, kind: String) async -> Bool {
         lastError = nil
@@ -353,6 +376,7 @@ public final class LocalLibraryManager: ObservableObject {
         }
         let library = LocalLibrary(name: name, kind: kind, bookmarkData: bookmark, ownerUsername: currentUsername())
         allLibrariesOnDisk.append(library)
+        _ = rootURL.startAccessingSecurityScopedResource()
         activeRoots[library.id] = rootURL
         save()
         refreshVisibleLibraries()
@@ -364,6 +388,11 @@ public final class LocalLibraryManager: ObservableObject {
     /// (or moved) — `rootURL` must be freshly picked (same folder, already accessible).
     public func reconnectLibrary(_ library: LocalLibrary, rootURL: URL) async {
         guard library.ownerUsername == nil || library.ownerUsername == currentUsername() else { return }
+        // Stop access on whatever was cached before (e.g. a stale bookmark for the same
+        // library that never resolved) before replacing it — otherwise that old grant just
+        // leaks for the rest of the process lifetime.
+        activeRoots[library.id]?.stopAccessingSecurityScopedResource()
+        _ = rootURL.startAccessingSecurityScopedResource()
         activeRoots[library.id] = rootURL
         unavailableLibraryIds.remove(library.id)
         if let bookmark = try? rootURL.bookmarkData(options: Self.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil),

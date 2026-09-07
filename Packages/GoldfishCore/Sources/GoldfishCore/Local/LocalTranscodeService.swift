@@ -801,7 +801,22 @@ public final class LocalTranscodeService: ObservableObject {
         }.value
     }
 
+    // Sandbox-Migration 2026-09-07: unter App Sandbox darf GoldfishMac keine
+    // beliebigen System-/Homebrew-Programme mehr starten. Ein eigenes,
+    // LGPL-only ffmpeg/ffprobe (kein x264/x265/GPL-Encoder, kompiliert mit
+    // --disable-gpl --disable-nonfree, VideoToolbox-Hardware-Encode für
+    // h264/hevc/prores) liegt deshalb fest im App-Bundle unter
+    // Contents/Resources/ffmpeg-bin/ (siehe project.yml postCompileScripts
+    // fürs Nachsignieren). Bundle.main hat IMMER Vorrang — die Homebrew-
+    // Pfade bleiben nur als Fallback für Debug-Builds/Simulator, wo das
+    // Bundle die Datei nicht enthält (z. B. iOS/tvOS-Targets, die dasselbe
+    // Package nutzen, aber lokale Bibliotheken/Formatanpassung gar nicht
+    // anbieten).
     private static func findFFmpeg() -> String? {
+        if let bundled = Bundle.main.url(forResource: "ffmpeg", withExtension: nil, subdirectory: "ffmpeg-bin")?.path,
+           FileManager.default.isExecutableFile(atPath: bundled) {
+            return bundled
+        }
         for path in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"] {
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
@@ -809,6 +824,10 @@ public final class LocalTranscodeService: ObservableObject {
     }
 
     private static func findFFprobe() -> String? {
+        if let bundled = Bundle.main.url(forResource: "ffprobe", withExtension: nil, subdirectory: "ffmpeg-bin")?.path,
+           FileManager.default.isExecutableFile(atPath: bundled) {
+            return bundled
+        }
         for path in ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"] {
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
