@@ -370,13 +370,21 @@ public final class LocalLibraryManager: ObservableObject {
     @discardableResult
     public func addLibrary(rootURL: URL, name: String, kind: String) async -> Bool {
         lastError = nil
+        // Reihenfolge-Fix 2026-09-07 (siehe feedback_sandbox_bookmark_order-Memory, gefunden
+        // beim analogen Bug in DownloadManager.setDownloadsDirectory): `startAccessing...`
+        // MUSS vor `bookmarkData(.withSecurityScope)` stehen — der implizite, transiente
+        // Zugriff, den `.fileImporter` für die Dauer des Callbacks gewährt, reicht für die
+        // Bookmark-ERSTELLUNG nicht aus. Funktionierte hier bisher nur, weil
+        // `AddLocalLibrarySheet` (SettingsView.swift) den Scope schon VOR diesem Aufruf
+        // geclaimt hatte — jetzt robust unabhängig vom Aufrufer.
+        let started = rootURL.startAccessingSecurityScopedResource()
         guard let bookmark = try? rootURL.bookmarkData(options: Self.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil) else {
+            if started { rootURL.stopAccessingSecurityScopedResource() }
             lastError = "Konnte keinen Zugriff auf den Ordner einrichten."
             return false
         }
         let library = LocalLibrary(name: name, kind: kind, bookmarkData: bookmark, ownerUsername: currentUsername())
         allLibrariesOnDisk.append(library)
-        _ = rootURL.startAccessingSecurityScopedResource()
         activeRoots[library.id] = rootURL
         save()
         refreshVisibleLibraries()
