@@ -619,6 +619,51 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/watch-links/\(partnerId)", method: "DELETE")
     }
 
+    // MARK: - Startseite/Reiterleiste anpassen (Pro-User-Overrides)
+    //
+    // Server-seitig längst vorhanden (CLAUDE.md "Startseite (Home-View)" →
+    // "Pro-User-Overrides, DREI unabhängige Achsen"), im Browser als
+    // "🏠 Startseite anpassen"-Dialog verfügbar — bis 2026-09-07 nie an die
+    // Apple-App nachgezogen (siehe Memory project_todo_apple_home_customization).
+
+    public func fetchHomePreferences() async throws -> HomePreferences {
+        try await perform("/api/home/preferences")
+    }
+
+    public func setHomePreference(libraryId: Int64, onHome: Bool) async throws {
+        let body = try JSONEncoder().encode(["onHome": onHome])
+        try await performVoid("/api/home/preferences/\(libraryId)", method: "PUT", jsonBody: body)
+    }
+
+    public func setHomeOrder(ids: [Int64]) async throws {
+        let body = try JSONEncoder().encode(["ids": ids])
+        try await performVoid("/api/home/order", method: "PUT", jsonBody: body)
+    }
+
+    /// Beide Felder optional — nur mitgeschickte Felder werden serverseitig geändert
+    /// (siehe `setMyHomeStrips` in internal/api/home.go, `*bool`-Zeiger im Body).
+    public func setHomeStrips(showContinue: Bool? = nil, showNextUp: Bool? = nil) async throws {
+        var body: [String: Bool] = [:]
+        if let showContinue { body["showContinue"] = showContinue }
+        if let showNextUp { body["showNextUp"] = showNextUp }
+        let data = try JSONEncoder().encode(body)
+        try await performVoid("/api/home/strips", method: "PUT", jsonBody: data)
+    }
+
+    public func fetchNavPreferences() async throws -> NavPreferences {
+        try await perform("/api/nav/preferences")
+    }
+
+    public func setNavPreference(libraryId: Int64, onNav: Bool) async throws {
+        let body = try JSONEncoder().encode(["onNav": onNav])
+        try await performVoid("/api/nav/preferences/\(libraryId)", method: "PUT", jsonBody: body)
+    }
+
+    public func setNavOrder(ids: [Int64]) async throws {
+        let body = try JSONEncoder().encode(["ids": ids])
+        try await performVoid("/api/nav/order", method: "PUT", jsonBody: body)
+    }
+
     // MARK: - Playback
 
     public func playback(itemId: Int64, mode: String = "auto") async throws -> PlaybackResponse {

@@ -37,6 +37,42 @@ public struct WatchLink: Decodable, Identifiable, Hashable {
     public var id: Int64 { partnerId }
 }
 
+// MARK: - Startseite/Reiterleiste (Pro-User-Overrides)
+
+/// Eine Zeile aus `GET /api/home/preferences` bzw. `GET /api/nav/preferences` —
+/// beide Endpoints liefern dieselbe Grundform (libraryId/name/kind/order), nur
+/// das Sichtbarkeits-Feld heißt unterschiedlich (`onHome` vs. `onNav`), daher
+/// zwei separate, sonst identische Structs statt eines gemeinsamen mit
+/// optionalen Feldern — CLAUDE.md "Pro-User-Overrides, DREI unabhängige
+/// Achsen": bewusst getrennte Datenmodelle, kein gemeinsames Schema.
+public struct HomeLibraryPref: Codable, Identifiable, Hashable {
+    public let libraryId: Int64
+    public let name: String
+    public let kind: String
+    public var onHome: Bool
+    public var order: Int
+    public var id: Int64 { libraryId }
+}
+
+public struct HomePreferences: Decodable {
+    public let libraries: [HomeLibraryPref]
+    public let showContinue: Bool
+    public let showNextUp: Bool
+}
+
+public struct NavLibraryPref: Codable, Identifiable, Hashable {
+    public let libraryId: Int64
+    public let name: String
+    public let kind: String
+    public var onNav: Bool
+    public var order: Int
+    public var id: Int64 { libraryId }
+}
+
+public struct NavPreferences: Decodable {
+    public let libraries: [NavLibraryPref]
+}
+
 // MARK: - Library
 
 public struct Library: Codable, Identifiable, Hashable {

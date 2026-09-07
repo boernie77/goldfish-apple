@@ -27,6 +27,11 @@ struct LibrariesView: View {
     @Environment(\.openWindow) private var openWindow
     #endif
     @State private var libraries: [Library] = []
+    // Pro-User-Sichtbarkeit/Reihenfolge der Bibliotheks-Kacheln (Server-Pendant zur
+    // Browser-Reiterleiste, siehe "🏠 Startseite & Bibliotheken anpassen" in SettingsView) —
+    // best-effort geladen NACH `libraries`, fehlt der Call (offline/Fehler), bleibt die
+    // Ansicht beim bisherigen Verhalten (alles sichtbar, Server-`sortOrder`).
+    @State private var navPrefsByLibraryId: [Int64: NavLibraryPref] = [:]
     @State private var errorMessage: String?
     @State private var isLoading = true
     // User-Anfrage 2026-08-19: "wenn ich wirklich offline bin, dann erscheinen gar keine
@@ -57,6 +62,21 @@ struct LibrariesView: View {
         mergedLocalLibraries.count >= 2
             ? localLibrary.libraries.filter { !localLibrary.mergedLibraryIds.contains($0.id) }
             : localLibrary.libraries
+    }
+
+    /// `libraries` gefiltert/sortiert nach den Pro-User-Overrides aus
+    /// `GET /api/nav/preferences` — Default (keine Zeile für diese Library, z. B. weil der
+    /// Prefs-Call noch nicht durch ist) ist "sichtbar, Server-`sortOrder`", identisch zum
+    /// Browser-Fallback (`views.js`/CLAUDE.md "Bibliotheks-Reiterleiste").
+    private var visibleOrderedLibraries: [Library] {
+        libraries
+            .filter { navPrefsByLibraryId[$0.id]?.onNav ?? true }
+            .sorted { a, b in
+                let orderA = navPrefsByLibraryId[a.id]?.order ?? (a.sortOrder ?? 0)
+                let orderB = navPrefsByLibraryId[b.id]?.order ?? (b.sortOrder ?? 0)
+                if orderA != orderB { return orderA < orderB }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
     }
 
     var body: some View {
@@ -96,7 +116,7 @@ struct LibrariesView: View {
                             .disabled(isLoading)
                         }
                         LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(libraries) { lib in
+                            ForEach(visibleOrderedLibraries) { lib in
                                 NavigationLink(value: LibraryDestination.server(lib)) {
                                     LibraryCard(name: lib.name, kind: lib.kind, isLocal: false, previewURL: previewURLs["server:\(lib.id)"], isOffline: isOffline)
                                 }
@@ -286,6 +306,7 @@ struct LibrariesView: View {
             saveCachedLibraries(libraries)
             hydratePreviewsFromCache() // frisch dazugekommene Libs sofort aus Cache zeigen
             await loadPreviews()
+            await loadNavPrefs()
         } catch {
             // 401 vom Server = Session serverseitig tot (nicht "offline" — der
             // Server hat ja geantwortet). NICHT als isOffline tarnen und NICHT die
@@ -311,6 +332,14 @@ struct LibrariesView: View {
                 }
             }
         }
+    }
+
+    /// Best-effort — ein Fehler hier lässt einfach den Fallback in
+    /// `visibleOrderedLibraries` greifen (alles sichtbar, Server-`sortOrder`), statt die
+    /// ganze Bibliotheks-Ansicht mit einem Fehler zu blockieren.
+    private func loadNavPrefs() async {
+        guard let prefs = try? await client.fetchNavPreferences() else { return }
+        navPrefsByLibraryId = Dictionary(uniqueKeysWithValues: prefs.libraries.map { ($0.libraryId, $0) })
     }
 
     private func loadCachedLibraries() -> [Library]? {

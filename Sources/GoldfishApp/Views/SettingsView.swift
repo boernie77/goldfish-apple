@@ -173,6 +173,16 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
+                        HomeAndNavPreferencesView()
+                    } label: {
+                        Text("🏠 Startseite & Bibliotheken anpassen")
+                    }
+                } footer: {
+                    Text("Welche Bibliotheken auf der Startseite und in der Bibliotheken-Übersicht erscheinen, in welcher Reihenfolge.")
+                }
+
+                Section {
+                    NavigationLink {
                         WatchLinkSettingsView(watchLinks: $watchLinks)
                     } label: {
                         HStack {
