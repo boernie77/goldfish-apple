@@ -179,6 +179,17 @@ struct PlayerView: View {
     // Größe etwas größer wie zuletzt geöffnet." — einmal pro Fenster-Öffnung gesetzt,
     // sobald die echte Video-Auflösung (`presentationSize`) bekannt ist.
     @State private var hasSizedWindowToVideo = false
+    // Bug gefixt 2026-09-07 (User-Report: "Videos starten nicht in Vollbild, erster Klick
+    // auf Vollbild macht das Fenster erst kleiner, erst der zweite liefert echtes
+    // Vollbild"): `isFullScreen` wird erst per `did[Enter|Exit]FullScreenNotification`
+    // gesetzt — die feuert erst NACH Abschluss der Animation. `sizeWindowToVideo` lief
+    // aber typischerweise GENAU dann (erster Tick des Zeit-Observers mit gültiger
+    // `presentationSize`, kurz nach Playback-Start — also fast zeitgleich mit dem ersten
+    // Klick auf Vollbild), und `window.setContentSize`/`.center()` mitten in einer
+    // laufenden `toggleFullScreen`-Animation bricht diese sichtbar ab (Fenster landet nur
+    // resized, nicht im echten Vollbild). Dieser Flag trackt den Übergang selbst (nicht nur
+    // den fertigen Zustand) über `will[Enter|Exit]FullScreenNotification`.
+    @State private var isFullScreenTransitioning = false
     #endif
 
     init(item: Item, queue: [Item] = [], queueIndex: Int? = nil, randomContext: RandomContext? = nil, startFromBeginning: Bool = false,
@@ -475,11 +486,19 @@ struct PlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
+        NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { _ in
+            isFullScreenTransitioning = true
+        }
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
+            isFullScreenTransitioning = false
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { _ in
+            isFullScreenTransitioning = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = false
+            isFullScreenTransitioning = false
         }
     }
 
@@ -509,7 +528,7 @@ struct PlayerView: View {
     /// zuletzt geöffnet"), auf die neue Video-Breite umgerechnet und auf den sichtbaren
     /// Bildschirmbereich begrenzt.
     private func sizeWindowToVideo(_ videoSize: CGSize) {
-        guard let window = hostWindow, isFullScreen == false else { return }
+        guard let window = hostWindow, isFullScreen == false, isFullScreenTransitioning == false else { return }
         let aspect = videoSize.width / videoSize.height
         guard aspect.isFinite, aspect > 0 else { return }
 

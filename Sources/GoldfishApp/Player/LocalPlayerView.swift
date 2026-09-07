@@ -68,6 +68,9 @@ struct LocalPlayerView: View {
     @State private var hostWindow: NSWindow?
     /// Gleicher Fix wie `PlayerView.hasSizedWindowToVideo` (User-Anfrage 2026-08-19).
     @State private var hasSizedWindowToVideo = false
+    /// Gleicher Fix wie `PlayerView.isFullScreenTransitioning` (Bug 2026-09-07 — erster
+    /// Vollbild-Klick verkleinerte statt vergrößerte).
+    @State private var isFullScreenTransitioning = false
     #endif
 
     init(item: LocalItem, queue: [LocalItem] = [], randomPool: [LocalItem]? = nil, startFromBeginning: Bool = false) {
@@ -252,11 +255,19 @@ struct LocalPlayerView: View {
     }
 
     private func observeFullScreenChanges(for window: NSWindow) {
+        NotificationCenter.default.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { _ in
+            isFullScreenTransitioning = true
+        }
         NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = true
+            isFullScreenTransitioning = false
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { _ in
+            isFullScreenTransitioning = true
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { _ in
             isFullScreen = false
+            isFullScreenTransitioning = false
         }
     }
 
@@ -286,7 +297,7 @@ struct LocalPlayerView: View {
     /// Siehe `PlayerView.sizeWindowToVideo` für die volle Begründung (User-Anfrage
     /// 2026-08-19: kein Balken + etwas größer als zuletzt).
     private func sizeWindowToVideo(_ videoSize: CGSize) {
-        guard let window = hostWindow, isFullScreen == false else { return }
+        guard let window = hostWindow, isFullScreen == false, isFullScreenTransitioning == false else { return }
         let aspect = videoSize.width / videoSize.height
         guard aspect.isFinite, aspect > 0 else { return }
 
