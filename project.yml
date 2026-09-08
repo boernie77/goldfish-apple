@@ -93,19 +93,47 @@ targets:
     # (inkl. Copy Bundle Resources) und VOR dem automatischen, impliziten
     # App-Sign-Schritt -- das ist die richtige Stelle.
     postbuildScripts:
+      # 2026-09-08: App-Store-Connect-Upload-Fehler (code 90296) beim ersten
+      # echten Einreichungsversuch der neuen "GoldfishMac"-App aufgedeckt —
+      # der bisherige Signier-Schritt für ffmpeg/ffprobe lief OHNE
+      # `--entitlements`, die eingebetteten Binaries hatten dadurch KEIN
+      # Sandbox-Entitlement, obwohl die App selbst sandboxed ist. Apple
+      # verlangt das Entitlement auf JEDEM Executable im Bundle, nicht nur
+      # auf dem Haupt-Binary. Fix: eigene Mini-Entitlements-Datei nur mit
+      # `com.apple.security.app-sandbox=true` (die Helper-Binaries brauchen
+      # keine der zusätzlichen App-Entitlements wie Bookmarks/Network) wird
+      # zur Build-Zeit erzeugt und beim Signieren mitgegeben.
       - name: "Codesign eingebettetes ffmpeg/ffprobe"
         script: |
           set -e
           BIN_DIR="${CODESIGNING_FOLDER_PATH}/Contents/Resources/ffmpeg-bin"
+          HELPER_ENTITLEMENTS="${DERIVED_FILE_DIR}/ffmpeg-helper.entitlements"
+          mkdir -p "${DERIVED_FILE_DIR}"
+          cat > "$HELPER_ENTITLEMENTS" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.app-sandbox</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
           for bin in ffmpeg ffprobe; do
             if [ -f "$BIN_DIR/$bin" ]; then
               chmod +x "$BIN_DIR/$bin"
               codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
-                --timestamp=none --options runtime "$BIN_DIR/$bin"
+                --timestamp=none --options runtime \
+                --entitlements "$HELPER_ENTITLEMENTS" "$BIN_DIR/$bin"
             fi
           done
     settings:
       base:
+        # 2026-09-08: Vermutung "com.goldfish.mac ist wie bei iOS unter der
+        # verwaisten Goldfish-Media-Plattform verbraucht" per Live-Check in
+        # Certificates/IDs/Profiles + App Store Connect widerlegt — die ID
+        # ist registriert, aber laut "Neue App"-Bundle-ID-Dropdown von KEINER
+        # App beansprucht. Kein ID-Wechsel nötig, com.goldfish.mac bleibt.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.mac
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "186"
