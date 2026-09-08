@@ -18,9 +18,15 @@ struct AlphabetSidebar: View {
     // Zweiter Anlauf (User: "Buchstabenleiste zu groß"): 44pt pro Buchstabe × 27 Zeilen
     // ergibt eine ~1300pt hohe Säule, die den Bildschirm sprengt — deutlich moderater
     // dimensioniert, bleibt aber immer noch klar größer als die ursprünglichen 13pt.
+    // Dritter Anlauf 2026-09-08 (User-Report: "bei Filmen/Bluray/Serien deutlich kleiner
+    // als die neue bei Sammlungen"): die neue Sammlungen-Leiste (CollectionsView) war aus
+    // Versehen als eigene, ungeteilte Komponente mit größeren Maßen (44pt) entstanden statt
+    // diese gemeinsame Komponente wiederzuverwenden. Fix: CollectionsView nutzt jetzt
+    // ebenfalls AlphabetSidebar (siehe dort) — hier auf 36pt angehoben (näher an den 44pt
+    // der Sammlungen-Vorlage, aber laut User-Wunsch bewusst "etwas kleiner").
     #if os(tvOS)
-    private let letterFont: Font = .system(size: 14, weight: .semibold)
-    private let letterSize: CGFloat = 26
+    private let letterFont: Font = .system(size: 16, weight: .semibold)
+    private let letterSize: CGFloat = 36
     #else
     private let letterFont: Font = .system(size: 10, weight: .semibold)
     private let letterHeight: CGFloat = 13

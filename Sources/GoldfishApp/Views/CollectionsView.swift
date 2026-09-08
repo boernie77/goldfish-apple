@@ -15,10 +15,12 @@ struct CollectionsView: View {
     // erhält den Fokus vom Remote-Fokus-System nicht zuverlässig).
     @State private var search = ""
     // 🔴→✅ Bug (User-Report 2026-09-08, Apple TV): das Suchfeld "hängt noch drin, kann
-    // aber nicht angesteuert werden" — ersetzt für tvOS durch eine rechte Buchstabenleiste
-    // (gleiches Filter-Konzept wie die "Alphabet-Sidebar rechts" im Browser, siehe CLAUDE.md),
-    // die als reine Button-Reihe mit dem Fokus-System der Siri-Remote zuverlässig funktioniert.
-    @State private var alphaFilter: Character?
+    // aber nicht angesteuert werden" — ersetzt für tvOS durch eine rechte Buchstabenleiste.
+    // Nutzt die geteilte `AlphabetSidebar`-Komponente (siehe AlphabetSidebar.swift), die
+    // ItemGridView für Filme/Serien/Bluray bereits verwendet — NICHT (wie im ersten Anlauf)
+    // eine eigene Kopie, das hatte abweichende Maße zur Folge (User-Report: "deutlich kleiner
+    // bei Filmen/Bluray/Serien als die neue bei Sammlungen").
+    @State private var alphaFilter: String?
 
     // Fixed (min == max) column width — gleicher Fix wie CollectionDetailView/ItemGridView
     // (echtes Adaptive-Grid kann die Kachelbreite beim ersten Renderpass falsch berechnen).
@@ -30,24 +32,7 @@ struct CollectionsView: View {
         if !search.isEmpty {
             result = result.filter { $0.name.localizedCaseInsensitiveContains(search) }
         }
-        if let alphaFilter {
-            result = result.filter { Self.leadingLetter(of: $0.name) == alphaFilter }
-        }
-        return result
-    }
-
-    /// Alle in `collections` vorkommenden Anfangsbuchstaben, sortiert — Basis der Buchstaben-
-    /// leiste. Bewusst aus der UNGEFILTERTEN Liste berechnet (analog zum Browser-Vorbild:
-    /// die Leiste zeigt immer alle möglichen Buchstaben, unabhängig vom aktiven Filter).
-    private var availableLetters: [Character] {
-        Array(Set(collections.map { Self.leadingLetter(of: $0.name) })).sorted()
-    }
-
-    private static func leadingLetter(of name: String) -> Character {
-        guard let c = name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().first, c.isLetter else {
-            return "#"
-        }
-        return c
+        return result.filter { AlphabetSidebar.matches($0.name, alphaFilter) }
     }
 
     var body: some View {
@@ -55,7 +40,7 @@ struct CollectionsView: View {
             content
             #if os(tvOS)
             if !isLoading && errorMessage == nil && !collections.isEmpty {
-                AlphaSidebar(letters: availableLetters, selected: $alphaFilter)
+                AlphabetSidebar(selected: $alphaFilter)
             }
             #endif
         }
@@ -138,41 +123,6 @@ struct CollectionsView: View {
         isLoading = false
     }
 }
-
-#if os(tvOS)
-/// Rechte Buchstabenleiste für tvOS (Ersatz fürs nicht fernbedienbare Suchfeld, siehe oben).
-/// Wirkt als Filter, nicht als Scroll-Sprung — gleiches Konzept wie die Browser-Alphabet-
-/// Sidebar (CLAUDE.md "Alphabet-Sidebar rechts"): erneuter Klick auf denselben Buchstaben
-/// hebt den Filter wieder auf.
-private struct AlphaSidebar: View {
-    let letters: [Character]
-    @Binding var selected: Character?
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                ForEach(letters, id: \.self) { letter in
-                    Button {
-                        selected = (selected == letter) ? nil : letter
-                    } label: {
-                        Text(String(letter))
-                            .font(.callout.bold())
-                            .frame(width: 44, height: 32)
-                            .background(
-                                selected == letter ? Color.accentColor : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8)
-                            )
-                            .foregroundStyle(selected == letter ? .white : .primary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 12)
-        }
-        .frame(width: 70)
-    }
-}
-#endif
 
 private struct CollectionCard: View {
     let collection: Collection
