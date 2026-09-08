@@ -187,8 +187,11 @@ targets:
         CFBundleDisplayName: Goldfish
         # User-Anfrage 2026-09-07: erste echte App-Store-Einreichung der
         # Apple-TV-App -- analog zum iOS-Sprung (0.9 -> 1.0) auf 1.0 gehoben.
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "4"
+        # User-Anfrage 2026-09-08: erstes Feature-Update nach der Einreichung
+        # (Suche-Tab, Serien-/Staffelansicht, Qualitäts-Overlay+-Auswahl,
+        # Tonspur-Fix, Auto-Hide-Timer-Fix) -- auf 1.1 gehoben.
+        CFBundleShortVersionString: "1.1"
+        CFBundleVersion: "5"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos

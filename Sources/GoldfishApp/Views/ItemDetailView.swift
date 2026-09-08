@@ -42,6 +42,11 @@ struct ItemDetailView: View {
     /// Ton-/Untertitel-Vorwahl aus den Dropdowns oben — an den Player weitergereicht.
     @State private var pickedAudioIndex: Int? = nil
     @State private var pickedSubtitle: PreferredSubtitle? = nil
+    /// Qualitäts-Vorwahl (User-Wunsch 2026-09-08, tvOS: "4K-Film transcodiert in
+    /// Originalqualität, stockt ständig" — bisher keine Möglichkeit, das Transcode-Profil
+    /// zu begrenzen). `nil` = Automatisch (Server-Default `orig`, kein Downscale-Cap).
+    @State private var availableProfiles: [PlaybackProfile] = []
+    @State private var pickedProfile: String? = nil
     #if os(tvOS)
     // tvOS-Fix 2026-09-03 (User-Report: Fernbedienung reagiert im Detail-Dialog
     // nicht — Fokus blieb sichtbar auf der Tab-Leiste hängen): beim Öffnen einer
@@ -217,6 +222,46 @@ struct ItemDetailView: View {
                                 }
                             }
                         }
+                        #if os(tvOS)
+                        // User-Wunsch 2026-09-08: "kann man die Qualität auswählen" —
+                        // nach dem Overlay-Anzeige-Feature aufgefallen, dass ein 4K-Film
+                        // ohne Auswahl im Transcode-Modus mit "Original"-Profil (kein
+                        // Downscale-Cap) lief, obwohl der Fernseher nur 1080p zeigt —
+                        // Bandbreite reichte nicht, Wiedergabe stockte. Nur auf tvOS
+                        // (dort gemeldet); Mac/iOS haben aktuell keine entsprechende
+                        // UI. Serverseitig wirkt das Profil nur im Auto-Modus als Cap
+                        // (erzwingt Transcode+Downscale, wenn die Quelle es überschreitet)
+                        // — "Automatisch" lässt den bisherigen Server-Default (`orig`)
+                        // unverändert.
+                        if !availableProfiles.isEmpty {
+                            AVPickerRow(icon: "🎞", label: "Qualität") {
+                                Menu {
+                                    Button {
+                                        pickedProfile = nil
+                                    } label: {
+                                        if pickedProfile == nil {
+                                            Label("Automatisch", systemImage: "checkmark")
+                                        } else {
+                                            Text("Automatisch")
+                                        }
+                                    }
+                                    ForEach(availableProfiles, id: \.id) { profile in
+                                        Button {
+                                            pickedProfile = profile.id
+                                        } label: {
+                                            if profile.id == pickedProfile {
+                                                Label(profile.label, systemImage: "checkmark")
+                                            } else {
+                                                Text(profile.label)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    AVPickerValueLabel(text: availableProfiles.first(where: { $0.id == pickedProfile })?.label ?? "Automatisch")
+                                }
+                            }
+                        }
+                        #endif
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -281,12 +326,12 @@ struct ItemDetailView: View {
         #if os(macOS)
         .onChange(of: showPlayer) { newValue in
             guard newValue else { return }
-            PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle), openWindow: openWindow)
+            PlayerLaunchCoordinator.shared.present(PlayerLaunchRequest(item: selectedItem, queue: queue, queueIndex: nil, randomContext: nil, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle, preferredProfile: pickedProfile), openWindow: openWindow)
             showPlayer = false
         }
         #else
         .fullScreenCoverCompat(isPresented: $showPlayer) {
-            PlayerView(item: selectedItem, queue: queue, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle)
+            PlayerView(item: selectedItem, queue: queue, startFromBeginning: startFromBeginning, preferredAudioIndex: pickedAudioIndex, preferredSubtitle: pickedSubtitle, preferredProfile: pickedProfile)
         }
         #endif
         .confirmationDialog("Wiedergabe fortsetzen?", isPresented: $showResumePrompt, titleVisibility: .visible) {
@@ -501,9 +546,12 @@ struct ItemDetailView: View {
         // gleiches Verhalten wie der Browser-Detail-Dialog.
         if let pb = try? await client.playback(itemId: id) {
             streams = pb.streams ?? []
+            availableProfiles = pb.profiles ?? []
         } else if let full = try? await client.fetchItem(id: id) {
             streams = full.streams ?? []
+            availableProfiles = []
         }
+        pickedProfile = nil
         pickedSubtitle = nil
         let audio = streams.filter { $0.type == "audio" }
         pickedAudioIndex = audio.first(where: { $0.isDefault == true })?.index ?? audio.first?.index

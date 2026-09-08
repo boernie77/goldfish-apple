@@ -42,6 +42,8 @@ struct PlayerView: View {
     /// Ton-/Untertitel-Vorwahl aus dem Detail-Dialog (Dropdowns dort).
     let preferredAudioIndex: Int?
     let preferredSubtitle: PreferredSubtitle?
+    /// Qualitäts-Vorwahl aus dem Detail-Dialog — siehe `PlayerLaunchRequest.preferredProfile`.
+    let preferredProfile: String?
     @State private var queueIndex: Int
     @State private var item: Item
     // History of visited items while in random mode — mirrors the web app's
@@ -198,13 +200,14 @@ struct PlayerView: View {
     #endif
 
     init(item: Item, queue: [Item] = [], queueIndex: Int? = nil, randomContext: RandomContext? = nil, startFromBeginning: Bool = false,
-         preferredAudioIndex: Int? = nil, preferredSubtitle: PreferredSubtitle? = nil) {
+         preferredAudioIndex: Int? = nil, preferredSubtitle: PreferredSubtitle? = nil, preferredProfile: String? = nil) {
         _item = State(initialValue: item)
         self.queue = queue
         self.randomContext = randomContext
         self.startFromBeginning = startFromBeginning
         self.preferredAudioIndex = preferredAudioIndex
         self.preferredSubtitle = preferredSubtitle
+        self.preferredProfile = preferredProfile
         _queueIndex = State(initialValue: queueIndex ?? queue.firstIndex(where: { $0.id == item.id }) ?? 0)
         _randomHistory = State(initialValue: randomContext != nil ? [item] : [])
     }
@@ -481,6 +484,20 @@ struct PlayerView: View {
                             tvFocusTarget: $tvFocusTarget
                         )
                         .padding(.bottom, 24)
+                        #if os(tvOS)
+                        // User-Report 2026-09-08: "Steuerelemente blenden auch kurz aus,
+                        // wenn man darin den Cursor bewegt. Die Zeit zum Ausblenden muss
+                        // nach jeder Bewegung neu starten." — solange die Leiste sichtbar
+                        // ist, resettet bisher NUR eine tatsächliche Aktion (Play/Pause,
+                        // Skip, Lautstärke, …) den Auto-Hide-Timer, reines Fokus-Wandern
+                        // zwischen den Buttons (Pfeiltasten ohne Klick) tat das nicht — der
+                        // Timer lief also weiter und blendete die Leiste aus, während man
+                        // noch aktiv navigierte. Gleiches `.onMoveCommand`-Muster wie beim
+                        // unsichtbaren Video-Overlay oben (dort nur aktiv, wenn die Leiste
+                        // ausgeblendet ist) — hier zusätzlich auf die sichtbare Leiste
+                        // selbst, damit jede Richtungsbewegung den Timer neu startet.
+                        .onMoveCommand { _ in resetAutoHide() }
+                        #endif
                 }
             }
             .opacity(controlsVisible ? 1 : 0)
@@ -973,7 +990,7 @@ struct PlayerView: View {
 
         do {
             let resumeSec = startFromBeginning ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
-            let playback = try await client.playback(itemId: item.id)
+            let playback = try await client.playback(itemId: item.id, profile: preferredProfile)
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
             playbackQualityLabel = Self.qualityLabel(for: playback)
@@ -1379,6 +1396,19 @@ private struct PlayerControlsBar: View {
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
+    // User-Report 2026-09-08 (tvOS): "Sprachauswahl öffnet sich, aber ich kann sie
+    // nicht verändern" — dasselbe bekannte `Menu`-Zuverlässigkeitsproblem wie in
+    // `project_apple_tvos_port` (Memory) dokumentiert, hier bisher übersehen (der
+    // Fix wurde seinerzeit nur für Toolbar-Menüs gemacht, nicht für dieses Icon
+    // im Steuerfeld). `.confirmationDialog` ist das etablierte, zuverlässige
+    // Ersatzmuster auf tvOS — zwei getrennte Flags, da Direct-Play- und
+    // Transcode-Tonspur-Auswahl sich strukturell gegenseitig ausschließen
+    // (siehe Kommentare an `audioOptions`/`transcodeAudioTracks` oben), aber
+    // unabhängig als Zustand einfacher zu halten sind.
+    #if os(tvOS)
+    @State private var showingAudioOptionDialog = false
+    @State private var showingTranscodeAudioDialog = false
+    #endif
     // Geteiltes FocusState-Ziel, das `PlayerView` besitzt und hier nur durchreicht,
     // damit der Play/Pause-Button explizit zurückfokussiert werden kann (siehe
     // `PlayerView.resetAutoHide()`). Unconditional (nicht nur tvOS) deklariert,
@@ -1522,6 +1552,31 @@ private struct PlayerControlsBar: View {
                             Image(systemName: "text.badge.plus")
                         }
                     }
+                    #if os(tvOS)
+                    if audioOptions.count > 1, let onSelectAudioOption {
+                        Button { showingAudioOptionDialog = true } label: {
+                            Image(systemName: "waveform")
+                        }
+                        .confirmationDialog("Tonspur", isPresented: $showingAudioOptionDialog, titleVisibility: .visible) {
+                            ForEach(audioOptions, id: \.self) { option in
+                                Button(option == selectedAudioOption ? "✓ \(option.displayName)" : option.displayName) {
+                                    onSelectAudioOption(option)
+                                }
+                            }
+                        }
+                    } else if transcodeAudioTracks.count > 1, let onSelectTranscodeAudio {
+                        Button { showingTranscodeAudioDialog = true } label: {
+                            Image(systemName: "waveform")
+                        }
+                        .confirmationDialog("Tonspur", isPresented: $showingTranscodeAudioDialog, titleVisibility: .visible) {
+                            ForEach(transcodeAudioTracks, id: \.index) { track in
+                                Button(track.index == selectedTranscodeAudioIndex ? "✓ \(Self.audioTrackLabel(track))" : Self.audioTrackLabel(track)) {
+                                    onSelectTranscodeAudio(track.index)
+                                }
+                            }
+                        }
+                    }
+                    #else
                     if audioOptions.count > 1, let onSelectAudioOption {
                         Menu {
                             ForEach(audioOptions, id: \.self) { option in
@@ -1555,6 +1610,7 @@ private struct PlayerControlsBar: View {
                             Image(systemName: "waveform")
                         }
                     }
+                    #endif
                     if hasSubtitles, let onToggleSubtitles {
                         Button(action: onToggleSubtitles) {
                             Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")

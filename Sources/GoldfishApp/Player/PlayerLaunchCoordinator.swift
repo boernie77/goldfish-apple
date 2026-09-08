@@ -64,6 +64,9 @@ struct PlayerLaunchRequest: Identifiable {
     /// Ton-/Untertitel-Vorwahl aus dem Detail-Dialog.
     var preferredAudioIndex: Int? = nil
     var preferredSubtitle: PreferredSubtitle? = nil
+    /// Qualitäts-Vorwahl aus dem Detail-Dialog (`PlaybackProfile.id`, z.B. "1080p"), User-
+    /// Wunsch 2026-09-08 (tvOS): nil = Automatisch (Server-Default `orig`, kein Downscale-Cap).
+    var preferredProfile: String? = nil
 }
 
 struct LocalPlayerLaunchRequest: Identifiable {

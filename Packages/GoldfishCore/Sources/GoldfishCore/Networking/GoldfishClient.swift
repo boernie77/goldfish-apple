@@ -666,8 +666,17 @@ public final class GoldfishClient: ObservableObject {
 
     // MARK: - Playback
 
-    public func playback(itemId: Int64, mode: String = "auto") async throws -> PlaybackResponse {
-        try await perform("/api/playback/\(itemId)", query: [URLQueryItem(name: "mode", value: mode)])
+    /// `profile`: optionales Qualitäts-Cap (`PlaybackProfile.id`, z.B. "1080p") — greift laut
+    /// Server nur im `mode: "auto"`-Fall (erzwingt Transcode, wenn die Quelle das Profil-Limit
+    /// überschreitet); ohne Angabe entscheidet der Server mit dem Default `profile=orig`, was
+    /// bei sehr hoher Quell-Bitrate/4K einen Transcode OHNE Downscale erzeugen kann — genau der
+    /// User-Report 2026-09-08 ("4K-Film transcodiert in Originalqualität, stockt ständig").
+    public func playback(itemId: Int64, mode: String = "auto", profile: String? = nil) async throws -> PlaybackResponse {
+        var query = [URLQueryItem(name: "mode", value: mode)]
+        if let profile {
+            query.append(URLQueryItem(name: "profile", value: profile))
+        }
+        return try await perform("/api/playback/\(itemId)", query: query)
     }
 
     // MARK: - Collections
