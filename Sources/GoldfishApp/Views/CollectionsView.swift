@@ -10,7 +10,15 @@ struct CollectionsView: View {
     // hatten bisher gar keine Suche, rein clientseitig (keine Server-Suche für diese beiden
     // Endpunkte, aber Sammlungen/Playlists sind ohnehin überschaubar viele — kein Roundtrip
     // nötig, matcht einfach gegen die schon geladene Liste).
+    // NICHT mehr auf tvOS (siehe unten) — dort war das TextField über die Siri-Remote gar
+    // nicht ansteuerbar (klassisches tvOS-Problem: ein reines TextField in der Toolbar
+    // erhält den Fokus vom Remote-Fokus-System nicht zuverlässig).
     @State private var search = ""
+    // 🔴→✅ Bug (User-Report 2026-09-08, Apple TV): das Suchfeld "hängt noch drin, kann
+    // aber nicht angesteuert werden" — ersetzt für tvOS durch eine rechte Buchstabenleiste
+    // (gleiches Filter-Konzept wie die "Alphabet-Sidebar rechts" im Browser, siehe CLAUDE.md),
+    // die als reine Button-Reihe mit dem Fokus-System der Siri-Remote zuverlässig funktioniert.
+    @State private var alphaFilter: Character?
 
     // Fixed (min == max) column width — gleicher Fix wie CollectionDetailView/ItemGridView
     // (echtes Adaptive-Grid kann die Kachelbreite beim ersten Renderpass falsch berechnen).
@@ -18,35 +26,38 @@ struct CollectionsView: View {
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
 
     private var filteredCollections: [Collection] {
-        guard !search.isEmpty else { return collections }
-        return collections.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        var result = collections
+        if !search.isEmpty {
+            result = result.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        }
+        if let alphaFilter {
+            result = result.filter { Self.leadingLetter(of: $0.name) == alphaFilter }
+        }
+        return result
+    }
+
+    /// Alle in `collections` vorkommenden Anfangsbuchstaben, sortiert — Basis der Buchstaben-
+    /// leiste. Bewusst aus der UNGEFILTERTEN Liste berechnet (analog zum Browser-Vorbild:
+    /// die Leiste zeigt immer alle möglichen Buchstaben, unabhängig vom aktiven Filter).
+    private var availableLetters: [Character] {
+        Array(Set(collections.map { Self.leadingLetter(of: $0.name) })).sorted()
+    }
+
+    private static func leadingLetter(of name: String) -> Character {
+        guard let c = name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().first, c.isLetter else {
+            return "#"
+        }
+        return c
     }
 
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-            } else if let errorMessage {
-                ContentUnavailableMessage(text: errorMessage)
-            } else if collections.isEmpty {
-                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
-            } else if filteredCollections.isEmpty {
-                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(filteredCollections) { collection in
-                            NavigationLink(value: collection) {
-                                CollectionCard(collection: collection)
-                                    .frame(width: cardWidth)
-                            }
-                            .buttonStyle(.plain)
-                            .focusableCompat(false)
-                        }
-                    }
-                    .padding()
-                }
+        HStack(spacing: 0) {
+            content
+            #if os(tvOS)
+            if !isLoading && errorMessage == nil && !collections.isEmpty {
+                AlphaSidebar(letters: availableLetters, selected: $alphaFilter)
             }
+            #endif
         }
         .navigationTitle("Sammlungen")
         .navigationDestination(for: Collection.self) { collection in
@@ -57,7 +68,7 @@ struct CollectionsView: View {
         }
         #if os(iOS)
         .searchable(text: $search, prompt: "Suchen")
-        #else
+        #elseif os(macOS)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
@@ -87,6 +98,35 @@ struct CollectionsView: View {
         .refreshable { await load() }
     }
 
+    private var content: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if let errorMessage {
+                ContentUnavailableMessage(text: errorMessage)
+            } else if collections.isEmpty {
+                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
+            } else if filteredCollections.isEmpty {
+                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(filteredCollections) { collection in
+                            NavigationLink(value: collection) {
+                                CollectionCard(collection: collection)
+                                    .frame(width: cardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .focusableCompat(false)
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func load() async {
         isLoading = true
         do {
@@ -98,6 +138,41 @@ struct CollectionsView: View {
         isLoading = false
     }
 }
+
+#if os(tvOS)
+/// Rechte Buchstabenleiste für tvOS (Ersatz fürs nicht fernbedienbare Suchfeld, siehe oben).
+/// Wirkt als Filter, nicht als Scroll-Sprung — gleiches Konzept wie die Browser-Alphabet-
+/// Sidebar (CLAUDE.md "Alphabet-Sidebar rechts"): erneuter Klick auf denselben Buchstaben
+/// hebt den Filter wieder auf.
+private struct AlphaSidebar: View {
+    let letters: [Character]
+    @Binding var selected: Character?
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 10) {
+                ForEach(letters, id: \.self) { letter in
+                    Button {
+                        selected = (selected == letter) ? nil : letter
+                    } label: {
+                        Text(String(letter))
+                            .font(.callout.bold())
+                            .frame(width: 44, height: 32)
+                            .background(
+                                selected == letter ? Color.accentColor : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .foregroundStyle(selected == letter ? .white : .primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 12)
+        }
+        .frame(width: 70)
+    }
+}
+#endif
 
 private struct CollectionCard: View {
     let collection: Collection

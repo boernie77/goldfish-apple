@@ -218,8 +218,11 @@ targets:
         # User-Anfrage 2026-09-08: erstes Feature-Update nach der Einreichung
         # (Suche-Tab, Serien-/Staffelansicht, Qualitäts-Overlay+-Auswahl,
         # Tonspur-Fix, Auto-Hide-Timer-Fix) -- auf 1.1 gehoben.
+        # Build 6 (2026-09-08): Sammlungen-Suchfeld war über die Siri-Remote
+        # nicht fokussierbar -- fuer tvOS durch eine rechte Buchstabenleiste
+        # ersetzt (CollectionsView.swift), macOS/iOS unveraendert.
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
