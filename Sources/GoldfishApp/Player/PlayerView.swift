@@ -165,6 +165,11 @@ struct PlayerView: View {
     /// (CLAUDE.md: "Auflösung aus video.videoWidth/Height — tatsächliche Render-Auflösung").
     /// User-Anfrage 2026-08-19: sichtbar solange die Steuerleiste eingeblendet ist.
     @State private var currentResolutionLabel: String?
+    // User-Wunsch 2026-09-08 (tvOS): "kann man nicht erkennen, ob Direct Play
+    // oder transcodiert wird, in welche Auflösung/Bitrate" — Text fürs
+    // Player-Overlay, aus der bereits vorhandenen `PlaybackResponse` gebaut
+    // (siehe `setUp()`), rein informativ (erstmal keine Beeinflussung).
+    @State private var playbackQualityLabel: String?
     // User-Anfrage 2026-08-19: "Trickbilder" (Hover-Vorschau in der Scrub-Leiste) — nutzt
     // dieselben Endpoints wie der Browser (`/api/trickplay/{id}/thumbs.vtt`+`sprite.jpg`),
     // siehe CLAUDE.md "Trickplay (Hover-Vorschau)". Leer bleiben (kein Fehler), wenn der
@@ -390,6 +395,17 @@ struct PlayerView: View {
                                     .font(.caption2.bold())
                                     #endif
                             }
+                            #if os(tvOS)
+                            // User-Wunsch 2026-09-08: "kann man nicht erkennen, ob Direct
+                            // Play oder transcodiert wird, in welche Auflösung/Bitrate" —
+                            // dritte Zeile mit Modus + Profil (Transcode) bzw. Quell-Codec
+                            // + Original-Bitrate (Direct Play).
+                            if let playbackQualityLabel {
+                                Text(playbackQualityLabel)
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.85))
+                            }
+                            #endif
                         }
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.6), radius: 3)
@@ -914,6 +930,7 @@ struct PlayerView: View {
         currentTime = 0
         duration = item.durationSec ?? 0
         currentResolutionLabel = nil
+        playbackQualityLabel = nil
         isFavorite = item.favorite
         hasMarkedWatchedThisSession = false
         trickplayCues = []
@@ -959,6 +976,7 @@ struct PlayerView: View {
             let playback = try await client.playback(itemId: item.id)
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
+            playbackQualityLabel = Self.qualityLabel(for: playback)
 
             // Tonspur-Auswahl (nur Transcode): alle Quell-Audiospuren vom Server
             // übernehmen; Startwahl = Vorwahl aus dem Detail-Dialog, sonst die
@@ -1164,6 +1182,27 @@ struct PlayerView: View {
         case 700..<1000: return "720p"
         default: return "\(Int(effective))p"
         }
+    }
+
+    /// User-Wunsch 2026-09-08: "Direct Play oder transcodiert, in welche
+    /// Auflösung/Bitrate" sichtbar machen. Bei Direct Play die Quelldatei-Infos
+    /// (Codec + Original-Bitrate, beide schon Teil von `item`), bei Transcode
+    /// das vom Server gewählte Profil-Label (enthält Ziel-Auflösung+Bitrate
+    /// bereits fertig formatiert, z. B. "1080p · 5 Mbps (mittel)") — kein
+    /// eigenes Bitrate-Formatting nötig, derselbe Text wie im Browser.
+    private static func qualityLabel(for playback: PlaybackResponse) -> String {
+        if playback.mode == "transcode" {
+            let profileLabel = playback.profiles?.first(where: { $0.id == playback.profile })?.label
+            return "Transcode · \(profileLabel ?? playback.profile ?? "?")"
+        }
+        var parts = ["Direct Play"]
+        if let codec = playback.item.videoCodec, !codec.isEmpty {
+            parts.append(codec.uppercased())
+        }
+        if let kbps = playback.item.bitrateKbps, kbps > 0 {
+            parts.append(String(format: "%.1f Mbps", Double(kbps) / 1000.0))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func togglePlay() {

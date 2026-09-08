@@ -545,6 +545,27 @@ public struct PlaybackResponse: Decodable {
     /// (dort entscheidet der Server per `&audio=<index>`-Query, es gibt keine
     /// lokale `AVMediaSelectionGroup` zum Umschalten).
     public let streams: [MediaStream]?
+    /// User-Wunsch 2026-09-08 (tvOS): "kann man sich einblenden lassen, ob
+    /// Direct Play oder Transcode läuft und in welcher Qualität" — der Server
+    /// liefert das gewählte Profil (bei Transcode) + die komplette Profil-
+    /// liste schon immer mit `/api/playback/{id}` mit (Browser nutzt dasselbe
+    /// Feld für sein "Profil"-Label), war im Client bisher nur nie decodiert.
+    public let profile: String?
+    public let profiles: [PlaybackProfile]?
+}
+
+/// Ein Transcode-Qualitätsprofil (`internal/playback.Profile`, keine JSON-Tags
+/// serverseitig → Feldnamen kommen 1:1 groß geschrieben an).
+public struct PlaybackProfile: Decodable {
+    public let id: String
+    public let label: String
+    public let maxHeight: Int
+    public let videoKbps: Int
+    public let audioKbps: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id = "ID", label = "Label", maxHeight = "MaxHeight", videoKbps = "VideoKbps", audioKbps = "AudioKbps"
+    }
 }
 
 /// Ein einzelner Stream aus `PlaybackResponse.streams` (`internal/model` `ItemStream`).
