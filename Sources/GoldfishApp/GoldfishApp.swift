@@ -7,6 +7,7 @@ struct GoldfishApp: App {
     @StateObject private var downloads = DownloadManager.shared
     @StateObject private var localLibrary = LocalLibraryManager.shared
     @StateObject private var shuffleScope = ShuffleScope.shared
+    @StateObject private var lastLibraryContext = LastLibraryContext.shared
     // User-Anfrage 2026-09-02: Dark-Mode-Wahlschalter im Settings-Menü — hier auf App-Ebene
     // angewendet, damit er ausnahmslos jede Szene trifft (Haupt-Fenster UND die separaten
     // Player-`WindowGroup`s auf macOS).
@@ -25,6 +26,7 @@ struct GoldfishApp: App {
                 .environmentObject(downloads)
                 .environmentObject(localLibrary)
                 .environmentObject(shuffleScope)
+                .environmentObject(lastLibraryContext)
                 #if os(macOS)
                 .environmentObject(transcode)
                 #endif

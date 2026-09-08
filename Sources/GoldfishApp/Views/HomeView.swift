@@ -3,6 +3,9 @@ import GoldfishCore
 
 struct HomeView: View {
     @EnvironmentObject var client: GoldfishClient
+    #if os(tvOS)
+    @EnvironmentObject var lastLibraryContext: LastLibraryContext
+    #endif
     @State private var sections: [HomeSection] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
@@ -13,31 +16,14 @@ struct HomeView: View {
     @Binding var path: NavigationPath
 
     // User-Anfrage 2026-09-04: "Ich hätte gerne das Suchfeld schon auf der
-    // Startseite (also zusätzlich)" — library-übergreifend, analog zum
-    // Browser (CLAUDE.md "Startseite (Home-View)": Suchfeld matcht Titel +
-    // Schauspieler über alle Libraries mit ACL-Zugriff). `client.fetchItems`
-    // ohne `libraryId` macht serverseitig bereits genau das (ACL-sicher).
-    #if os(tvOS)
-    @State private var search = ""
-    @State private var searchResults: [Item] = []
-    @State private var isSearching = false
-    @State private var showTVSearchSheet = false
-    // Gleicher Fix wie in `ItemGridView` (User-Report: bei 2+ Treffern ließ sich
-    // mit `.prefersDefaultFocus` + `.id()` gar keine Kachel mehr fokussieren) —
-    // expliziter `@FocusState` + verzögerte Zuweisung statt Default-Fokus-Trick.
-    @FocusState private var focusedSearchResultID: Item.ID?
-    #endif
-
-    // Unconditional (nicht nur tvOS) deklariert, damit der if-else-Zweig in `body`
-    // unten ohne #if-Verzweigung mitten in der ViewBuilder-Kette auskommt (das hatte
-    // sich in `PlayerView` bereits als Swift-Parser-Falle erwiesen).
-    private var tvSearchActive: Bool {
-        #if os(tvOS)
-        !search.isEmpty
-        #else
-        false
-        #endif
-    }
+    // Startseite (also zusätzlich)" — ursprünglich hier als Toolbar-Button/Overlay gelöst.
+    // User-Wunsch 2026-09-08: nach mehreren gescheiterten Fokus-Fixen (Button unerreichbar
+    // bzw. nur über Umweg erreichbar) auf tvOS in einen eigenen Tab ausgelagert
+    // (`SearchTabView.swift`, links von "Start" in `RootView.swift`) — die native
+    // tvOS-Tab-Leiste gibt den Fokus bei Links/Rechts nicht an benachbarte eigene Views ab,
+    // nur ein echter Tab ist zuverlässig per Fernbedienung direkt erreichbar. Die komplette
+    // Such-Logik lebt jetzt dort, hier komplett entfernt (kein zweiter, redundanter
+    // Suchpfad mehr).
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -55,12 +41,6 @@ struct HomeView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(isLoading)
                     }
-                } else if tvSearchActive {
-                    #if os(tvOS)
-                    tvSearchResultsView
-                    #else
-                    EmptyView()
-                    #endif
                 } else if sections.isEmpty {
                     ContentUnavailableMessage(text: "Keine Bibliotheken auf der Startseite sichtbar.")
                 } else {
@@ -119,28 +99,17 @@ struct HomeView: View {
             .navigationDestination(for: ItemNavTarget.self) { target in
                 ItemDetailView(item: target.item, queue: target.queue)
             }
-            #if os(tvOS)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showTVSearchSheet = true
-                    } label: {
-                        Image(systemName: search.isEmpty ? "magnifyingglass" : "magnifyingglass.circle.fill")
-                    }
-                }
-            }
-            .sheet(isPresented: $showTVSearchSheet) {
-                TVSearchSheet(search: $search)
-            }
-            .onChange(of: search) { _ in
-                Task {
-                    await loadSearchResults()
-                    await Task.yield()
-                    focusedSearchResultID = searchResults.first?.id
-                }
-            }
-            #endif
             .task { await load() }
+            #if os(tvOS)
+            // User-Wunsch 2026-09-08: "kommt man von Start, dann globale Suche" — sonst
+            // blieb der Scope aus der zuletzt besuchten Bibliothek hängen, auch nachdem
+            // man längst wieder auf der Startseite war. Jedes Erscheinen von Start setzt
+            // den Kontext explizit zurück (analog dazu, wie jede `ItemGridView`-Instanz
+            // ihn auf sich selbst setzt) — Downloads/Einstellungen fassen ihn bewusst
+            // NICHT an (User-Bestätigung: "passt so für mich"), der zuletzt besuchte
+            // Bibliotheks-Scope bleibt von dort aus erreichbar.
+            .onAppear { lastLibraryContext.clear() }
+            #endif
             .refreshable { await load() }
             .onChange(of: scenePhase) { phase in
                 if phase == .active, !isLoading { Task { await load() } }
@@ -166,59 +135,6 @@ struct HomeView: View {
         }
     }
 
-    #if os(tvOS)
-    private func loadSearchResults() async {
-        guard !search.isEmpty else {
-            searchResults = []
-            return
-        }
-        isSearching = true
-        defer { isSearching = false }
-        do {
-            // Kein `libraryId` → serverseitig library-übergreifend über alle
-            // ACL-zugänglichen Bibliotheken (CLAUDE.md "Startseite (Home-View)").
-            searchResults = try await client.fetchItems(search: search)
-        } catch {
-            if GoldfishClient.isAuthError(error) {
-                client.markSessionInvalid()
-                return
-            }
-            searchResults = []
-        }
-    }
-
-    /// Ersetzt die normalen Home-Streifen, solange eine Suche aktiv ist. Fokus-Fix
-    /// wie in `ItemGridView` (User-Report: "Man kommt mit dem Cursor nicht hin" —
-    /// ohne den Fix bleibt der Fokus nach dem Sheet-Dismiss auf dem 🔍-Button
-    /// hängen; ein erster Versuch mit `.prefersDefaultFocus`+`.id()` brach die
-    /// Fokussierbarkeit sogar komplett, sobald es 2+ Treffer gab).
-    private var tvSearchResultsView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("\(searchResults.count) Treffer")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-
-                if isSearching && searchResults.isEmpty {
-                    ProgressView().padding(.top, 40)
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 220), spacing: 48, alignment: .top)], spacing: 48) {
-                        ForEach(searchResults) { item in
-                            ItemCard(item: item, width: 220, queue: searchResults)
-                                .frame(width: 220)
-                                .focused($focusedSearchResultID, equals: item.id)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 24)
-                }
-            }
-            .padding(.top, 68)
-            .padding(.bottom, 16)
-        }
-    }
-    #endif
 }
 
 /// Eine Kachel-Reihe MIT groß-fetter Überschrift, im selben Stil wie ein

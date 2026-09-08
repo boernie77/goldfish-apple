@@ -133,7 +133,13 @@ struct DownloadsView: View {
                     }
                 }
             }
+            // User-Report 2026-09-08: gleiches Muster wie in ItemGridView — die native,
+            // blasse, fixe `.navigationTitle`-Zeile soll auf tvOS weg.
+            #if os(tvOS)
+            .navigationTitle("")
+            #else
             .navigationTitle("Downloads")
+            #endif
             .navigationDestination(for: ItemNavTarget.self) { target in
                 ItemDetailView(item: target.item, queue: target.queue)
             }

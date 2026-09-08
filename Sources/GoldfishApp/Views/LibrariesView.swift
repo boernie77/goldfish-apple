@@ -188,7 +188,13 @@ struct LibrariesView: View {
                     }
                 }
             }
+            // User-Report 2026-09-08: gleiches Muster wie ItemGridView/DownloadsView —
+            // native, blasse, fixe `.navigationTitle`-Zeile auf tvOS entfernt.
+            #if os(tvOS)
+            .navigationTitle("")
+            #else
             .navigationTitle("Bibliotheken")
+            #endif
             // tvOS-Fix 2026-09-03 (User-Report: Toolbar-Buttons "funktionieren auch
             // nicht" + Text wird abgeschnitten, z. B. "Z...lig"): `ToolbarItemGroup`
             // quetscht auf tvOS mehrere Buttons in zu schmale Pillen, UND die

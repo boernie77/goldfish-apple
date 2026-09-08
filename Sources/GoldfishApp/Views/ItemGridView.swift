@@ -16,6 +16,9 @@ struct ItemGridView: View {
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var shuffleScope: ShuffleScope
+    #if os(tvOS)
+    @EnvironmentObject var lastLibraryContext: LastLibraryContext
+    #endif
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -63,24 +66,6 @@ struct ItemGridView: View {
     #if os(tvOS)
     @State private var showTVSortSheet = false
     @State private var showTVFilterSheet = false
-    // User-Anfrage 2026-09-04: "Was übrigens auch noch fehlt, ist ein Suchfeld" —
-    // `.searchable(text:)` lief bisher nur auf iOS, macOS hat sein eigenes
-    // Toolbar-TextField (siehe Kommentar dort), tvOS hatte GAR KEINEN Einstieg.
-    // Gleiches Sheet-statt-Menü-Muster wie Sortieren/Filter.
-    @State private var showTVSearchSheet = false
-    // User-Anfrage 2026-09-04 (Folge-Report: "Suchergebnisse kann ich leider nicht
-    // auswählen. Man kommt mit dem Cursor nicht hin"): nach Sheet-Dismiss bleibt der
-    // native tvOS-Fokus auf dem 🔍-Toolbar-Button hängen, weil sich der GRID-INHALT
-    // ändert, aber die GRID-VIEW SELBST nicht neu erscheint (kein automatischer
-    // Default-Fokus-Lauf).
-    // ERSTER Fixversuch (`.id(searchReloadToken)` + `.prefersDefaultFocus`) hatte
-    // einen neuen Bug: bei genau 1 Treffer funktionierte die Auswahl, ab 2+ Treffern
-    // ließ sich GAR KEINE Kachel mehr fokussieren (User-Report). Vermutlich bricht
-    // `.prefersDefaultFocus` in Kombination mit `.id()`-Neuerzeugung bei mehreren
-    // Kandidaten die Fokus-Auflösung komplett, statt nur den "falschen" Standard zu
-    // wählen. Fix: expliziter `@FocusState` + verzögerte Zuweisung (`Task.yield()`)
-    // — dasselbe bereits bewährte Muster wie beim Play/Pause-Refokus im Player
-    // (siehe `PlayerView.resetAutoHide()`).
     @FocusState private var focusedCardID: AnyHashable?
     #endif
 
@@ -141,6 +126,46 @@ struct ItemGridView: View {
     #else
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
+    #endif
+
+    #if os(tvOS)
+    // User-Report 2026-09-08: die Such-/Zufall-/Sortier-/Filter-Buttons saßen bisher im
+    // nativen `.toolbar` (siehe unten in `body`) — das bleibt beim Scrollen auf tvOS
+    // grundsätzlich fix stehen, während der Titel daneben (Teil des ScrollView-Inhalts)
+    // normal mitscrollte. Der Mismatch ließ die Buttons zunehmend auf den hochscrollenden
+    // Kacheln "liegen". Jetzt eigene Zeile NEBEN dem Titel, damit alles gemeinsam
+    // wegscrollt. Icon-only wie zuvor im Toolbar (Text wurde dort von
+    // `ToolbarItemGroup`s Kompression abgeschnitten, siehe historischer Kommentar bei
+    // `playRandom()`-Button weiter unten in `body`).
+    @ViewBuilder
+    private var tvActionRow: some View {
+        HStack(spacing: 20) {
+            // User-Wunsch 2026-09-08: eigener Such-Button hier entfernt — der neue,
+            // library-gescopte "Suche"-Tab (siehe `SearchTabView`) ist von überall aus
+            // erreichbar und macht ihn überflüssig.
+            Button {
+                Task { await playRandom() }
+            } label: {
+                if isLoadingRandom {
+                    ProgressView()
+                } else {
+                    Image(systemName: "shuffle")
+                }
+            }
+            .disabled(isLoadingRandom)
+            Button {
+                showTVSortSheet = true
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+            Button {
+                showTVFilterSheet = true
+            } label: {
+                Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            }
+        }
+        .buttonStyle(.bordered)
+    }
     #endif
 
     /// Ausgelagert aus `body` — der große kombinierte ViewBuilder-Ausdruck brachte den
@@ -211,8 +236,19 @@ struct ItemGridView: View {
                             Text(showTotalSize && !items.isEmpty ? "(\(folders.count + items.count) · \(totalSizeLabel))" : "(\(folders.count + items.count))")
                                 .font(.title3)
                                 .foregroundStyle(.secondary)
+                            #if os(tvOS)
+                            Spacer()
+                            tvActionRow
+                            #endif
                         }
                         .padding(.horizontal)
+                        #if os(tvOS)
+                        // User-Report 2026-09-08: die neue Buttonreihe kollidierte mit der
+                        // rechts überlagerten AlphabetSidebar — gleicher Trailing-Wert wie
+                        // `itemGrid` (unten), der dafür schon existiert.
+                        .padding(.trailing, 28)
+                        .focusSection()
+                        #endif
 
                         // User-Anfrage 2026-08-19: "bei Such- oder Filterergebnissen will ich
                         // immer die Anzahl der Treffer sehen" — vorher nur bei Textsuche
@@ -258,7 +294,16 @@ struct ItemGridView: View {
             }
         }
         .onChange(of: folder) { _ in alphaFilter = nil }
+        #if os(tvOS)
+        // User-Report 2026-09-08: das native (blasse, zentrierte, fixe) `.navigationTitle`
+        // in der System-Leiste duplizierte den bereits links im ScrollView-Inhalt
+        // stehenden Bibliotheksnamen und wollte separat entfernt werden — leerer String
+        // statt kompletter Auslassung, damit tvOS die Zeile trotzdem korrekt reserviert
+        // (siehe Kommentar bei HomeView.swift .navigationTitle("") für dasselbe Muster).
+        .navigationTitle("")
+        #else
         .navigationTitle(folder?.components(separatedBy: "/").last ?? library.name)
+        #endif
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(item: item)
         }
@@ -303,43 +348,28 @@ struct ItemGridView: View {
                 .frame(width: 220)
             }
             #endif
+            // User-Report 2026-09-08: "Bibliotheksname und Buttons bleiben fix und liegen
+            // dann auf den Kacheln" — ein natives tvOS-`.toolbar` bleibt beim Scrollen
+            // grundsätzlich oben stehen (System-Verhalten, nicht abschaltbar), während der
+            // Titel darunter (im ScrollView-Inhalt) normal mitscrollt — dieser Mismatch
+            // erzeugte genau das gemeldete Überlappen. Fix: auf tvOS wandern Suche/Zufall/
+            // Sortieren/Filter komplett aus dem Toolbar RAUS in eine eigene Zeile NEBEN dem
+            // Titel (siehe `tvActionRow` weiter unten im `body`) — dort scrollen sie wie der
+            // Titel ganz normal mit dem restlichen Inhalt weg. Auf iOS/macOS unverändert im
+            // Toolbar (dort passt das native Pinning zum Rest der Plattform-Konventionen).
+            #if !os(tvOS)
             ToolbarItemGroup(placement: .primaryAction) {
-                #if os(tvOS)
-                Button {
-                    showTVSearchSheet = true
-                } label: {
-                    Image(systemName: search.isEmpty ? "magnifyingglass" : "magnifyingglass.circle.fill")
-                }
-                #endif
-
                 Button {
                     Task { await playRandom() }
                 } label: {
                     if isLoadingRandom {
                         ProgressView()
                     } else {
-                        // tvOS-Fix 2026-09-03, zweiter Anlauf (User-Report: Text blieb trotz
-                        // `.fixedSize()` abgeschnitten — "Z...lig" — UND der Button war dadurch
-                        // kaum noch zuverlässig treffbar/auslösbar). `ToolbarItemGroup`
-                        // komprimiert ihre Kinder auf tvOS offenbar so aggressiv, dass selbst
-                        // die erzwungene intrinsische Größe nicht half. Icon-only umgeht das
-                        // Problem komplett, statt weiter gegen die Kompression anzukämpfen.
-                        #if os(tvOS)
-                        Image(systemName: "shuffle")
-                        #else
                         Label("Zufällig", systemImage: "shuffle")
-                        #endif
                     }
                 }
                 .disabled(isLoadingRandom)
 
-                #if os(tvOS)
-                Button {
-                    showTVSortSheet = true
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                }
-                #else
                 Menu {
                     // Real bug hit 2026-08-19: a `Picker` nested inside a `Menu` renders as
                     // a native AppKit SUBMENU (its own panel, its own disclosure chevron) —
@@ -363,15 +393,7 @@ struct ItemGridView: View {
                 } label: {
                     Label("Sortieren", systemImage: "arrow.up.arrow.down")
                 }
-                #endif
 
-                #if os(tvOS)
-                Button {
-                    showTVFilterSheet = true
-                } label: {
-                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                }
-                #else
                 Menu {
                     ForEach(WatchedFilter.allCases) { option in
                         Button {
@@ -430,8 +452,8 @@ struct ItemGridView: View {
                 // nichts geändert (bzw. man musste raten, was gerade an/aus war). `.disabled`
                 // hält das Menü über mehrere Taps offen, exakt wie eine Checkbox-Liste.
                 .modernMenuStaysOpen()
-                #endif
             }
+            #endif
         }
         #if os(tvOS)
         .sheet(isPresented: $showTVSortSheet) {
@@ -440,11 +462,15 @@ struct ItemGridView: View {
         .sheet(isPresented: $showTVFilterSheet) {
             TVFilterSheet(watchedFilter: $watchedFilter, favoritesOnly: $favoritesOnly, selectedBuckets: $selectedBuckets, showTotalSize: $showTotalSize)
         }
-        .sheet(isPresented: $showTVSearchSheet) {
-            TVSearchSheet(search: $search)
-        }
         #endif
         .task { await load() }
+        #if os(tvOS)
+        // User-Wunsch 2026-09-08: die Suche (eigener Tab, siehe `SearchTabView`) soll sich
+        // auf die Bibliothek beziehen, aus der sie geöffnet wurde — jede `ItemGridView`-
+        // Instanz (Root UND Unterordner tragen dieselbe `library`) meldet sich hier als
+        // "zuletzt besuchte Bibliothek" an.
+        .onAppear { lastLibraryContext.update(libraryId: library.id, libraryName: library.name) }
+        #endif
         .onChange(of: search) { _ in
             Task {
                 await load()

@@ -9,6 +9,7 @@ struct RootView: View {
     @EnvironmentObject var localLibrary: LocalLibraryManager
     @EnvironmentObject var downloads: DownloadManager
     @EnvironmentObject var shuffleScope: ShuffleScope
+    @EnvironmentObject var lastLibraryContext: LastLibraryContext
     @Environment(\.scenePhase) private var scenePhase
     @State private var checkedSession = false
 
@@ -50,6 +51,7 @@ struct RootView: View {
             localLibrary.userDidChange()
             downloads.userDidChange()
             shuffleScope.userDidChange()
+            lastLibraryContext.clear()
             // Bugfix 2026-08-20: offline abgeschlossene Gesehen-Markierungen (siehe
             // DownloadManager.queuePendingWatchedSync-Kommentar) blieben bisher für immer
             // unsynced. Ein bestätigter Username-Wechsel ist ein zuverlässiges Signal "Netz
@@ -128,7 +130,14 @@ struct RootView: View {
 }
 
 private enum MainTab: Hashable {
-    case home, libraries, downloads, settings
+    // `search` nur auf tvOS als echter Tab genutzt (siehe `legacyTabView`) — User-Wunsch
+    // 2026-09-08: "links an Start anbauen", weil die native tvOS-Tab-Leiste für Links/
+    // Rechts ein geschlossenes System-Element ist (kein Fokus-Wechsel zu benachbarten
+    // eigenen Views möglich, nur Runter/Hoch in den Content) — ein eigener Tab ist damit
+    // der einzige Weg, den Button per Fernbedienung DIREKT von der Tab-Leiste aus mit
+    // Links/Rechts erreichbar zu machen. Auf iOS/macOS bleibt Suche wie bisher gelöst
+    // (`.searchable`/eigenes Toolbar-Textfeld in `ItemGridView`), kein zusätzlicher Tab dort.
+    case search, home, libraries, downloads, settings
 }
 
 struct MainTabView: View {
@@ -149,9 +158,11 @@ struct MainTabView: View {
     @State private var homePath = NavigationPath()
     @State private var downloadsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
+    @State private var searchPath = NavigationPath()
 
     private var isAtTabRoot: Bool {
         switch selectedTab {
+        case .search: return searchPath.isEmpty
         case .home: return homePath.isEmpty
         case .libraries: return librariesPath.isEmpty
         case .downloads: return downloadsPath.isEmpty
@@ -273,6 +284,16 @@ struct MainTabView: View {
 
     private var legacyTabView: some View {
         TabView(selection: tabSelection) {
+            #if os(tvOS)
+            // User-Wunsch 2026-09-08 (siehe `MainTab`-Kommentar): direkt per Links/Rechts
+            // von der Tab-Leiste erreichbarer Suchen-Tab, links von "Start". `selectedTab`
+            // bleibt beim Start trotzdem `.home` (siehe `@State private var selectedTab`
+            // oben) — dieser Tab existiert nur zusätzlich, verändert den Programmstart nicht.
+            SearchTabView(path: $searchPath)
+                .tabItem { Label("Suche", systemImage: "magnifyingglass") }
+                .tag(MainTab.search)
+            #endif
+
             HomeView(path: $homePath)
                 .tabItem { Label("Start", systemImage: "house") }
                 .tag(MainTab.home)
