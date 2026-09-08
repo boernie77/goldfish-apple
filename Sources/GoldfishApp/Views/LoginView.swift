@@ -126,6 +126,23 @@ struct LoginView: View {
             .buttonStyle(.borderless)
             .disabled(serverURLString.isEmpty || isLoading)
             #endif
+
+            // User-Anfrage 2026-09-08: Hinweis für Leute ohne eigenen Server (z. B.
+            // App-Store-Stöberer) — das Zahnrad-Menü mit Links etc. sieht man erst
+            // NACH dem Login, das setzt aber schon einen Server voraus. Die
+            // Login-Seite ist der einzige Screen, den garantiert auch jemand ohne
+            // Server sieht. tvOS hat keinen Browser zum Öffnen — dort nur als
+            // reiner Text, nicht antippbar (gleiche Konvention wie das fehlende
+            // SSO auf tvOS oben).
+            #if os(tvOS)
+            Text("Server-Software: github.com/boernie77/goldfish")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            #else
+            Link("Noch keinen Server? Mehr erfahren →", destination: URL(string: "https://github.com/boernie77/goldfish")!)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            #endif
         }
         .padding(40)
         // iPad-Fix 2026-09-03: ohne explizites Full-Screen-Frame hängt der Inhalt
