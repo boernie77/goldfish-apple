@@ -37,6 +37,15 @@ struct ItemGridView: View {
     // Extra-Logik. Gemeinsamer Schalter mit `LocalLibraryItemsView`
     // (`DisplaySettings.showTotalSizeKey`).
     @AppStorage(DisplaySettings.showTotalSizeKey) private var showTotalSize = true
+    // User-Report 2026-09-08: "im Apple TV werden oben weniger Filme angezeigt als auf
+    // dem Server" — Ursache war KEIN Datenverlust, sondern zwei unterschiedliche
+    // Zählweisen für denselben Header: der Browser zeigt dort die rohe, ungruppierte
+    // Server-Zahl (`GET /api/libraries/{id}/stats`, `views.js loadCount`), während dieser
+    // Header seit jeher die Anzahl der bereits per `groupVariants` zusammengefassten
+    // Kacheln zeigt (×N-Varianten-Filme → 1 Kachel). Nachfrage beim User (2026-09-08):
+    // die Kachel-/Filmanzahl ist die für ihn relevante Zahl, NICHT die rohe Dateizahl —
+    // bewusst so belassen (kein Fix nötig). Die rohe Dateizahl inkl. Varianten gehört in
+    // die Statistik-Übersicht (aktuell nur im Browser vorhanden, kein Apple-Client-Pendant).
     @State private var randomItem: Item?
     @State private var isLoadingRandom = false
     @State private var randomError: String?

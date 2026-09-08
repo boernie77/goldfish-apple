@@ -360,38 +360,64 @@ struct PlayerView: View {
                 if player != nil {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            if let currentResolutionLabel {
-                                Text(currentResolutionLabel)
-                                    #if os(tvOS)
-                                    .font(.title3.bold())
-                                    #else
-                                    .font(.caption2.bold())
-                                    #endif
-                            }
+                            // tvOS-Fix 2026-09-08 (User-Feedback nach dem ersten Größen-Fix:
+                            // Titel soll oben stehen, Auflösung darunter statt darüber) —
+                            // Reihenfolge gegenüber vorher getauscht (Titel zuerst).
                             Text(item.displayTitle)
                                 #if os(tvOS)
                                 // tvOS-Fix 2026-09-04 (User-Report: Titel zu klein für die
                                 // Fenstergröße): `.caption2` bleibt selbst mit tvOS' größeren
                                 // Standard-Textstilen winzig auf einem 4K-Bildschirm — hier
                                 // explizit größer.
-                                .font(.title.bold())
+                                // tvOS-Fix 2026-09-08 (User-Report: jetzt zu groß, Titel wird
+                                // abgeschnitten): .title.bold() ≈ 76pt → 38pt (halbiert),
+                                // zusammen mit der verbreiterten Frame unten passt der
+                                // komplette Titel jetzt i. d. R. ohne Abschneiden. Größe vom
+                                // User bestätigt (passt), nicht mehr angefasst.
+                                .font(.system(size: 38, weight: .bold))
                                 #else
                                 .font(.caption2)
                                 #endif
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                            if let currentResolutionLabel {
+                                Text(currentResolutionLabel)
+                                    #if os(tvOS)
+                                    // tvOS-Fix 2026-09-08: erst auf 20pt halbiert, User wollte
+                                    // sie dann doch etwas größer — 25pt.
+                                    .font(.system(size: 25, weight: .bold))
+                                    #else
+                                    .font(.caption2.bold())
+                                    #endif
+                            }
                         }
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.6), radius: 3)
                         #if os(tvOS)
-                        .frame(maxWidth: 700, alignment: .leading)
+                        // War 700pt bei .title-Schriftgröße; mit der kleineren Schrift (s.o.)
+                        // passen jetzt spürbar längere Titel hinein, bevor lineLimit(1)
+                        // abschneidet — auf 1100pt verbreitert (Bildschirm ist 1920pt breit,
+                        // bleibt weit weg vom rechten Rand/den Steuerelementen).
+                        .frame(maxWidth: 1100, alignment: .leading)
                         #else
                         .frame(maxWidth: 320, alignment: .leading)
                         #endif
                         Spacer()
                     }
+                    #if os(tvOS)
+                    // tvOS-Fixe 2026-09-08 (User-Feedback in mehreren Runden): Block 20pt
+                    // weiter nach rechts (leading 20→40) und näher an den oberen Rand, aber
+                    // nicht zu hoch — exakt ~50pt vom echten Bildschirmrand. Ohne
+                    // `.ignoresSafeArea()` reserviert tvOS hier automatisch einen deutlich
+                    // größeren Overscan-Sicherheitsabstand VOR dem Padding — der optische
+                    // Gesamtabstand wäre damit spürbar mehr als die angegebenen 50pt.
+                    .padding(.leading, 40)
+                    .padding(.top, 50)
+                    .ignoresSafeArea()
+                    #else
                     .padding(.leading, 20)
                     .padding(.top, 28)
+                    #endif
                 } else {
                     Color.clear.frame(height: 1).padding(.top, 28)
                 }
