@@ -34,45 +34,64 @@ struct AlphabetSidebar: View {
     #endif
 
     private var letterStack: some View {
-        VStack(spacing: 1) {
+        #if os(tvOS)
+        VStack(spacing: 6) {
             ForEach(Self.letters, id: \.self) { letter in
-                Button {
-                    selected = (selected == letter) ? nil : letter
-                } label: {
-                    Text(letter)
-                        .font(letterFont)
-                        #if os(tvOS)
-                        .frame(width: letterSize, height: letterSize)
-                        .foregroundStyle(selected == letter ? Color.white : Color.secondary)
-                        // 🔴→✅ Bug, zweiter Anlauf (User-Report 2026-09-09: "immer noch
-                        // eckig!!", eigener Verdacht: "ist er eigentlich rund, aber die Seiten
-                        // sind durch unsichtbare Grenzen abgeschnitten?"): Verdacht bestätigt
-                        // sich strukturell — ein reiner `.background(_, in: Circle())` malt
-                        // nur eine Kreis-FÜLLUNG hinter den Text, CLIPPT aber nichts. tvOS'
-                        // `.plain`-Button-Stil zeichnet zusätzlich eigenes System-Chrome
-                        // (typischerweise ein rechteckiger Fokus-/Card-Hintergrund) UNTER oder
-                        // NEBEN dem eigenen Hintergrund, das die runden Seiten optisch
-                        // verdeckt/eckig aussehen lässt. Fix: `.clipShape(Circle())` zwingt
-                        // die GESAMTE Button-Silhouette (inkl. jedem System-Chrome) auf einen
-                        // Kreis, plus `.buttonBorderShape(.circle)` am Button selbst, damit
-                        // tvOS gar nicht erst versucht, eine rechteckige Fokus-Box zu zeichnen.
-                        .background(selected == letter ? Color.accentColor : Color.clear, in: Circle())
-                        .clipShape(Circle())
-                        #else
-                        .frame(width: letterWidth, height: letterHeight)
-                        .foregroundStyle(selected == letter ? Color.white : Color.secondary)
-                        .background(selected == letter ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 3))
-                        #endif
-                }
-                .buttonStyle(.plain)
-                #if os(tvOS)
-                .buttonBorderShape(.circle)
-                .focusEffectDisabled()
-                #endif
+                letterButton(letter)
             }
         }
         .padding(.vertical, 6)
+        #else
+        VStack(spacing: 1) {
+            ForEach(Self.letters, id: \.self) { letter in
+                letterButton(letter)
+            }
+        }
+        .padding(.vertical, 6)
+        #endif
     }
+
+    #if os(tvOS)
+    // 🔴→✅ Bug, dritter Anlauf (User-Report 2026-09-09: "immer noch abgeschnitten" — trotz
+    // .clipShape(Circle()) auf dem TEXT innerhalb des Buttons). Der Text-interne
+    // .clipShape wirkt nur auf den Text selbst, NICHT auf das, was der `.plain`-Button-Stil
+    // rundherum an eigenem Layout/Interaktionsbereich aufspannt. Fix: `.frame`/
+    // `.background`/`.clipShape` jetzt AUSSERHALB, auf dem kompletten Button angewendet
+    // (nicht mehr im Label) — damit ist die GESAMTE Button-Fläche, exakt in der
+    // letterSize×letterSize-Box, auf einen Kreis geclippt, kein Rest kann mehr überstehen
+    // oder als eckige Kante durchscheinen. `.contentShape(Circle())` sorgt zusätzlich dafür,
+    // dass auch der Fokus-/Trefferbereich rund ist, nicht nur die Optik. Spacing 1→6, damit
+    // benachbarte Kreise nicht aneinanderstoßen (bei 1pt Abstand berühren sich zwei 32pt-
+    // Kreise fast, was rund UND eckig zugleich aussehen lassen kann).
+    private func letterButton(_ letter: String) -> some View {
+        Button {
+            selected = (selected == letter) ? nil : letter
+        } label: {
+            Text(letter)
+                .font(letterFont)
+                .foregroundStyle(selected == letter ? Color.white : Color.secondary)
+        }
+        .frame(width: letterSize, height: letterSize)
+        .background(selected == letter ? Color.accentColor : Color.clear, in: Circle())
+        .clipShape(Circle())
+        .contentShape(Circle())
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+    }
+    #else
+    private func letterButton(_ letter: String) -> some View {
+        Button {
+            selected = (selected == letter) ? nil : letter
+        } label: {
+            Text(letter)
+                .font(letterFont)
+                .frame(width: letterWidth, height: letterHeight)
+                .foregroundStyle(selected == letter ? Color.white : Color.secondary)
+                .background(selected == letter ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 
     var body: some View {
         // 🔴→✅ tvOS-Bug (User-Report 2026-09-09, nach dem 36pt-Größen-Update: "Leiste ist
