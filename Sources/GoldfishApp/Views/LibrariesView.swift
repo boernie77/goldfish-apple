@@ -13,31 +13,16 @@ enum LibraryDestination: Hashable {
     case playlists
 }
 
-/// 🔴→✅ tvOS-Bug (User-Report 2026-09-08, per Diagnose-Build am echten Gerät bestätigt):
-/// "in einer Bibliothek hoch zur Tab-Leiste, 'Bibliotheken' ist schon markiert, trotzdem
-/// draufgedrückt → landet auf erster Kachel der noch offenen Bibliothek statt auf der
-/// Bibliotheksübersicht." Der bestehende Reset-Mechanismus (`librariesPath = NavigationPath()`
-/// im `tabSelection`-Binding-Setter in RootView.swift) setzt voraus, dass ein Reselect des
-/// BEREITS aktiven Tabs den Setter überhaupt aufruft — ein Diagnose-Zähler live im Bild hat
-/// bestätigt, dass das auf tvOS NICHT passiert (der Setter feuert nie, wenn der Tab schon
-/// aktiv ist; vermutlich unterdrückt tvOS' `UITabBarController`-Brücke Reselektions-Events,
-/// bevor sie SwiftUIs Binding erreichen — auf iOS/macOS, wo der ursprüngliche 2026-08-18-Fix
-/// entstand, war das nie ein Problem, weil dort ein echter Tap immer ein neues Ereignis ist).
-/// Da sich das auf reiner SwiftUI-Ebene nicht zuverlässig abfangen lässt, bekommt jede von
-/// `LibrariesView` erreichte Detail-Ansicht stattdessen per Environment einen direkten
-/// "zurück zur Übersicht"-Callback (statt durch jeden verschachtelten Init durchzureichen,
-/// z. B. rekursive Ordner-Navigation in `ItemGridView`) — auf tvOS als sichtbarer Button in
-/// der jeweiligen Content-Zeile (siehe `ItemGridView.tvActionRow`).
-private struct BackToLibrariesOverviewKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
-}
-
-extension EnvironmentValues {
-    var backToLibrariesOverview: () -> Void {
-        get { self[BackToLibrariesOverviewKey.self] }
-        set { self[BackToLibrariesOverviewKey.self] = newValue }
-    }
-}
+// 🔴 tvOS-Bug (User-Report 2026-09-08): "in einer Bibliothek hoch zur Tab-Leiste,
+// 'Bibliotheken' ist schon markiert, trotzdem draufgedrückt → landet auf erster Kachel
+// der noch offenen Bibliothek statt auf der Bibliotheksübersicht." Bestätigte
+// Plattformgrenze (tvOS' TabView feuert den Reselect-Event beim bereits aktiven Tab
+// nachweislich nie, Diagnose-Zähler live im Bild bestätigt). Ein Ersatz-Button dafür
+// (Environment-Callback + sichtbarer Button in ItemGridView.tvActionRow) wurde versucht,
+// hat den Fokus auf tvOS aber nicht zuverlässig getroffen ("funktioniert nicht") —
+// User-Entscheid 2026-09-09: wieder komplett entfernt, die normale Zurück-Taste des
+// Remotes reicht aus. NICHT erneut versuchen, ohne einen neuen, tatsächlich am Gerät
+// verifizierten Ansatz zu haben.
 
 struct LibrariesView: View {
     /// Bound from `MainTabView` and reset to empty every time the "Bibliotheken"-Tab is
@@ -214,7 +199,6 @@ struct LibrariesView: View {
                     }
                 }
             }
-            .environment(\.backToLibrariesOverview) { path = NavigationPath() }
             // User-Report 2026-09-08: gleiches Muster wie ItemGridView/DownloadsView —
             // native, blasse, fixe `.navigationTitle`-Zeile auf tvOS entfernt.
             #if os(tvOS)

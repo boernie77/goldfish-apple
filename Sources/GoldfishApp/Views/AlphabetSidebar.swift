@@ -43,11 +43,22 @@ struct AlphabetSidebar: View {
                         .font(letterFont)
                         #if os(tvOS)
                         .frame(width: letterSize, height: letterSize)
+                        .foregroundStyle(selected == letter ? Color.white : Color.secondary)
+                        // 🔴→✅ Bug (User-Report 2026-09-09: "Auswahlbereich ist nun plötzlich
+                        // eckig!! ... war die ganze Zeit rund"): war technisch nie ein Kreis,
+                        // sondern immer eine `RoundedRectangle(cornerRadius: 3)` — bei der
+                        // kleinen Alt-Größe wirkte das runde Ecken/pillenförmig genug, um als
+                        // "rund" wahrgenommen zu werden. Bei den neuen 36pt sieht derselbe
+                        // absolute 3pt-Radius sichtbar eckig aus. Echter `Circle()` bei
+                        // quadratischer Box (letterSize×letterSize) statt größenabhängiger
+                        // Notlösung — bleibt automatisch rund, egal welche letterSize künftig
+                        // gewählt wird.
+                        .background(selected == letter ? Color.accentColor : Color.clear, in: Circle())
                         #else
                         .frame(width: letterWidth, height: letterHeight)
-                        #endif
                         .foregroundStyle(selected == letter ? Color.white : Color.secondary)
                         .background(selected == letter ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+                        #endif
                 }
                 .buttonStyle(.plain)
                 #if os(tvOS)

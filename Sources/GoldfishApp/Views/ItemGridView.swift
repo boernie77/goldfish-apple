@@ -18,7 +18,6 @@ struct ItemGridView: View {
     @EnvironmentObject var shuffleScope: ShuffleScope
     #if os(tvOS)
     @EnvironmentObject var lastLibraryContext: LastLibraryContext
-    @Environment(\.backToLibrariesOverview) private var backToLibrariesOverview
     #endif
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -141,24 +140,13 @@ struct ItemGridView: View {
     @ViewBuilder
     private var tvActionRow: some View {
         HStack(spacing: 20) {
-            // 🔴→✅ tvOS-Bug (User-Report 2026-09-08): Hoch zur Tab-Leiste navigieren und
-            // das schon aktive "Bibliotheken" nochmal drücken sollte zur Bibliotheksübersicht
-            // zurückspringen — landete stattdessen auf der ersten Kachel der noch offenen
-            // Bibliothek. Live-Diagnose (sichtbarer Zähler im Bild) bestätigte: tvOS' TabView
-            // feuert beim Reselect eines bereits aktiven Tabs den Binding-Setter GAR NICHT
-            // (siehe `LibrariesView.BackToLibrariesOverviewKey`-Kommentar für Details) — auf
-            // reiner SwiftUI-TabView-Ebene nicht abfangbar, die alte Geste (Tab-Leiste
-            // hoch, "Bibliotheken" nochmal drücken) bleibt daher IMMER wirkungslos, das ist
-            // eine Plattformgrenze, kein Bug mehr in diesem Code. Eigener, garantiert
-            // zuverlässiger Button hier als ERSATZ für die alte Geste — bewusst MIT Text-
-            // Label (User-Report 2026-09-09: reiner Icon-Button ging in der Reihe unter,
-            // wurde nicht als "das ist jetzt der neue Weg" erkannt), anders als die
-            // übrigen reinen Icon-Buttons rechts daneben.
-            Button {
-                backToLibrariesOverview()
-            } label: {
-                Label("Übersicht", systemImage: "books.vertical")
-            }
+            // 🔴→✅ tvOS-Bug (User-Report 2026-09-08, Versuch aufgegeben 2026-09-09):
+            // Hoch zur Tab-Leiste navigieren und das schon aktive "Bibliotheken" nochmal
+            // drücken sollte zur Bibliotheksübersicht zurückspringen — tvOS' TabView feuert
+            // den Reselect-Event aber nachweislich nie (bestätigte Plattformgrenze). Ein
+            // eigener Ersatz-Button hier (📚 "Übersicht") hat den Fokus/die Navigation auf
+            // tvOS nicht zuverlässig genug getroffen ("funktioniert nicht") — User-Entscheid:
+            // wieder entfernt, die normale Zurück-Taste des Remotes reicht aus.
             // User-Wunsch 2026-09-08: eigener Such-Button hier entfernt — der neue,
             // library-gescopte "Suche"-Tab (siehe `SearchTabView`) ist von überall aus
             // erreichbar und macht ihn überflüssig.
