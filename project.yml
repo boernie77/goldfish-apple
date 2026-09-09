@@ -221,8 +221,16 @@ targets:
         # Build 6 (2026-09-08): Sammlungen-Suchfeld war über die Siri-Remote
         # nicht fokussierbar -- fuer tvOS durch eine rechte Buchstabenleiste
         # ersetzt (CollectionsView.swift), macOS/iOS unveraendert.
+        # Build 7 (2026-09-09): Buchstabenleisten-Groessen vereinheitlicht
+        # (Sammlungen vs. Filme/Serien/Bluray, AlphabetSidebar.swift) +
+        # "Bibliotheken"-Tab-Reselect-Workaround (tvOS ruft den Reset-Binding
+        # beim Draufdruecken eines bereits aktiven Tabs nachweislich nicht auf
+        # -- eigener zuverlaessiger Button in ItemGridView.tvActionRow statt).
+        # Erste echte App-Store-Distribution-Einreichung dieses Builds (nicht
+        # nur Geraete-Test) -- ersetzt Build 4, das wegen Guideline 5.2.5
+        # (Markenbegriff "Apple TV" im Untertitel) abgelehnt wurde.
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "6"
+        CFBundleVersion: "7"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos

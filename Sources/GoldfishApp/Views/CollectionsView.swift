@@ -36,13 +36,49 @@ struct CollectionsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            content
-            #if os(tvOS)
-            if !isLoading && errorMessage == nil && !collections.isEmpty {
-                AlphabetSidebar(selected: $alphaFilter)
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if let errorMessage {
+                ContentUnavailableMessage(text: errorMessage)
+            } else if collections.isEmpty {
+                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
+            } else if filteredCollections.isEmpty {
+                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(filteredCollections) { collection in
+                            NavigationLink(value: collection) {
+                                CollectionCard(collection: collection)
+                                    .frame(width: cardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .focusableCompat(false)
+                        }
+                    }
+                    .padding()
+                    // 🔴→✅ Bug (User-Report 2026-09-08, Apple TV): Buchstabenleiste war als
+                    // simpler HStack-Nachbar eingebaut statt wie in ItemGridView als
+                    // .overlay(trailing) AUF der ScrollView — dadurch (a) kein automatisches
+                    // Scrollen der tvOS-Fokus-Engine beim Runterspringen (man kam nur bis
+                    // zum letzten sichtbaren Buchstaben) und (b) kein extra Trailing-Abstand,
+                    // Kacheln saßen zu nah an der Leiste. Fix: exakt dasselbe Muster wie dort
+                    // übernommen (siehe ItemGridView.itemGrid-Kommentar).
+                    #if os(tvOS)
+                    .padding(.trailing, 40)
+                    .focusSection()
+                    #endif
+                }
+                #if os(tvOS)
+                .overlay(alignment: .trailing) {
+                    AlphabetSidebar(selected: $alphaFilter)
+                        .padding(.trailing, 4)
+                        .offset(y: 40)
+                        .focusSection()
+                }
+                #endif
             }
-            #endif
         }
         .navigationTitle("Sammlungen")
         .navigationDestination(for: Collection.self) { collection in
@@ -81,35 +117,6 @@ struct CollectionsView: View {
         #endif
         .task { await load() }
         .refreshable { await load() }
-    }
-
-    private var content: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-            } else if let errorMessage {
-                ContentUnavailableMessage(text: errorMessage)
-            } else if collections.isEmpty {
-                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
-            } else if filteredCollections.isEmpty {
-                ContentUnavailableMessage(text: "Keine Sammlungen gefunden.")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(filteredCollections) { collection in
-                            NavigationLink(value: collection) {
-                                CollectionCard(collection: collection)
-                                    .frame(width: cardWidth)
-                            }
-                            .buttonStyle(.plain)
-                            .focusableCompat(false)
-                        }
-                    }
-                    .padding()
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func load() async {

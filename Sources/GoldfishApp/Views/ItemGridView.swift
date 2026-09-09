@@ -18,6 +18,7 @@ struct ItemGridView: View {
     @EnvironmentObject var shuffleScope: ShuffleScope
     #if os(tvOS)
     @EnvironmentObject var lastLibraryContext: LastLibraryContext
+    @Environment(\.backToLibrariesOverview) private var backToLibrariesOverview
     #endif
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -140,6 +141,19 @@ struct ItemGridView: View {
     @ViewBuilder
     private var tvActionRow: some View {
         HStack(spacing: 20) {
+            // 🔴→✅ tvOS-Bug (User-Report 2026-09-08): Hoch zur Tab-Leiste navigieren und
+            // das schon aktive "Bibliotheken" nochmal drücken sollte zur Bibliotheksübersicht
+            // zurückspringen — landete stattdessen auf der ersten Kachel der noch offenen
+            // Bibliothek. Live-Diagnose (sichtbarer Zähler im Bild) bestätigte: tvOS' TabView
+            // feuert beim Reselect eines bereits aktiven Tabs den Binding-Setter GAR NICHT
+            // (siehe `LibrariesView.BackToLibrariesOverviewKey`-Kommentar für Details) — auf
+            // reiner SwiftUI-TabView-Ebene nicht abfangbar. Eigener, garantiert
+            // zuverlässiger Button hier als Ersatz.
+            Button {
+                backToLibrariesOverview()
+            } label: {
+                Image(systemName: "books.vertical")
+            }
             // User-Wunsch 2026-09-08: eigener Such-Button hier entfernt — der neue,
             // library-gescopte "Suche"-Tab (siehe `SearchTabView`) ist von überall aus
             // erreichbar und macht ihn überflüssig.
@@ -246,7 +260,7 @@ struct ItemGridView: View {
                         // User-Report 2026-09-08: die neue Buttonreihe kollidierte mit der
                         // rechts überlagerten AlphabetSidebar — gleicher Trailing-Wert wie
                         // `itemGrid` (unten), der dafür schon existiert.
-                        .padding(.trailing, 28)
+                        .padding(.trailing, 40)
                         .focusSection()
                         #endif
 
@@ -264,7 +278,7 @@ struct ItemGridView: View {
 
                         itemGrid
                             .padding(.horizontal)
-                            .padding(.trailing, 28)
+                            .padding(.trailing, 40)
                             // tvOS-Fix 2026-09-03: siehe LibrariesView-Kommentar — extra
                             // Abstand, damit der Fokusrahmen der ersten Kachelreihe nicht
                             // oben von der ScrollView abgeschnitten wird.

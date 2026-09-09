@@ -248,7 +248,21 @@ struct MainTabView: View {
     // Gemeinsame Selection-Logik für beide TabView-Varianten: Wechsel zur Bibliotheken-Tab
     // setzt deren NavigationPath zurück (siehe LibrariesView-Doc-Kommentar) — ein simpler
     // `@State` + `.onChange` würde das erneute Antippen des schon aktiven Tabs verpassen,
-    // ein custom `Binding`-Setter feuert dagegen bei JEDEM Tap, auch auf den aktiven Tab.
+    // ein custom `Binding`-Setter feuert dagegen bei JEDEM Tap, auch auf den aktiven Tab —
+    // **stimmt nachweislich nur für iOS/macOS.** User-Report 2026-09-08 (Apple TV): innerhalb
+    // einer geöffneten Bibliothek zur Tab-Leiste hochnavigiert (dort ist "Bibliotheken" schon
+    // als aktiver Tab markiert) und trotzdem draufgedrückt landete NICHT auf der
+    // Bibliotheksübersicht, sondern auf der ersten Kachel der noch offenen Bibliothek. Per
+    // sichtbarem Live-Zähler im Bild verifiziert: dieser Setter wird beim Reselect eines
+    // bereits aktiven Tabs auf tvOS GAR NICHT aufgerufen (0 Aufrufe trotz reproduziertem Bug)
+    // — tvOS' `TabView` ist über `UITabBarController` gebrückt, diese Brücke unterdrückt
+    // Reselektions-Events offenbar, bevor sie SwiftUIs Binding erreichen. Auf reiner
+    // TabView-Ebene nicht behebbar — der eigentliche Fix ist deshalb NICHT hier, sondern ein
+    // eigener, garantiert zuverlässiger Button direkt im Content (siehe
+    // `LibrariesView.backToLibrariesOverview`-Environment-Value + `ItemGridView.tvActionRow`).
+    // Dieser Mechanismus bleibt trotzdem bestehen — er deckt weiterhin den ECHTEN Tab-Wechsel
+    // (Home→Bibliotheken o. ä.) auf allen Plattformen ab, nur das tvOS-Reselect-Sonderfall
+    // braucht den zusätzlichen Button.
     private var tabSelection: Binding<MainTab> {
         Binding(
             get: { selectedTab },
