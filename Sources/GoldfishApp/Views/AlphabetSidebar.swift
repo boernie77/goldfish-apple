@@ -33,7 +33,7 @@ struct AlphabetSidebar: View {
     private let letterWidth: CGFloat = 16
     #endif
 
-    var body: some View {
+    private var letterStack: some View {
         VStack(spacing: 1) {
             ForEach(Self.letters, id: \.self) { letter in
                 Button {
@@ -56,8 +56,31 @@ struct AlphabetSidebar: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    var body: some View {
+        // 🔴→✅ tvOS-Bug (User-Report 2026-09-09, nach dem 36pt-Größen-Update: "Leiste ist
+        // immer noch fix, kommt nicht bis zum Z"): 27 Buchstaben à 36pt ergeben eine ~1000pt
+        // hohe Säule — deutlich höher als der sichtbare Bildschirmbereich. Die Leiste war
+        // bisher ein reiner VStack OHNE ScrollView — ein VStack kann grundsätzlich nicht
+        // scrollen, unabhängig davon, ob er als .overlay() auf einer fremden ScrollView sitzt
+        // (der vorherige "gleiches Muster wie ItemGridView übernommen"-Fix half deshalb
+        // nichts: ItemGridView hatte bei der alten, kleineren 26pt-Größe schlicht nie einen
+        // echten Overflow, der Fokus-Auto-Scroll wurde also nie gebraucht/getestet). Fix:
+        // echte `ScrollView` um die Buchstaben-Buttons — tvOS' Fokus-Engine scrollt
+        // INNERHALB einer echten ScrollView zuverlässig zum fokussierten Kind, das
+        // funktioniert unabhängig davon, wie die ScrollView selbst im Elternbaum sitzt.
+        #if os(tvOS)
+        ScrollView(.vertical, showsIndicators: false) {
+            letterStack
+        }
         .padding(.horizontal, 3)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        #else
+        letterStack
+            .padding(.horizontal, 3)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        #endif
     }
 
     /// Prüft, ob `title` zum gewählten Buchstaben passt — nil-`selected` heißt "kein Filter".

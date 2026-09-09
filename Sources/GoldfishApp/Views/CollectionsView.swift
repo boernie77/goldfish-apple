@@ -66,7 +66,7 @@ struct CollectionsView: View {
                     // Kacheln saßen zu nah an der Leiste. Fix: exakt dasselbe Muster wie dort
                     // übernommen (siehe ItemGridView.itemGrid-Kommentar).
                     #if os(tvOS)
-                    .padding(.trailing, 40)
+                    .padding(.trailing, 60)
                     .focusSection()
                     #endif
                 }

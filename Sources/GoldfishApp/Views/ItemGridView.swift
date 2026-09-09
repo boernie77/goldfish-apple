@@ -147,12 +147,17 @@ struct ItemGridView: View {
             // Bibliothek. Live-Diagnose (sichtbarer Zähler im Bild) bestätigte: tvOS' TabView
             // feuert beim Reselect eines bereits aktiven Tabs den Binding-Setter GAR NICHT
             // (siehe `LibrariesView.BackToLibrariesOverviewKey`-Kommentar für Details) — auf
-            // reiner SwiftUI-TabView-Ebene nicht abfangbar. Eigener, garantiert
-            // zuverlässiger Button hier als Ersatz.
+            // reiner SwiftUI-TabView-Ebene nicht abfangbar, die alte Geste (Tab-Leiste
+            // hoch, "Bibliotheken" nochmal drücken) bleibt daher IMMER wirkungslos, das ist
+            // eine Plattformgrenze, kein Bug mehr in diesem Code. Eigener, garantiert
+            // zuverlässiger Button hier als ERSATZ für die alte Geste — bewusst MIT Text-
+            // Label (User-Report 2026-09-09: reiner Icon-Button ging in der Reihe unter,
+            // wurde nicht als "das ist jetzt der neue Weg" erkannt), anders als die
+            // übrigen reinen Icon-Buttons rechts daneben.
             Button {
                 backToLibrariesOverview()
             } label: {
-                Image(systemName: "books.vertical")
+                Label("Übersicht", systemImage: "books.vertical")
             }
             // User-Wunsch 2026-09-08: eigener Such-Button hier entfernt — der neue,
             // library-gescopte "Suche"-Tab (siehe `SearchTabView`) ist von überall aus
@@ -260,7 +265,7 @@ struct ItemGridView: View {
                         // User-Report 2026-09-08: die neue Buttonreihe kollidierte mit der
                         // rechts überlagerten AlphabetSidebar — gleicher Trailing-Wert wie
                         // `itemGrid` (unten), der dafür schon existiert.
-                        .padding(.trailing, 40)
+                        .padding(.trailing, 60)
                         .focusSection()
                         #endif
 
@@ -278,7 +283,7 @@ struct ItemGridView: View {
 
                         itemGrid
                             .padding(.horizontal)
-                            .padding(.trailing, 40)
+                            .padding(.trailing, 60)
                             // tvOS-Fix 2026-09-03: siehe LibrariesView-Kommentar — extra
                             // Abstand, damit der Fokusrahmen der ersten Kachelreihe nicht
                             // oben von der ScrollView abgeschnitten wird.
