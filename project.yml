@@ -229,8 +229,15 @@ targets:
         # Erste echte App-Store-Distribution-Einreichung dieses Builds (nicht
         # nur Geraete-Test) -- ersetzt Build 4, das wegen Guideline 5.2.5
         # (Markenbegriff "Apple TV" im Untertitel) abgelehnt wurde.
+        # Build 8 (2026-09-09): Buchstabenleiste bekam eine echte ScrollView
+        # (statt reinem VStack -- konnte technisch nie ueber den Bildschirm
+        # hinaus scrollen), mehr Trailing-Abstand, und der Auswahl-Kreis ist
+        # jetzt per .clipShape(Circle()) auf Button-Ebene wirklich rund (war
+        # vorher technisch immer eine fast-eckige RoundedRectangle). Der
+        # experimentelle Uebersicht-Button (Build 7) wieder entfernt --
+        # funktionierte auf dem Geraet nicht zuverlaessig genug.
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "7"
+        CFBundleVersion: "8"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
