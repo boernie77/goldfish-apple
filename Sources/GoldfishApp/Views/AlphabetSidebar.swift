@@ -25,8 +25,8 @@ struct AlphabetSidebar: View {
     // ebenfalls AlphabetSidebar (siehe dort) — hier auf 36pt angehoben (näher an den 44pt
     // der Sammlungen-Vorlage, aber laut User-Wunsch bewusst "etwas kleiner").
     #if os(tvOS)
-    private let letterFont: Font = .system(size: 16, weight: .semibold)
-    private let letterSize: CGFloat = 36
+    private let letterFont: Font = .system(size: 15, weight: .semibold)
+    private let letterSize: CGFloat = 32
     #else
     private let letterFont: Font = .system(size: 10, weight: .semibold)
     private let letterHeight: CGFloat = 13
@@ -44,16 +44,20 @@ struct AlphabetSidebar: View {
                         #if os(tvOS)
                         .frame(width: letterSize, height: letterSize)
                         .foregroundStyle(selected == letter ? Color.white : Color.secondary)
-                        // 🔴→✅ Bug (User-Report 2026-09-09: "Auswahlbereich ist nun plötzlich
-                        // eckig!! ... war die ganze Zeit rund"): war technisch nie ein Kreis,
-                        // sondern immer eine `RoundedRectangle(cornerRadius: 3)` — bei der
-                        // kleinen Alt-Größe wirkte das runde Ecken/pillenförmig genug, um als
-                        // "rund" wahrgenommen zu werden. Bei den neuen 36pt sieht derselbe
-                        // absolute 3pt-Radius sichtbar eckig aus. Echter `Circle()` bei
-                        // quadratischer Box (letterSize×letterSize) statt größenabhängiger
-                        // Notlösung — bleibt automatisch rund, egal welche letterSize künftig
-                        // gewählt wird.
+                        // 🔴→✅ Bug, zweiter Anlauf (User-Report 2026-09-09: "immer noch
+                        // eckig!!", eigener Verdacht: "ist er eigentlich rund, aber die Seiten
+                        // sind durch unsichtbare Grenzen abgeschnitten?"): Verdacht bestätigt
+                        // sich strukturell — ein reiner `.background(_, in: Circle())` malt
+                        // nur eine Kreis-FÜLLUNG hinter den Text, CLIPPT aber nichts. tvOS'
+                        // `.plain`-Button-Stil zeichnet zusätzlich eigenes System-Chrome
+                        // (typischerweise ein rechteckiger Fokus-/Card-Hintergrund) UNTER oder
+                        // NEBEN dem eigenen Hintergrund, das die runden Seiten optisch
+                        // verdeckt/eckig aussehen lässt. Fix: `.clipShape(Circle())` zwingt
+                        // die GESAMTE Button-Silhouette (inkl. jedem System-Chrome) auf einen
+                        // Kreis, plus `.buttonBorderShape(.circle)` am Button selbst, damit
+                        // tvOS gar nicht erst versucht, eine rechteckige Fokus-Box zu zeichnen.
                         .background(selected == letter ? Color.accentColor : Color.clear, in: Circle())
+                        .clipShape(Circle())
                         #else
                         .frame(width: letterWidth, height: letterHeight)
                         .foregroundStyle(selected == letter ? Color.white : Color.secondary)
@@ -62,6 +66,7 @@ struct AlphabetSidebar: View {
                 }
                 .buttonStyle(.plain)
                 #if os(tvOS)
+                .buttonBorderShape(.circle)
                 .focusEffectDisabled()
                 #endif
             }
