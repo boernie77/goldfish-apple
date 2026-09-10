@@ -177,7 +177,7 @@ targets:
         # initialen 1.0-Freigabe, fasst die seither angesammelten
         # Server-Paritäts-Fixes zusammen (kein einzelnes großes Feature).
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "187"
+        CFBundleVersion: "189"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -199,7 +199,7 @@ targets:
         # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
         MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "187"
+        CURRENT_PROJECT_VERSION: "189"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"

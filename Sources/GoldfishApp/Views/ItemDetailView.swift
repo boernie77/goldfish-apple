@@ -222,17 +222,23 @@ struct ItemDetailView: View {
                                 }
                             }
                         }
-                        #if os(tvOS)
-                        // User-Wunsch 2026-09-08: "kann man die Qualität auswählen" —
+                        #if os(tvOS) || os(iOS)
+                        // User-Wunsch 2026-09-08 (tvOS): "kann man die Qualität auswählen" —
                         // nach dem Overlay-Anzeige-Feature aufgefallen, dass ein 4K-Film
                         // ohne Auswahl im Transcode-Modus mit "Original"-Profil (kein
                         // Downscale-Cap) lief, obwohl der Fernseher nur 1080p zeigt —
-                        // Bandbreite reichte nicht, Wiedergabe stockte. Nur auf tvOS
-                        // (dort gemeldet); Mac/iOS haben aktuell keine entsprechende
-                        // UI. Serverseitig wirkt das Profil nur im Auto-Modus als Cap
-                        // (erzwingt Transcode+Downscale, wenn die Quelle es überschreitet)
-                        // — "Automatisch" lässt den bisherigen Server-Default (`orig`)
-                        // unverändert.
+                        // Bandbreite reichte nicht, Wiedergabe stockte. Seit 2026-09-10
+                        // (User-Wunsch) auch auf iOS — mobile Datenverbindungen haben
+                        // dasselbe Bandbreiten-Problem, oft sogar ausgeprägter als am
+                        // Fernseher. Mac hat aktuell keine entsprechende UI (nicht
+                        // angefragt). Serverseitig wirkt das Profil nur im Auto-Modus als
+                        // Cap (erzwingt Transcode+Downscale, wenn die Quelle es
+                        // überschreitet) — "Automatisch" lässt den bisherigen
+                        // Server-Default (`orig`) unverändert. `availableProfiles`/
+                        // `pickedProfile` werden bereits plattformübergreifend geladen
+                        // und an den Player durchgereicht (`loadStreams`/
+                        // `PlayerLaunchRequest.preferredProfile`) — nur die sichtbare
+                        // Auswahl hier war bisher tvOS-exklusiv.
                         if !availableProfiles.isEmpty {
                             AVPickerRow(icon: "🎞", label: "Qualität") {
                                 Menu {

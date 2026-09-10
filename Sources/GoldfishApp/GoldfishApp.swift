@@ -1,8 +1,33 @@
 import SwiftUI
 import GoldfishCore
+#if os(iOS)
+import AVFoundation
+#endif
 
 @main
 struct GoldfishApp: App {
+    #if os(iOS)
+    // Ohne explizite AVAudioSession-Konfiguration überließ die App iOS
+    // komplett sich selbst, wie sie Medien-Audio behandelt — je nach
+    // Systemzustand (u.a. der physische Klingelton-/Stumm-Schalter) blieb
+    // die Wiedergabe dadurch stumm. `.playback` ist exakt die Kategorie,
+    // die jede Video-/Audio-App hier setzt: ignoriert den Stumm-Schalter
+    // (Medienwiedergabe soll hörbar sein, das ist der ganze Zweck der App),
+    // routet über Lautsprecher/verbundene Kopfhörer/AirPlay. tvOS/macOS
+    // brauchen das nicht (kein Stumm-Schalter, System-Standardverhalten
+    // reicht dort bereits aus — auf beiden Plattformen bislang nie
+    // gemeldet). User-Report 2026-09-10: "Ich habe auf dem iPhone keinen
+    // Ton!", direkt nach dem allerersten Geräte-Test der iOS-App in dieser
+    // Session — kein Hinweis, dass es vorher je funktioniert hätte.
+    init() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[audio] AVAudioSession-Konfiguration fehlgeschlagen: \(error)")
+        }
+    }
+    #endif
     @StateObject private var client = GoldfishClient.shared
     @StateObject private var downloads = DownloadManager.shared
     @StateObject private var localLibrary = LocalLibraryManager.shared
