@@ -424,8 +424,15 @@ public final class GoldfishClient: ObservableObject {
     /// Pollt den Fortschritt der server-seitigen Formatanpassung (`?compat=1`).
     /// Stößt sie serverseitig an, falls nötig und noch nicht laufend/gecacht —
     /// der Client muss also nur wiederholt aufrufen, bis `state == "ready"`.
-    public func compatDownloadStatus(itemId: Int64) async throws -> CompatPrep {
-        try await perform("/api/download/\(itemId)/compat-status")
+    /// `profile` MUSS identisch zu dem sein, das `downloadFileURL` für denselben
+    /// Download übergeben hat — sonst prüft dieser Call einen anderen
+    /// Server-Cache-Pfad als der eigentliche Download gleich anfordert.
+    public func compatDownloadStatus(itemId: Int64, profile: String? = nil) async throws -> CompatPrep {
+        var query: [URLQueryItem] = []
+        if let profile, profile != "orig" {
+            query.append(URLQueryItem(name: "profile", value: profile))
+        }
+        return try await perform("/api/download/\(itemId)/compat-status", query: query)
     }
 
     public func fetchHome() async throws -> HomeResponse {
@@ -832,10 +839,19 @@ public final class GoldfishClient: ObservableObject {
     /// seitige Nachbearbeitung per lokalem ffmpeg (`LocalTranscodeService`,
     /// die jetzt nur noch für lokale/externe Bibliotheken ohne Server läuft).
     /// Nützt auch iOS, das nie ein eigenes ffmpeg zur Nachbearbeitung hatte.
-    public func downloadFileURL(itemId: Int64) -> URL? {
+    /// "Optimierte Downloads" (User-Wunsch 2026-09-11, Plex-Vorbild "Optimierte
+    /// Versionen"): `profile` ist dieselbe Qualitäts-Vorwahl wie beim Streaming
+    /// (`PlaybackProfile.id`, z. B. "720p") — der Server nutzt sie als echten
+    /// Auflösungs-/Bitrate-Cap, NUR wenn das Item ihn tatsächlich überschreitet.
+    /// `nil`/"orig" = weiterhin unverändert das Original laden (kein Cap-Default).
+    public func downloadFileURL(itemId: Int64, profile: String? = nil) -> URL? {
         guard let base = assetURL("/api/download/\(itemId)") else { return nil }
         var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        comps?.queryItems = [URLQueryItem(name: "compat", value: "1")]
+        var items = [URLQueryItem(name: "compat", value: "1")]
+        if let profile, profile != "orig" {
+            items.append(URLQueryItem(name: "profile", value: profile))
+        }
+        comps?.queryItems = items
         return comps?.url ?? base
     }
 }

@@ -583,6 +583,14 @@ public final class DownloadManager: NSObject, ObservableObject {
     @MainActor
     private func prepareThenTransfer(item: Item, remoteURL: URL) async {
         let id = item.id
+        // MUSS identisch zu dem Profil sein, das `downloadFileURL` in `remoteURL`
+        // codiert hat — sonst prüft `compatDownloadStatus` einen anderen
+        // Server-Cache-Pfad als der Download gleich tatsächlich anfordert
+        // (siehe Kommentar dort). Statt den Wert separat durchzureichen, wird er
+        // hier direkt aus der bereits gebauten URL zurückgelesen — eine Quelle
+        // der Wahrheit.
+        let profile = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "profile" })?.value
         let deadline = Date().addingTimeInterval(45 * 60)
         while Date() < deadline {
             // abgebrochen / Record weg?
@@ -592,7 +600,7 @@ public final class DownloadManager: NSObject, ObservableObject {
             }
             let status: CompatPrep
             do {
-                status = try await GoldfishClient.shared.compatDownloadStatus(itemId: id)
+                status = try await GoldfishClient.shared.compatDownloadStatus(itemId: id, profile: profile)
             } catch {
                 // Endpoint fehlt (alter Server) o. Ä. → einfach normal laden.
                 launchTransfer(item: item, remoteURL: remoteURL)

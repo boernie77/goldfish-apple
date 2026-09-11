@@ -302,7 +302,7 @@ struct ItemDetailView: View {
                 // User-Anfrage 2026-09-03, zurückgenommen 2026-09-04 ("könnte doch nützlich
                 // sein"): Download-Button ist jetzt auch auf tvOS wieder da, passend zum
                 // wieder eingeblendeten Downloads-Tab (siehe RootView).
-                DownloadButtonRow(item: selectedItem)
+                DownloadButtonRow(item: selectedItem, profile: pickedProfile)
             }
             .padding()
         }
@@ -574,6 +574,12 @@ struct ItemDetailView: View {
 
 struct DownloadButtonRow: View {
     let item: Item
+    /// "Optimierte Downloads" (User-Wunsch 2026-09-11, Plex-Vorbild "Optimierte
+    /// Versionen"): dieselbe Qualitäts-Auswahl, die im "🎞 Qualität"-Picker fürs
+    /// Streaming gilt, wirkt jetzt auch beim Download als Auflösungs-/Bitrate-
+    /// Cap — bewusst KEIN separater Download-Qualitäts-Schalter. `nil`/
+    /// "Automatisch" lädt unverändert das Original (kein erzwungener Cap).
+    var profile: String? = nil
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
 
@@ -637,7 +643,7 @@ struct DownloadButtonRow: View {
     }
 
     private func startDownload() {
-        guard let url = client.downloadFileURL(itemId: item.id) else { return }
+        guard let url = client.downloadFileURL(itemId: item.id, profile: profile) else { return }
         downloads.startDownload(item: item, from: url)
     }
 }
