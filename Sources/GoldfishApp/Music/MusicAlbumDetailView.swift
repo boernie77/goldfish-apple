@@ -17,6 +17,13 @@ struct MusicAlbumDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var addToPlaylistItem: Item?
+    @State private var showPlaylists = false
+    // Gleicher Key wie in MusicLibraryView — Listenansicht ist dort die einzige
+    // Stelle mit sichtbarer Wirkung (Album-Übersicht Kacheln/Liste), der Toggle
+    // hier wirkt sich also erst beim Zurückgehen aus. Trotzdem hier mit
+    // angeboten (User-Wunsch 2026-09-11: "Hier fehlen die Buttons" — sollen auf
+    // JEDER Musik-Seite sichtbar sein, nicht nur auf der Album-Übersicht selbst).
+    @AppStorage("musicLibraryListView") private var isListView = false
 
     var body: some View {
         Group {
@@ -59,9 +66,33 @@ struct MusicAlbumDetailView: View {
             }
         }
         .navigationTitle(album.displayTitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isListView.toggle()
+                } label: {
+                    Label(isListView ? "Kachelansicht" : "Listenansicht", systemImage: isListView ? "square.grid.2x2" : "list.bullet")
+                }
+                .help(isListView ? "Album-Übersicht: zur Kachelansicht wechseln" : "Album-Übersicht: zur Listenansicht wechseln")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showPlaylists = true
+                } label: {
+                    Label("Playlists", systemImage: "music.note.list")
+                }
+                .help("Musik-Playlists")
+            }
+        }
         .task { await load() }
         .sheet(item: $addToPlaylistItem) { track in
             AddToPlaylistSheet(item: track, kind: "music")
+        }
+        .sheet(isPresented: $showPlaylists) {
+            NavigationStack {
+                MusicPlaylistsView()
+            }
+            .frame(minWidth: 480, minHeight: 480)
         }
     }
 
