@@ -1,6 +1,10 @@
-#if os(macOS)
+#if os(macOS) || os(iOS)
 import AVFoundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Combine
 import GoldfishCore
 import MediaPlayer
@@ -61,7 +65,7 @@ final class MusicPlayerEngine: ObservableObject {
     private var player: AVPlayer?
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
-    private var albumArtCache: [Int64: NSImage] = [:]
+    private var albumArtCache: [Int64: PlatformImage] = [:]
     private var loadSeq = 0
 
     var currentItem: Item? {
@@ -319,10 +323,10 @@ final class MusicPlayerEngine: ObservableObject {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
-    private func loadAlbumArt(albumId: Int64, client: GoldfishClient) async -> NSImage? {
+    private func loadAlbumArt(albumId: Int64, client: GoldfishClient) async -> PlatformImage? {
         if let cached = albumArtCache[albumId] { return cached }
         guard let url = client.albumCoverURL(albumId: albumId) else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url), let image = PlatformImage(data: data) else { return nil }
         albumArtCache[albumId] = image
         return image
     }

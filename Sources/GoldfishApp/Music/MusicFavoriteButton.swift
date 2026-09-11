@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) || os(iOS)
 import SwiftUI
 
 /// Wiederverwendbares Favoriten-Herz für Tracks UND Alben (User-Wunsch

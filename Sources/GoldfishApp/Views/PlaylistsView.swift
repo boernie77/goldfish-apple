@@ -201,9 +201,23 @@ struct PlaylistDetailView: View {
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
+    // iOS/tvOS-Nachtrag 2026-09-11 (User: "Alles was wir heute für macOS gebaut
+    // haben, soll nun auch in die iOS APP. ALLES. Auch die Shuffelfunktionen in
+    // den diversen Playlists"): iOS hat keine separate Player-`WindowGroup`
+    // (siehe GoldfishApp.swift-Kommentar) — `PlayerView` wird hier stattdessen
+    // direkt als `fullScreenCover` präsentiert, exakt wie das bestehende globale
+    // Zufall-Feature in `LibrariesView`.
+    #if os(iOS)
+    @State private var iosShuffleQueue: [Item]?
+    #endif
 
     private let cardWidth: CGFloat = 150
+    // User-Wunsch 2026-09-11: immer 2 Kacheln pro Zeile auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private var columns: [GridItem] { [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)] }
+    #else
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
+    #endif
 
     var body: some View {
         Group {
@@ -237,10 +251,11 @@ struct PlaylistDetailView: View {
         .navigationTitle(playlist.name)
         .toolbar {
             // Shuffle-Wiedergabe der Playlist (User-Wunsch 2026-09-11: "In den
-            // Playlists fehlt Shuffle auch. Im übrigen auch bei den Filmplaylists")
-            // — vorerst nur macOS (öffnet direkt ein Player-Fenster wie das
-            // bestehende globale Zufall-Feature in LibrariesView), iOS/tvOS folgen
-            // später zusammen mit dem übrigen Musik-Player-Rollout.
+            // Playlists fehlt Shuffle auch. Im übrigen auch bei den Filmplaylists").
+            // Mac öffnet ein eigenes Player-Fenster, iOS präsentiert PlayerView direkt
+            // als fullScreenCover (kein WindowGroup-Konzept dort). tvOS bleibt aus
+            // (kein bestätigter Bedarf, kein WindowGroup UND kein fullScreenCover-
+            // Präsentationsweg für diesen Fall dort etabliert).
             #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -250,6 +265,15 @@ struct PlaylistDetailView: View {
                 }
                 .disabled(items.isEmpty)
                 .help("Playlist in zufälliger Reihenfolge abspielen")
+            }
+            #elseif os(iOS)
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    iosShuffleQueue = items.shuffled()
+                } label: {
+                    Label("Shuffle", systemImage: "shuffle")
+                }
+                .disabled(items.isEmpty)
             }
             #endif
             ToolbarItem(placement: .primaryAction) {
@@ -310,6 +334,13 @@ struct PlaylistDetailView: View {
             }
             Button("Abbrechen", role: .cancel) {}
         }
+        #if os(iOS)
+        .fullScreenCoverCompat(isPresented: Binding(get: { iosShuffleQueue != nil }, set: { if !$0 { iosShuffleQueue = nil } })) {
+            if let queue = iosShuffleQueue, let first = queue.first {
+                PlayerView(item: first, queue: queue, queueIndex: 0, startFromBeginning: true)
+            }
+        }
+        #endif
         .task { await load() }
     }
 

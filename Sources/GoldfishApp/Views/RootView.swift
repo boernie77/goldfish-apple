@@ -220,11 +220,13 @@ struct MainTabView: View {
             goldfishHeader
             #endif
         }
-        #if os(macOS)
-        // Persistente Musik-Mini-Leiste (User-Wunsch 2026-09-11) — unten statt oben, damit
-        // sie den Kopfbereich/Toolbar nicht verdrängt; sitzt hier auf MainTabView-Ebene
-        // (nicht in ItemGridView/MusicLibraryView selbst), damit sie jede Navigation
-        // übersteht, analog zum Browser-Mini-Player außerhalb von #grid.
+        // Persistente Musik-Mini-Leiste (User-Wunsch 2026-09-11, seit demselben Tag auch
+        // iOS: "ALLES") — unten statt oben, damit sie den Kopfbereich/Toolbar nicht
+        // verdrängt; sitzt hier auf MainTabView-Ebene (nicht in ItemGridView/
+        // MusicLibraryView selbst), damit sie jede Navigation übersteht, analog zum
+        // Browser-Mini-Player außerhalb von #grid. tvOS bleibt ausgenommen (kein
+        // Musik-Feature dort, siehe GoldfishTV-Abschnitt in CLAUDE.md).
+        #if os(macOS) || os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MusicPlayerBar()
         }

@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) || os(iOS)
 import GoldfishCore
 import SwiftUI
 
@@ -92,7 +92,12 @@ struct MusicLibraryView: View {
     }
 
     private let cardWidth: CGFloat = 170
+    // User-Wunsch 2026-09-11: immer 2 Kacheln pro Zeile auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private var columns: [GridItem] { [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)] }
+    #else
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
+    #endif
 
     private var filteredAlbums: [MusicAlbum] {
         var result = albums
@@ -499,11 +504,13 @@ private struct MusicColumnResizeHandle: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovering = hovering
+                #if os(macOS)
                 if hovering {
                     NSCursor.resizeLeftRight.push()
                 } else {
                     NSCursor.pop()
                 }
+                #endif
             }
             .gesture(
                 DragGesture(minimumDistance: 0)

@@ -31,7 +31,12 @@ struct ShowSeasonsView: View {
     private let cardWidth: CGFloat = 150
     private let gridSpacing: CGFloat = 12
     #endif
+    // User-Wunsch 2026-09-11: immer 2 Kacheln pro Zeile auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private var columns: [GridItem] { [GridItem(.flexible(), spacing: gridSpacing), GridItem(.flexible(), spacing: gridSpacing)] }
+    #else
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: gridSpacing, alignment: .top)] }
+    #endif
 
     var body: some View {
         Group {

@@ -30,7 +30,13 @@ struct DownloadsView: View {
     /// generischen Platzhalter zurück statt die ganze Ansicht zu blockieren.
     @State private var libraries: [Library] = []
 
+    // User-Wunsch 2026-09-11: "in den Bibliotheken immer 2 Kacheln nebeneinander,
+    // nicht einzeln" — feste 2-Spalten-Aufteilung auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    #else
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
+    #endif
 
     // Musik-Downloads bekommen einen eigenen, in sich geschlossenen Bereich
     // ("📶 Offline verfügbar" innerhalb der Musik-Bibliothek, siehe
@@ -452,7 +458,13 @@ private struct DownloadGroupDetailView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
 
+    // User-Wunsch 2026-09-11: "in den Bibliotheken immer 2 Kacheln nebeneinander,
+    // nicht einzeln" — feste 2-Spalten-Aufteilung auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    #else
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
+    #endif
 
     private var seasons: [Int] {
         Set(group.items.compactMap(\.metadata?.season)).sorted()

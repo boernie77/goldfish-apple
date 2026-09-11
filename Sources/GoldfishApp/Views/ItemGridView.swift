@@ -123,6 +123,17 @@ struct ItemGridView: View {
     #if os(tvOS)
     private let cardWidth: CGFloat = 240
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 48, alignment: .top)] }
+    #elseif os(iOS)
+    // User-Wunsch 2026-09-11: "dass ich in den Bibliotheken immer 2 Kacheln
+    // nebeneinander habe. Nicht einzeln." — ein rein breitenbasiertes
+    // `.adaptive`-Grid liefert auf schmalen iPhones (v. a. bei Poster-Kacheln
+    // mit größeren Titeln/Untertiteln, die Zeilenumbrüche erzwingen) teils nur
+    // eine Spalte. Feste 2-Spalten-Aufteilung (`.flexible()` ×2) garantiert
+    // immer genau 2 Kacheln pro Zeile, unabhängig von Gerätebreite — auf dem
+    // iPad bleibt weiterhin genug Platz, aber der User hat hier explizit "2",
+    // nicht "so viele wie passen", gewünscht.
+    private let cardWidth: CGFloat = 150
+    private var columns: [GridItem] { [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)] }
     #else
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }

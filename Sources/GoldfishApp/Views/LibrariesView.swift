@@ -192,7 +192,7 @@ struct LibrariesView: View {
                     .navigationDestination(for: LibraryDestination.self) { dest in
                         switch dest {
                         case .server(let lib):
-                            #if os(macOS)
+                            #if os(macOS) || os(iOS)
                             if lib.kind == "music" {
                                 MusicLibraryView(library: lib)
                             } else {

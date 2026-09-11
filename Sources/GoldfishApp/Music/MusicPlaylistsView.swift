@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) || os(iOS)
 import GoldfishCore
 import SwiftUI
 
@@ -60,7 +60,9 @@ struct MusicPlaylistsView: View {
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
+                        #if os(macOS)
                         .menuStyle(.borderlessButton)
+                        #endif
                         .fixedSize()
                     }
                 }

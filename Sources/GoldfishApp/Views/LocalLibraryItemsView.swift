@@ -124,7 +124,12 @@ struct LocalLibraryItemsView: View {
     }
 
     private let cardWidth: CGFloat = 150
+    // User-Wunsch 2026-09-11: immer 2 Kacheln pro Zeile auf iOS, siehe ItemGridView.swift.
+    #if os(iOS)
+    private var columns: [GridItem] { [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)] }
+    #else
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
+    #endif
 
     private var isScanning: Bool {
         libraries.contains { localLibrary.scanningLibraryIds.contains($0.id) }

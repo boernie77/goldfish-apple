@@ -41,8 +41,15 @@ struct GoldfishApp: App {
     #if os(macOS)
     @StateObject private var transcode = LocalTranscodeService.shared
     @StateObject private var playerLaunch = PlayerLaunchCoordinator.shared
-    @StateObject private var musicPlayer = MusicPlayerEngine.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
+    // Musik-Player-Engine ist jetzt plattformübergreifend (Mac+iOS, User-Vorgabe
+    // 2026-09-11: "Alles was wir heute für macOS gebaut haben, soll nun auch in
+    // die iOS APP") — auf iOS gibt es keine eigene `WindowGroup`-Player-Szene wie
+    // bei Video (siehe unten), die Engine hält ihre `AVPlayer`-Instanz app-weit
+    // in `MainTabView`s persistenter `MusicPlayerBar`.
+    #if os(macOS) || os(iOS)
+    @StateObject private var musicPlayer = MusicPlayerEngine.shared
     #endif
 
     var body: some Scene {
@@ -55,6 +62,8 @@ struct GoldfishApp: App {
                 .environmentObject(lastLibraryContext)
                 #if os(macOS)
                 .environmentObject(transcode)
+                #endif
+                #if os(macOS) || os(iOS)
                 .environmentObject(musicPlayer)
                 #endif
                 .preferredColorScheme(preferredColorScheme)
