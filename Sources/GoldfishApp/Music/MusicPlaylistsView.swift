@@ -92,38 +92,54 @@ struct MusicPlaylistsView: View {
         .alert("Playlist umbenennen", isPresented: Binding(
             get: { renamingPlaylist != nil },
             set: { if !$0 { renamingPlaylist = nil } }
-        )) {
+        ), presenting: renamingPlaylist) { playlist in
             TextField("Name", text: $renameText)
             Button("Abbrechen", role: .cancel) {}
-            Button("Speichern") { Task { await rename() } }
+            Button("Speichern") { Task { await rename(playlist) } }
         }
+        // `presenting:` reicht den Playlist-Wert DIREKT in die Button-Action durch,
+        // statt ihn im Closure erneut aus `deletingPlaylist` zu lesen (User-Report
+        // 2026-09-11: "Wird jetzt angezeigt, aber funktioniert nicht (löschen)") —
+        // SwiftUI setzt die Optional-gestützte `isPresented`-Bindung beim Schließen
+        // des Alerts zurück auf `nil`, und zwar NICHT zuverlässig erst NACH dem
+        // Button-Action-Closure. Ein `guard let playlist = deletingPlaylist` INNERHALB
+        // der Action las das dadurch teils schon als `nil` — die Löschung brach still
+        // ab, ohne jede Fehlermeldung. Der `presenting:`-Overload umgeht das Problem
+        // strukturell, der Wert kommt als Parameter, kein erneuter State-Read nötig.
         .alert(
             "„\(deletingPlaylist?.name ?? "")“ löschen?",
             isPresented: Binding(
                 get: { deletingPlaylist != nil },
                 set: { if !$0 { deletingPlaylist = nil } }
-            )
-        ) {
+            ),
+            presenting: deletingPlaylist
+        ) { playlist in
             Button("Abbrechen", role: .cancel) {}
-            Button("Löschen", role: .destructive) { Task { await deleteSelected() } }
-        } message: {
+            Button("Löschen", role: .destructive) { Task { await deleteSelected(playlist) } }
+        } message: { _ in
             Text("Die Playlist wird unwiderruflich gelöscht.")
         }
         .task { await load() }
     }
 
-    private func rename() async {
-        guard let playlist = renamingPlaylist else { return }
+    private func rename(_ playlist: Playlist) async {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? await client.renamePlaylist(id: playlist.id, name: trimmed)
-        await load()
+        do {
+            try await client.renamePlaylist(id: playlist.id, name: trimmed)
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
-    private func deleteSelected() async {
-        guard let playlist = deletingPlaylist else { return }
-        try? await client.deletePlaylist(id: playlist.id)
-        playlists.removeAll { $0.id == playlist.id }
+    private func deleteSelected(_ playlist: Playlist) async {
+        do {
+            try await client.deletePlaylist(id: playlist.id)
+            playlists.removeAll { $0.id == playlist.id }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func load() async {
