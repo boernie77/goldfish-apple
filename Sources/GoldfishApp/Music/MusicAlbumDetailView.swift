@@ -80,6 +80,25 @@ struct MusicAlbumDetailView: View {
                     }
                 }
                 .listStyle(.plain)
+                // User-Report 2026-09-11: "die Steuerfelder bleiben
+                // verdeckt" — diese Ansicht hängt (per NavigationLink,
+                // nicht Sheet) direkt im Bibliotheken-Tab und sitzt damit
+                // UNTER der persistenten Mini-Player-Leiste
+                // (`MusicPlayerBar`, `.safeAreaInset(edge:.bottom)` auf
+                // `MainTabView`). Ein `List` bekommt diesen zusätzlichen
+                // Sicherheitsabstand von einem Vorfahren nicht zuverlässig
+                // selbst mit — ohne eigenen Ausgleich verschwindet die
+                // letzte Track-Zeile (Download-/Favoriten-Icons!) hinter
+                // der Leiste. Gleiches Muster wie das bereits bestehende
+                // `.padding(.bottom, … ? 72 : 0)` am Album-Kachel-Grid in
+                // `MusicLibraryView`, hier als `.safeAreaInset`, da `List`
+                // (anders als `ScrollView`) reines `.padding` am Content
+                // ignoriert.
+                .safeAreaInset(edge: .bottom) {
+                    if musicPlayer.currentItem != nil {
+                        Color.clear.frame(height: 64)
+                    }
+                }
             }
         }
         .navigationTitle(album.displayTitle)

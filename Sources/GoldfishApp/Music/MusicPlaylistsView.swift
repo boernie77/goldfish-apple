@@ -199,7 +199,18 @@ struct MusicPlaylistDetailView: View {
                 ContentUnavailableMessage(text: "Playlist ist leer.")
             } else {
                 List {
-                    HStack {
+                    // User-Report 2026-09-11 (Screenshot): Play/Shuffle/Sync
+                    // hatten ungleichen Abstand — Ursache war `Toggle(...)
+                    // .toggleStyle(.button)` für den dritten Control: diese
+                    // toggle-Bordered-Darstellung trägt eigenes internes
+                    // Padding, das sich von den beiden schlichten `Button`s
+                    // daneben unterscheidet, dadurch wirkte der Abstand
+                    // uneinheitlich. Fix: derselbe Zustand (An/Aus + der
+                    // schon vorhandene gefüllt/ungefüllt-Icon-Wechsel trägt
+                    // die Information) läuft jetzt über einen ganz normalen
+                    // `Button`, exakt wie die beiden Nachbarn — konsistentes
+                    // Erscheinungsbild UND konsistenter Abstand.
+                    HStack(spacing: 20) {
                         Button {
                             musicPlayer.play(queue: tracks, startIndex: 0, client: client)
                         } label: {
@@ -211,12 +222,15 @@ struct MusicPlaylistDetailView: View {
                         } label: {
                             Label("Shuffle", systemImage: "shuffle")
                         }
-                        Toggle(isOn: $playlistSyncEnabled) {
+                        Button {
+                            playlistSyncEnabled.toggle()
+                        } label: {
                             Label("Playlist offline synchronisieren", systemImage: playlistSyncEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
                         }
-                        .toggleStyle(.button)
+                        .foregroundStyle(playlistSyncEnabled ? Color.accentColor : Color.primary)
                         .help("Alle Titel dieser Playlist automatisch offline halten")
                     }
+                    .buttonStyle(.plain)
                     // Siehe Kommentar in MusicAlbumDetailView.header — Text+
                     // Icon-Labels ("Playlist offline synchronisieren" ist
                     // besonders lang) quetschten sich auf iPhone-Breite

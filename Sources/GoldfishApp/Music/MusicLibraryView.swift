@@ -489,6 +489,14 @@ struct MusicLibraryView: View {
                     .onTapGesture { navigateToAlbum = album }
             }
             .listStyle(.plain)
+            // Siehe Kommentar in MusicAlbumDetailView — `List` braucht den
+            // Mini-Player-Sicherheitsabstand explizit, sonst verdeckt die
+            // Leiste die letzte Zeile.
+            .safeAreaInset(edge: .bottom) {
+                if musicPlayer.currentItem != nil {
+                    Color.clear.frame(height: 64)
+                }
+            }
             #else
             VStack(spacing: 0) {
                 MusicAlbumListHeader(albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth)
@@ -579,6 +587,12 @@ struct MusicLibraryView: View {
                 }
             }
             .listStyle(.plain)
+            // Siehe Kommentar in MusicAlbumDetailView.
+            .safeAreaInset(edge: .bottom) {
+                if musicPlayer.currentItem != nil {
+                    Color.clear.frame(height: 64)
+                }
+            }
         }
     }
 }
