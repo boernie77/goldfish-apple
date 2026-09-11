@@ -46,6 +46,10 @@ struct MusicOfflineView: View {
                             Label("Shuffle", systemImage: "shuffle")
                         }
                     }
+                    // Siehe Kommentar in MusicAlbumDetailView.header.
+                    #if os(iOS)
+                    .labelStyle(.iconOnly)
+                    #endif
                     ForEach(offlineTracks) { track in
                         // Tap-Gesture NUR auf dem Text-Teil (`trackRow`), NICHT auf der
                         // ganzen HStack — Favoriten-Herz und Download-Icon sind selbst

@@ -136,7 +136,18 @@ struct MusicPlayerBar: View {
                 }
                 AirPlayButton()
                     .frame(width: 24, height: 24)
-                Button { musicPlayer.stop() } label: {
+                // Sheet ZUERST schließen, dann erst stoppen — `musicPlayer
+                // .stop()` setzt `currentItem = nil`, wodurch der `if let
+                // item = musicPlayer.currentItem`-Zweig in `body` (der die
+                // `.sheet`-Modifier trägt) sofort aus dem View-Baum
+                // verschwindet. In der falschen Reihenfolge bliebe der
+                // bereits präsentierte Sheet ohne sauberen Dismiss-Pfad
+                // hängen (User-Frage 2026-09-11: "wie bekomme ich Player
+                // wieder geschlossen? Er verdeckt die Steuerfelder").
+                Button {
+                    showFullControls = false
+                    musicPlayer.stop()
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }

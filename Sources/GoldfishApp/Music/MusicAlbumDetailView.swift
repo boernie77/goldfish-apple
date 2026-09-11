@@ -200,6 +200,18 @@ struct MusicAlbumDetailView: View {
                     }
                     .disabled(tracks.isEmpty)
                 }
+                // User-Report 2026-09-11 (Screenshot): "Album abspielen"/
+                // "Shuffle"/"Album herunterladen" mit Text+Icon quetschten
+                // sich auf dem iPhone in eine viel zu schmale HStack-Zelle
+                // und der Titeltext wurde dadurch buchstabenweise
+                // silbengetrennt vertikal umgebrochen ("Al-bu-m-ab-spi-
+                // ele-n") — auf iOS deshalb nur noch Icons (analog zu den
+                // bereits icon-only funktionierenden Toolbar-Buttons ganz
+                // oben in derselben Ansicht), macOS behält Text+Icon (dort
+                // genug Platz, nicht gemeldet als Problem).
+                #if os(iOS)
+                .labelStyle(.iconOnly)
+                #endif
                 .padding(.top, 6)
             }
         }

@@ -217,6 +217,13 @@ struct MusicPlaylistDetailView: View {
                         .toggleStyle(.button)
                         .help("Alle Titel dieser Playlist automatisch offline halten")
                     }
+                    // Siehe Kommentar in MusicAlbumDetailView.header — Text+
+                    // Icon-Labels ("Playlist offline synchronisieren" ist
+                    // besonders lang) quetschten sich auf iPhone-Breite
+                    // silbengetrennt vertikal um.
+                    #if os(iOS)
+                    .labelStyle(.iconOnly)
+                    #endif
                     // Kein Button-Wrapper um die ganze Zeile, siehe Kommentar in
                     // MusicAlbumDetailView — das Download-Icon braucht einen echten,
                     // unabhängigen Tap-Bereich.

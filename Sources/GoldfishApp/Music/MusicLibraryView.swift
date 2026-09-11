@@ -547,6 +547,12 @@ struct MusicLibraryView: View {
                     }
                     .disabled(filteredTracks.isEmpty)
                 }
+                // Siehe Kommentar in MusicAlbumDetailView.header — Text+Icon-
+                // Labels quetschen sich auf iPhone-Breite silbengetrennt
+                // vertikal um.
+                #if os(iOS)
+                .labelStyle(.iconOnly)
+                #endif
                 ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
                     HStack {
                         VStack(alignment: .leading) {
