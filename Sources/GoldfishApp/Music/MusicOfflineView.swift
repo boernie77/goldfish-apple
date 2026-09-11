@@ -47,25 +47,25 @@ struct MusicOfflineView: View {
                         }
                     }
                     ForEach(offlineTracks) { track in
+                        // Tap-Gesture NUR auf dem Text-Teil (`trackRow`), NICHT auf der
+                        // ganzen HStack — Favoriten-Herz und Download-Icon sind selbst
+                        // echte Buttons, und ein `.onTapGesture` über einer Zeile MIT
+                        // eingebetteten Buttons ist in SwiftUI unzuverlässig (gleiche
+                        // Falle wie bei verschachtelten Button-in-Button-Konstrukten,
+                        // siehe Kommentare in MusicAlbumDetailView/MusicPlaylistsView —
+                        // hier beim ursprünglichen Bau von MusicOfflineView übersehen,
+                        // User-Report 2026-09-11: "Es kommt gar nicht bis zum Player").
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text(track.displayTitle)
-                                    .fontWeight(musicPlayer.currentItem?.id == track.id ? .semibold : .regular)
-                                Text([track.artist, track.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
+                            trackRow(track)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    let idx = offlineTracks.firstIndex(where: { $0.id == track.id }) ?? 0
+                                    musicPlayer.play(queue: offlineTracks, startIndex: idx, client: client)
+                                }
                             MusicFavoriteButton(isFavorite: track.favorite) { newValue in
                                 try? await client.setFavorite(itemId: track.id, favorite: newValue)
                             }
                             MusicDownloadIcon(item: track)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            let idx = offlineTracks.firstIndex(where: { $0.id == track.id }) ?? 0
-                            musicPlayer.play(queue: offlineTracks, startIndex: idx, client: client)
                         }
                     }
                 }
@@ -77,6 +77,20 @@ struct MusicOfflineView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Fertig") { dismiss() }
             }
+        }
+    }
+
+    private func trackRow(_ track: Item) -> some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(track.displayTitle)
+                    .fontWeight(musicPlayer.currentItem?.id == track.id ? .semibold : .regular)
+                Text([track.artist, track.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
