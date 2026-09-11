@@ -220,6 +220,15 @@ struct MainTabView: View {
             goldfishHeader
             #endif
         }
+        #if os(macOS)
+        // Persistente Musik-Mini-Leiste (User-Wunsch 2026-09-11) — unten statt oben, damit
+        // sie den Kopfbereich/Toolbar nicht verdrängt; sitzt hier auf MainTabView-Ebene
+        // (nicht in ItemGridView/MusicLibraryView selbst), damit sie jede Navigation
+        // übersteht, analog zum Browser-Mini-Player außerhalb von #grid.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            MusicPlayerBar()
+        }
+        #endif
     }
 
     // iPad-Fix 2026-09-03 (User-Report: "keine Steuerelemente sichtbar" — die klassische

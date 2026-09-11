@@ -154,6 +154,21 @@ public struct Item: Codable, Identifiable, Hashable {
     /// /api/items/{id}` befüllt (Server: `GetItemFor` → `ItemStreams`), NICHT
     /// in der Grid-Liste — daher optional + Default nil.
     public var streams: [MediaStream]? = nil
+    /// Musik-Felder (nur `kind=music`, aus eingebetteten Dateitags gelesen —
+    /// siehe `internal/model.Item` im Server-Repo). Bisher im Client nie
+    /// dekodiert, obwohl der Server sie seit "Musik-Bibliotheken (kind=music)"
+    /// immer mitliefert — die App zeigte Musiktitel dadurch komplett ohne
+    /// Künstler/Album/Cover an (Cover kommt separat über `musicAlbumId` +
+    /// `GoldfishClient.albumCoverURL`).
+    public let artist: String?
+    public let album: String?
+    public let genre: String?
+    public let trackNo: Int?
+    public let musicAlbumId: Int64?
+    /// Erscheinungsjahr aus dem Musik-Tag — bewusst eigenes Feld, NICHT
+    /// `releasedAt` (das ist bei jedem Item durch den Datei-mtime-Fallback
+    /// immer gesetzt, siehe Server-Kommentar bei `model.Item.Year`).
+    public let year: Int?
 
     public var displayTitle: String {
         metadata?.title ?? title
@@ -245,7 +260,9 @@ public struct Item: Codable, Identifiable, Hashable {
              metadataConfirmed: metadataConfirmed, episodeEnd: episodeEnd, metadata: metadata,
              watched: watched, watchedAt: watchedAt, favorite: favorite, favoritedAt: favoritedAt,
              trickplayStatus: trickplayStatus, variantCount: variantCount, variantSplit: variantSplit,
-             introStartSec: introStartSec, introEndSec: introEndSec)
+             introStartSec: introStartSec, introEndSec: introEndSec,
+             artist: artist, album: album, genre: genre, trackNo: trackNo,
+             musicAlbumId: musicAlbumId, year: year)
     }
 
     public var releasedDateLabel: String? {
@@ -257,6 +274,32 @@ public struct Item: Codable, Identifiable, Hashable {
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: date)
     }
+}
+
+// MARK: - MusicAlbum
+
+/// Eine (Artist,Album)-Gruppe innerhalb einer Musik-Bibliothek — Server-Pendant
+/// `internal/model.MusicAlbum`. `music_albums` ist eine reine aggregierte
+/// Tabelle (siehe Server-CLAUDE.md "Musik-Bibliotheken"), kein eigenes Item.
+public struct MusicAlbum: Codable, Identifiable, Hashable {
+    public let id: Int64
+    public let libraryId: Int64
+    public let artist: String
+    public let album: String
+    public let year: Int?
+    public let genre: String?
+    public let coverSource: String?
+    public let trackCount: Int?
+    public let favorite: Bool?
+
+    public var displayTitle: String { album.isEmpty ? "(Unbekanntes Album)" : album }
+}
+
+/// `GET /api/albums/{id}` — Album + Tracks in einem Response, Server-Pendant
+/// des Browser-`/api/albums/{id}`-Endpoints.
+public struct AlbumDetail: Decodable {
+    public let album: MusicAlbum
+    public let tracks: [Item]
 }
 
 /// Client-side merge of items that share the same `metadataId` into one representative

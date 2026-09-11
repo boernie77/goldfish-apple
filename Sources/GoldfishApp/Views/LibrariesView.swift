@@ -191,7 +191,16 @@ struct LibrariesView: View {
                     }
                     .navigationDestination(for: LibraryDestination.self) { dest in
                         switch dest {
-                        case .server(let lib): ItemGridView(library: lib)
+                        case .server(let lib):
+                            #if os(macOS)
+                            if lib.kind == "music" {
+                                MusicLibraryView(library: lib)
+                            } else {
+                                ItemGridView(library: lib)
+                            }
+                            #else
+                            ItemGridView(library: lib)
+                            #endif
                         case .local(let libs): LocalLibraryItemsView(libraries: libs)
                         case .collections: CollectionsView()
                         case .playlists: PlaylistsView()

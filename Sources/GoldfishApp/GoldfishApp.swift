@@ -41,6 +41,7 @@ struct GoldfishApp: App {
     #if os(macOS)
     @StateObject private var transcode = LocalTranscodeService.shared
     @StateObject private var playerLaunch = PlayerLaunchCoordinator.shared
+    @StateObject private var musicPlayer = MusicPlayerEngine.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
 
@@ -54,6 +55,7 @@ struct GoldfishApp: App {
                 .environmentObject(lastLibraryContext)
                 #if os(macOS)
                 .environmentObject(transcode)
+                .environmentObject(musicPlayer)
                 #endif
                 .preferredColorScheme(preferredColorScheme)
         }

@@ -529,6 +529,32 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/person/\(tmdbId)")
     }
 
+    // MARK: - Musik
+
+    /// Album-Kachel-Übersicht einer Musik-Bibliothek — Client-Pendant zum
+    /// Browser `views.js renderAlbumTiles`, holt `GET
+    /// /api/libraries/{id}/albums` statt der generischen `/api/items`-Route.
+    public func fetchAlbums(libraryId: Int64) async throws -> [MusicAlbum] {
+        try await perform("/api/libraries/\(libraryId)/albums")
+    }
+
+    public func fetchAlbum(id: Int64) async throws -> AlbumDetail {
+        try await perform("/api/albums/\(id)")
+    }
+
+    public func setAlbumFavorite(albumId: Int64, favorite: Bool) async throws {
+        let body = try JSONEncoder().encode(["favorite": favorite])
+        try await performVoid("/api/albums/\(albumId)/favorite", method: "PUT", jsonBody: body)
+    }
+
+    /// `GET /api/poster/album/{id}` — liefert bei fehlendem Cover einen
+    /// Redirect auf `/placeholder.svg` (Server: `getAlbumCover`), normale
+    /// `URLSession`-Requests (inkl. `AsyncImage`/`PosterImage`) folgen dem
+    /// automatisch.
+    public func albumCoverURL(albumId: Int64) -> URL? {
+        assetURL("/api/poster/album/\(albumId)")
+    }
+
     public func fetchFolders(libraryId: Int64, parent: String? = nil) async throws -> [FolderTile] {
         var query: [URLQueryItem] = []
         if let parent, !parent.isEmpty { query.append(URLQueryItem(name: "parent", value: parent)) }
