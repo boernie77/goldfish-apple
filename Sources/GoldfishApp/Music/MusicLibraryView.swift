@@ -520,8 +520,20 @@ private struct MusicAlbumListHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Color.clear.frame(width: 44, height: 1) // Cover-Spalte
-            Text("Album").frame(maxWidth: .infinity, alignment: .leading)
+            // KEIN Cover-Platzhalter mehr vor "Album" (User-Report 2026-09-11:
+            // "die Überschrift Alben gehört nach links über die Cover") — die
+            // Überschrift steht bewusst schon eine Zeile höher als die
+            // Cover-Thumbnails der Datenzeilen darunter, soll also bündig ab
+            // dem linken Rand beginnen statt erst nach der 44pt-Cover-Lücke.
+            Text("Album")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    // Statischer Trenner (kein Drag) — "Album" bleibt die
+                    // flexible Füllspalte, nur Künstler/Genre sind verstellbar.
+                    // User-Report: "Zwischen Album und Künstler fehlt der
+                    // Trennstrich" — bisher gab es dort GAR keinen Handle.
+                    Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 1)
+                }
             Text("Künstler")
                 .frame(width: artistWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
