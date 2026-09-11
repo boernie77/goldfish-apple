@@ -18,6 +18,14 @@ struct MusicPlaylistsView: View {
     @State private var errorMessage: String?
     @State private var newName = ""
     @State private var showingCreate = false
+    // Playlist bearbeiten (User-Report 2026-09-11: "Playlist bearbeiten sehe ich
+    // nicht") — Umbenennen/Löschen. Bewusst als sichtbarer "···"-Menü-Button pro
+    // Zeile, NICHT nur per Kontextmenü (dieselbe Lektion wie beim "Zu Playlist
+    // hinzufügen"-Button weiter oben in dieser Session — ein reines
+    // Rechtsklick-Kontextmenü wird leicht übersehen).
+    @State private var renamingPlaylist: Playlist?
+    @State private var renameText = ""
+    @State private var deletingPlaylist: Playlist?
 
     var body: some View {
         Group {
@@ -29,11 +37,31 @@ struct MusicPlaylistsView: View {
                 ContentUnavailableMessage(text: "Noch keine Musik-Playlists — oben rechts erstellen.")
             } else {
                 List(playlists) { playlist in
-                    NavigationLink(value: playlist) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(playlist.name)
-                            Text("\(playlist.itemCount) Titel").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        NavigationLink(value: playlist) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playlist.name)
+                                Text("\(playlist.itemCount) Titel").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        Spacer()
+                        Menu {
+                            Button {
+                                renameText = playlist.name
+                                renamingPlaylist = playlist
+                            } label: {
+                                Label("Umbenennen", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                deletingPlaylist = playlist
+                            } label: {
+                                Label("Löschen", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
                     }
                 }
                 .listStyle(.plain)
@@ -61,7 +89,41 @@ struct MusicPlaylistsView: View {
             Button("Abbrechen", role: .cancel) {}
             Button("Erstellen") { Task { await create() } }
         }
+        .alert("Playlist umbenennen", isPresented: Binding(
+            get: { renamingPlaylist != nil },
+            set: { if !$0 { renamingPlaylist = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Abbrechen", role: .cancel) {}
+            Button("Speichern") { Task { await rename() } }
+        }
+        .alert(
+            "„\(deletingPlaylist?.name ?? "")“ löschen?",
+            isPresented: Binding(
+                get: { deletingPlaylist != nil },
+                set: { if !$0 { deletingPlaylist = nil } }
+            )
+        ) {
+            Button("Abbrechen", role: .cancel) {}
+            Button("Löschen", role: .destructive) { Task { await deleteSelected() } }
+        } message: {
+            Text("Die Playlist wird unwiderruflich gelöscht.")
+        }
         .task { await load() }
+    }
+
+    private func rename() async {
+        guard let playlist = renamingPlaylist else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try? await client.renamePlaylist(id: playlist.id, name: trimmed)
+        await load()
+    }
+
+    private func deleteSelected() async {
+        guard let playlist = deletingPlaylist else { return }
+        try? await client.deletePlaylist(id: playlist.id)
+        playlists.removeAll { $0.id == playlist.id }
     }
 
     private func load() async {
@@ -97,6 +159,17 @@ struct MusicPlaylistDetailView: View {
     @State private var tracks: [Item] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    /// "Playlist offline synchronisieren" (User-Report 2026-09-11: "wo sync ich die
+    /// ganze Playlist?" — der bisherige einmalige "Playlist herunterladen"-Button war
+    /// offenbar nicht als Sync-Äquivalent zum Bibliotheks-Toggle erkennbar). Gleiches
+    /// Muster wie `MusicLibraryView.librarySyncEnabled`: AppStorage pro Playlist, läuft
+    /// beim Öffnen erneut (deckt neu hinzugefügte Titel ab, kein Hintergrund-Daemon).
+    @AppStorage private var playlistSyncEnabled: Bool
+
+    init(playlist: Playlist) {
+        self.playlist = playlist
+        self._playlistSyncEnabled = AppStorage(wrappedValue: false, "musicPlaylistSync.\(playlist.id)")
+    }
 
     var body: some View {
         Group {
@@ -114,11 +187,11 @@ struct MusicPlaylistDetailView: View {
                         } label: {
                             Label("Alle abspielen", systemImage: "play.fill")
                         }
-                        Button {
-                            downloadAllMissing(tracks, client: client, downloads: downloads)
-                        } label: {
-                            Label("Playlist herunterladen", systemImage: "arrow.down.circle")
+                        Toggle(isOn: $playlistSyncEnabled) {
+                            Label("Playlist offline synchronisieren", systemImage: playlistSyncEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
                         }
+                        .toggleStyle(.button)
+                        .help("Alle Titel dieser Playlist automatisch offline halten")
                     }
                     // Kein Button-Wrapper um die ganze Zeile, siehe Kommentar in
                     // MusicAlbumDetailView — das Download-Icon braucht einen echten,
@@ -145,7 +218,18 @@ struct MusicPlaylistDetailView: View {
             }
         }
         .navigationTitle(playlist.name)
-        .task { await load() }
+        .task {
+            await load()
+            syncIfNeeded()
+        }
+        .onChange(of: playlistSyncEnabled) { enabled in
+            if enabled { syncIfNeeded() }
+        }
+    }
+
+    private func syncIfNeeded() {
+        guard playlistSyncEnabled else { return }
+        downloadAllMissing(tracks, client: client, downloads: downloads)
     }
 
     private func trackRow(_ track: Item) -> some View {
