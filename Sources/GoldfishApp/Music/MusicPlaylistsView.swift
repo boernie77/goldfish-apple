@@ -126,14 +126,14 @@ struct MusicPlaylistDetailView: View {
                                 .onTapGesture {
                                     musicPlayer.play(queue: tracks, startIndex: idx, client: client)
                                 }
-                            MusicDownloadIcon(item: track)
-                        }
-                        .contextMenu {
                             Button(role: .destructive) {
                                 Task { await remove(track) }
                             } label: {
-                                Label("Aus Playlist entfernen", systemImage: "trash")
+                                Image(systemName: "trash")
                             }
+                            .buttonStyle(.plain)
+                            .help("Aus Playlist entfernen")
+                            MusicDownloadIcon(item: track)
                         }
                     }
                 }

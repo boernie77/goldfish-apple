@@ -44,14 +44,14 @@ struct MusicAlbumDetailView: View {
                                 .onTapGesture {
                                     musicPlayer.play(queue: tracks, startIndex: idx, client: client)
                                 }
-                            MusicDownloadIcon(item: track)
-                        }
-                        .contextMenu {
                             Button {
                                 addToPlaylistItem = track
                             } label: {
-                                Label("Zu Playlist hinzufügen", systemImage: "text.badge.plus")
+                                Image(systemName: "text.badge.plus")
                             }
+                            .buttonStyle(.plain)
+                            .help("Zu Playlist hinzufügen")
+                            MusicDownloadIcon(item: track)
                         }
                     }
                 }

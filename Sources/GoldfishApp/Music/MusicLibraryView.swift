@@ -15,6 +15,13 @@ struct MusicLibraryView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var search = ""
+    // Navigation per @State-Flag statt separater ToolbarItem(NavigationLink)-Buttons
+    // (User-Report 2026-09-11: "ich sehe... die Playlist hinzufügen button noch die
+    // Playlists" nicht) — drei einzelne ToolbarItems + Suchfeld können bei schmalerem
+    // Fenster im macOS-Toolbar-Overflow (">>"-Chevron) verschwinden, den man leicht
+    // übersieht. Jetzt EIN Menü-Button, der garantiert nie überläuft.
+    @State private var showOffline = false
+    @State private var showPlaylists = false
     /// "gesamte Bibliothek offline halten" (User-Wunsch 2026-09-11) — pro Bibliothek
     /// persistiert, kein globaler Schalter. Kein echter Push-/Hintergrund-Sync: läuft
     /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
@@ -69,26 +76,30 @@ struct MusicLibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Toggle(isOn: $librarySyncEnabled) {
-                    Label("Bibliothek offline synchronisieren", systemImage: librarySyncEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
-                }
-                .toggleStyle(.button)
-                .help("Alle Titel dieser Bibliothek automatisch offline halten")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink {
-                    MusicOfflineView(library: library)
+                Menu {
+                    Toggle(isOn: $librarySyncEnabled) {
+                        Text("Bibliothek offline synchronisieren")
+                    }
+                    Button {
+                        showOffline = true
+                    } label: {
+                        Label("📶 Offline verfügbar", systemImage: "arrow.down.circle")
+                    }
+                    Button {
+                        showPlaylists = true
+                    } label: {
+                        Label("🎵 Playlists", systemImage: "music.note.list")
+                    }
                 } label: {
-                    Label("Offline verfügbar", systemImage: "arrow.down.circle.fill")
+                    Label("Musik-Optionen", systemImage: "ellipsis.circle")
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink {
-                    MusicPlaylistsView()
-                } label: {
-                    Label("Playlists", systemImage: "music.note.list")
-                }
-            }
+        }
+        .navigationDestination(isPresented: $showOffline) {
+            MusicOfflineView(library: library)
+        }
+        .navigationDestination(isPresented: $showPlaylists) {
+            MusicPlaylistsView()
         }
         .task {
             await load()
