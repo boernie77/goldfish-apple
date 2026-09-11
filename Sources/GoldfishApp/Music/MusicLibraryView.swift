@@ -56,6 +56,15 @@ struct MusicLibraryView: View {
     // Album-Übersicht, filtert aber Titel/Künstler/Album statt Alben.
     @State private var allTracks: [Item] = []
     @State private var allTracksLoaded = false
+    // Spaltenbreiten der Album-Listenansicht per Drag verstellbar (User-Wunsch
+    // 2026-09-11: "zumindest beim Mac macht eine Größenverstellung der Spalten
+    // Sinn") — persistiert wie im Browser (dort `musicColumns:*` in
+    // localStorage), hier via AppStorage. Als Bindings an Header+Zeilen
+    // durchgereicht statt eigenständiger @AppStorage in `MusicAlbumRow`, weil
+    // separate Structs mit je eigenem @AppStorage sich beim Ziehen nicht
+    // gegenseitig live aktualisieren würden (kein gemeinsamer Observer).
+    @AppStorage("musicAlbumListArtistWidth") private var artistColWidth: Double = 160
+    @AppStorage("musicAlbumListGenreWidth") private var genreColWidth: Double = 120
 
     enum AlbumSort: String, CaseIterable {
         case artist, album, year
@@ -324,8 +333,16 @@ struct MusicLibraryView: View {
     /// gemischte, aber danach fixe) Reihenfolge zurückzufallen.
     private func shufflePlayLibrary() async {
         guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        // Hörbücher (.m4b) automatisch ausschließen (User-Wunsch 2026-09-11:
+        // "noch besser wäre, wenn shuffle Hörbücher automatisch nicht
+        // abspielt") — gleiche Konvention wie der Browser
+        // (`ItemFilter.ExcludeAudiobooks`, siehe Server-CLAUDE.md
+        // "Shuffle-Play"): ein Roman zufällig mitten in einer Hörbuch-Serie
+        // zu starten ergibt beim Musik-Shuffle keinen Sinn.
+        let playable = items.filter { $0.container?.lowercased() != "m4b" }
+        guard !playable.isEmpty else { return }
         musicPlayer.isShuffling = true
-        musicPlayer.play(queue: items.shuffled(), startIndex: 0, client: client)
+        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
     }
 
     private func loadAllTracks() async {
@@ -354,9 +371,9 @@ struct MusicLibraryView: View {
             // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
             // stattdessen über `.onTapGesture` + `navigationDestination(isPresented:)`.
             VStack(spacing: 0) {
-                MusicAlbumListHeader()
+                MusicAlbumListHeader(artistWidth: $artistColWidth, genreWidth: $genreColWidth)
                 List(filteredAlbums) { album in
-                    MusicAlbumRow(album: album)
+                    MusicAlbumRow(album: album, artistWidth: artistColWidth, genreWidth: genreColWidth)
                         .contentShape(Rectangle())
                         .onTapGesture { navigateToAlbum = album }
                 }
@@ -398,8 +415,12 @@ struct MusicLibraryView: View {
                     }
                     .disabled(filteredTracks.isEmpty)
                     Button {
+                        // Hörbücher (.m4b) auch hier vom Shuffle ausschließen,
+                        // siehe Kommentar in `shufflePlayLibrary()`.
+                        let playable = filteredTracks.filter { $0.container?.lowercased() != "m4b" }
+                        guard !playable.isEmpty else { return }
                         musicPlayer.isShuffling = true
-                        musicPlayer.play(queue: filteredTracks.shuffled(), startIndex: 0, client: client)
+                        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
                     } label: {
                         Label("Shuffle abspielen", systemImage: "shuffle")
                     }
@@ -435,24 +456,74 @@ struct MusicLibraryView: View {
     }
 }
 
-/// Spaltenbreiten der Album-Listenansicht — geteilt zwischen Kopfzeile
-/// (`MusicAlbumListHeader`) und Datenzeile (`MusicAlbumRow`), damit beide
-/// exakt fluchten.
+/// Spaltenbreiten der Album-Listenansicht — Min/Max-Grenzen für den Drag-Resize
+/// in `MusicColumnResizeHandle`, geteilt zwischen Kopfzeile (`MusicAlbumListHeader`)
+/// und Datenzeile (`MusicAlbumRow`), damit beide exakt fluchten.
 private enum MusicAlbumColumn {
-    static let artistWidth: CGFloat = 160
-    static let genreWidth: CGFloat = 120
+    static let widthRange: ClosedRange<CGFloat> = 60...400
     static let countWidth: CGFloat = 60
 }
 
+/// Ziehbarer Spaltentrenner (User-Wunsch 2026-09-11: "zumindest beim Mac macht
+/// eine Größenverstellung der Spalten Sinn") — analog zum `.col-resize-handle`
+/// im Browser (`views.js`/`music.js`). Sitzt als `.overlay` am rechten Rand der
+/// jeweiligen Spalte (nicht als eigenes HStack-Element), damit Kopfzeile und
+/// Datenzeile exakt dieselbe Spacing-Struktur behalten und bündig fluchten —
+/// nur die Kopfzeile trägt den Handle, die Breite wirkt sich über das Binding
+/// aber sofort auch auf die Datenzeilen aus. `NSCursor.resizeLeftRight` zeigt
+/// beim Hovern den Größenänderungs-Cursor, wie man es von macOS-Tabellen kennt.
+private struct MusicColumnResizeHandle: View {
+    @Binding var width: Double
+    @State private var dragStartWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 10)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragStartWidth == nil { dragStartWidth = width }
+                        let proposed = (dragStartWidth ?? width) + value.translation.width
+                        width = min(max(proposed, MusicAlbumColumn.widthRange.lowerBound), MusicAlbumColumn.widthRange.upperBound)
+                    }
+                    .onEnded { _ in dragStartWidth = nil }
+            )
+    }
+}
+
 /// Kopfzeile mit Spaltentiteln für die Album-Listenansicht (User-Wunsch
-/// 2026-09-11: "extra Spalten mit Künstler und Genre").
+/// 2026-09-11: "extra Spalten mit Künstler und Genre", Spaltenbreiten
+/// verstellbar seit demselben Tag). Identische Spacing-Struktur wie
+/// `MusicAlbumRow` (`spacing: 12`), damit beide Zeilen bündig fluchten —
+/// die Resize-Handles sitzen als Overlay am rechten Spaltenrand, verändern
+/// also nicht die HStack-Breiten selbst.
 private struct MusicAlbumListHeader: View {
+    @Binding var artistWidth: Double
+    @Binding var genreWidth: Double
+
     var body: some View {
         HStack(spacing: 12) {
             Color.clear.frame(width: 44, height: 1) // Cover-Spalte
             Text("Album").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Künstler").frame(width: MusicAlbumColumn.artistWidth, alignment: .leading)
-            Text("Genre").frame(width: MusicAlbumColumn.genreWidth, alignment: .leading)
+            Text("Künstler")
+                .frame(width: artistWidth, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    MusicColumnResizeHandle(width: $artistWidth).offset(x: 11)
+                }
+            Text("Genre")
+                .frame(width: genreWidth, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    MusicColumnResizeHandle(width: $genreWidth).offset(x: 11)
+                }
             Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
         }
@@ -464,11 +535,13 @@ private struct MusicAlbumListHeader: View {
 }
 
 /// Zeilen-Darstellung eines Albums für die Listenansicht (User-Wunsch 2026-09-11:
-/// "Es fehlt noch eine Listenansicht", später ergänzt um Künstler-/Genre-Spalten)
-/// — kompaktes Cover-Thumbnail statt großer Kachel, analog zur Browser-Album-
-/// Listenzeile (`.track-row--album`).
+/// "Es fehlt noch eine Listenansicht", später ergänzt um Künstler-/Genre-Spalten
+/// + Spaltenbreiten) — kompaktes Cover-Thumbnail statt großer Kachel, analog zur
+/// Browser-Album-Listenzeile (`.track-row--album`).
 private struct MusicAlbumRow: View {
     let album: MusicAlbum
+    let artistWidth: Double
+    let genreWidth: Double
     @EnvironmentObject var client: GoldfishClient
 
     var body: some View {
@@ -482,11 +555,11 @@ private struct MusicAlbumRow: View {
             Text(album.artist)
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
-                .frame(width: MusicAlbumColumn.artistWidth, alignment: .leading)
+                .frame(width: artistWidth, alignment: .leading)
             Text(album.genre ?? "")
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
-                .frame(width: MusicAlbumColumn.genreWidth, alignment: .leading)
+                .frame(width: genreWidth, alignment: .leading)
             Text(album.trackCount.map { "\($0)" } ?? "")
                 .foregroundStyle(.secondary)
                 .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
