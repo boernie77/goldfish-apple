@@ -83,12 +83,20 @@ struct MusicLibraryView: View {
                 $0.album.localizedCaseInsensitiveContains(search) || $0.artist.localizedCaseInsensitiveContains(search)
             }
         }
+        // `localizedStandardCompare` statt des rohen `<`-Operators (User-Report
+        // 2026-09-11: "Ist großes A und kleines a unterschiedlich?" — genau das
+        // war der Bug: Swifts Standard-`String`-Vergleich ist NICHT case-
+        // insensitiv, "voXXclub" landete dadurch vor "a-ha"/"k.d. lang" statt
+        // danach). `localizedStandardCompare` ist case-/akzent-insensitiv und
+        // sortiert natürlich (analog zur server-seitigen NATSORT-Collation).
         switch sortOption {
         case .artist:
             result.sort {
-                sortAscending
-                    ? ($0.artist, $0.album) < ($1.artist, $1.album)
-                    : ($0.artist, $0.album) > ($1.artist, $1.album)
+                let artistOrder = $0.artist.localizedStandardCompare($1.artist)
+                let order = artistOrder == .orderedSame
+                    ? $0.album.localizedStandardCompare($1.album)
+                    : artistOrder
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
             }
         case .album:
             result.sort {
@@ -113,20 +121,33 @@ struct MusicLibraryView: View {
     }
 
     var body: some View {
-        Group {
-            switch displayMode {
-            case .allTracks:
-                allTracksContent
-            case .grid, .list:
-                albumContent
+        VStack(spacing: 0) {
+            // Trefferzahl der aktuellen Filterung (Suche/Genre) — User-Report
+            // 2026-09-11: "die Trefferanzahl beim Filtern wird in keiner Ansicht
+            // angezeigt": `.navigationSubtitle` (erster Versuch) landet im
+            // nativen Fenstertitel, der in dieser App unsichtbar/nicht gerendert
+            // ist (kein sichtbarer Titlebar-Bereich in den Screenshots dieser
+            // Session) — deshalb jetzt als echtes, garantiert sichtbares
+            // Text-Element im Inhaltsbereich.
+            HStack {
+                Text(displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            Group {
+                switch displayMode {
+                case .allTracks:
+                    allTracksContent
+                case .grid, .list:
+                    albumContent
+                }
             }
         }
         .navigationTitle(library.name)
-        // Zeigt die Trefferzahl der aktuellen Filterung (Suche/Genre) — User-
-        // Wunsch 2026-09-11: "beim Filtern sollten immer die Anzahl der
-        // aktuellen Treffer angezeigt werden". macOS-Fensterleisten-Untertitel,
-        // kein zusätzliches UI-Element nötig.
-        .navigationSubtitle(displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
         .searchable(text: $search, prompt: displayMode == .allTracks ? "Titel/Künstler/Album durchsuchen" : "Alben/Künstler durchsuchen")
         // `.navigationDestination(item:)` braucht macOS 14 (Deployment-Target ist
         // 13.0) — die `isPresented:`-Variante gibt es schon seit macOS 13. Einzige
@@ -332,12 +353,15 @@ struct MusicLibraryView: View {
             // in SwiftUI unzuverlässig (gleiche Falle wie bei den Track-
             // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
             // stattdessen über `.onTapGesture` + `navigationDestination(isPresented:)`.
-            List(filteredAlbums) { album in
-                MusicAlbumRow(album: album)
-                    .contentShape(Rectangle())
-                    .onTapGesture { navigateToAlbum = album }
+            VStack(spacing: 0) {
+                MusicAlbumListHeader()
+                List(filteredAlbums) { album in
+                    MusicAlbumRow(album: album)
+                        .contentShape(Rectangle())
+                        .onTapGesture { navigateToAlbum = album }
+                }
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
@@ -411,9 +435,38 @@ struct MusicLibraryView: View {
     }
 }
 
+/// Spaltenbreiten der Album-Listenansicht — geteilt zwischen Kopfzeile
+/// (`MusicAlbumListHeader`) und Datenzeile (`MusicAlbumRow`), damit beide
+/// exakt fluchten.
+private enum MusicAlbumColumn {
+    static let artistWidth: CGFloat = 160
+    static let genreWidth: CGFloat = 120
+    static let countWidth: CGFloat = 60
+}
+
+/// Kopfzeile mit Spaltentiteln für die Album-Listenansicht (User-Wunsch
+/// 2026-09-11: "extra Spalten mit Künstler und Genre").
+private struct MusicAlbumListHeader: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Color.clear.frame(width: 44, height: 1) // Cover-Spalte
+            Text("Album").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Künstler").frame(width: MusicAlbumColumn.artistWidth, alignment: .leading)
+            Text("Genre").frame(width: MusicAlbumColumn.genreWidth, alignment: .leading)
+            Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
+            Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+    }
+}
+
 /// Zeilen-Darstellung eines Albums für die Listenansicht (User-Wunsch 2026-09-11:
-/// "Es fehlt noch eine Listenansicht") — kompaktes Cover-Thumbnail statt großer
-/// Kachel, analog zur Browser-Album-Listenzeile (`.track-row--album`).
+/// "Es fehlt noch eine Listenansicht", später ergänzt um Künstler-/Genre-Spalten)
+/// — kompaktes Cover-Thumbnail statt großer Kachel, analog zur Browser-Album-
+/// Listenzeile (`.track-row--album`).
 private struct MusicAlbumRow: View {
     let album: MusicAlbum
     @EnvironmentObject var client: GoldfishClient
@@ -423,19 +476,24 @@ private struct MusicAlbumRow: View {
             PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(album.displayTitle)
-                Text(album.artist.isEmpty ? " " : album.artist)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let count = album.trackCount, count > 0 {
-                Text("\(count) Titel").font(.caption).foregroundStyle(.secondary)
-            }
+            Text(album.displayTitle)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(album.artist)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .frame(width: MusicAlbumColumn.artistWidth, alignment: .leading)
+            Text(album.genre ?? "")
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .frame(width: MusicAlbumColumn.genreWidth, alignment: .leading)
+            Text(album.trackCount.map { "\($0)" } ?? "")
+                .foregroundStyle(.secondary)
+                .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             MusicFavoriteButton(isFavorite: album.favorite ?? false) { newValue in
                 try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
             }
+            .frame(width: 22)
         }
     }
 }
