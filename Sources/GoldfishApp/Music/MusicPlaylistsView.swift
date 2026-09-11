@@ -89,6 +89,7 @@ struct MusicPlaylistDetailView: View {
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
+    @EnvironmentObject var downloads: DownloadManager
     @State private var tracks: [Item] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -103,18 +104,30 @@ struct MusicPlaylistDetailView: View {
                 ContentUnavailableMessage(text: "Playlist ist leer.")
             } else {
                 List {
-                    Button {
-                        musicPlayer.play(queue: tracks, startIndex: 0, client: client)
-                    } label: {
-                        Label("Alle abspielen", systemImage: "play.fill")
-                    }
-                    ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, track in
+                    HStack {
                         Button {
-                            musicPlayer.play(queue: tracks, startIndex: idx, client: client)
+                            musicPlayer.play(queue: tracks, startIndex: 0, client: client)
                         } label: {
-                            trackRow(track)
+                            Label("Alle abspielen", systemImage: "play.fill")
                         }
-                        .buttonStyle(.plain)
+                        Button {
+                            downloadAllMissing(tracks, client: client, downloads: downloads)
+                        } label: {
+                            Label("Playlist herunterladen", systemImage: "arrow.down.circle")
+                        }
+                    }
+                    // Kein Button-Wrapper um die ganze Zeile, siehe Kommentar in
+                    // MusicAlbumDetailView — das Download-Icon braucht einen echten,
+                    // unabhängigen Tap-Bereich.
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, track in
+                        HStack {
+                            trackRow(track)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    musicPlayer.play(queue: tracks, startIndex: idx, client: client)
+                                }
+                            MusicDownloadIcon(item: track)
+                        }
                         .contextMenu {
                             Button(role: .destructive) {
                                 Task { await remove(track) }
@@ -146,7 +159,6 @@ struct MusicPlaylistDetailView: View {
             }
             Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
         }
-        .contentShape(Rectangle())
     }
 
     private func load() async {

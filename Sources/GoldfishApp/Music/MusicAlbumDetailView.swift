@@ -12,6 +12,7 @@ struct MusicAlbumDetailView: View {
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
+    @EnvironmentObject var downloads: DownloadManager
     @State private var tracks: [Item] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -30,12 +31,21 @@ struct MusicAlbumDetailView: View {
                     }
                     .listRowSeparator(.hidden)
                     ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, track in
-                        Button {
-                            musicPlayer.play(queue: tracks, startIndex: idx, client: client)
-                        } label: {
+                        // KEIN Button-Wrapper um die ganze Zeile — das Download-Icon
+                        // ist selbst ein Button, und ein Button verschachtelt in einem
+                        // anderen Button-Label ist in SwiftUI unzuverlässig (der äußere
+                        // Tap-Handler gewinnt meist, das innere Icon wäre dann tot).
+                        // Play-Tap läuft stattdessen über `.onTapGesture` NUR auf dem
+                        // Text-Teil der Zeile (`trackRow`), das Icon bleibt daneben ein
+                        // echter, unabhängiger Button.
+                        HStack {
                             trackRow(track, index: idx)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    musicPlayer.play(queue: tracks, startIndex: idx, client: client)
+                                }
+                            MusicDownloadIcon(item: track)
                         }
-                        .buttonStyle(.plain)
                         .contextMenu {
                             Button {
                                 addToPlaylistItem = track
@@ -69,12 +79,20 @@ struct MusicAlbumDetailView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                Button {
-                    musicPlayer.play(queue: tracks, startIndex: 0, client: client)
-                } label: {
-                    Label("Album abspielen", systemImage: "play.fill")
+                HStack(spacing: 10) {
+                    Button {
+                        musicPlayer.play(queue: tracks, startIndex: 0, client: client)
+                    } label: {
+                        Label("Album abspielen", systemImage: "play.fill")
+                    }
+                    .disabled(tracks.isEmpty)
+                    Button {
+                        downloadAllMissing(tracks, client: client, downloads: downloads)
+                    } label: {
+                        Label("Album herunterladen", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(tracks.isEmpty)
                 }
-                .disabled(tracks.isEmpty)
                 .padding(.top, 6)
             }
         }
@@ -100,7 +118,6 @@ struct MusicAlbumDetailView: View {
             }
             Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
         }
-        .contentShape(Rectangle())
     }
 
     private func load() async {

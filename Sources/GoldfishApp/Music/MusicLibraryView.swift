@@ -10,10 +10,21 @@ struct MusicLibraryView: View {
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
+    @EnvironmentObject var downloads: DownloadManager
     @State private var albums: [MusicAlbum] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var search = ""
+    /// "gesamte Bibliothek offline halten" (User-Wunsch 2026-09-11) — pro Bibliothek
+    /// persistiert, kein globaler Schalter. Kein echter Push-/Hintergrund-Sync: läuft
+    /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
+    /// Server-Scan ab, ohne einen eigenen Hintergrund-Daemon zu brauchen).
+    @AppStorage private var librarySyncEnabled: Bool
+
+    init(library: Library) {
+        self.library = library
+        self._librarySyncEnabled = AppStorage(wrappedValue: false, "musicLibrarySync.\(library.id)")
+    }
 
     private let cardWidth: CGFloat = 170
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
@@ -58,6 +69,20 @@ struct MusicLibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Toggle(isOn: $librarySyncEnabled) {
+                    Label("Bibliothek offline synchronisieren", systemImage: librarySyncEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
+                }
+                .toggleStyle(.button)
+                .help("Alle Titel dieser Bibliothek automatisch offline halten")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink {
+                    MusicOfflineView(library: library)
+                } label: {
+                    Label("Offline verfügbar", systemImage: "arrow.down.circle.fill")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 NavigationLink {
                     MusicPlaylistsView()
                 } label: {
@@ -65,7 +90,13 @@ struct MusicLibraryView: View {
                 }
             }
         }
-        .task { await load() }
+        .task {
+            await load()
+            await syncLibraryIfNeeded()
+        }
+        .onChange(of: librarySyncEnabled) { enabled in
+            if enabled { Task { await syncLibraryIfNeeded() } }
+        }
     }
 
     private func load() async {
@@ -77,6 +108,12 @@ struct MusicLibraryView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func syncLibraryIfNeeded() async {
+        guard librarySyncEnabled else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+        downloadAllMissing(items, client: client, downloads: downloads)
     }
 }
 

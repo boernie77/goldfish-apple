@@ -121,6 +121,22 @@ final class MusicPlayerEngine: ObservableObject {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
 
+        // Offline-first, exakt wie PlayerView: ein heruntergeladener Track spielt lokal,
+        // ganz ohne Server-Roundtrip (User-Wunsch 2026-09-11 "Offline-Synchronisation").
+        // `DownloadManager` ist wie `GoldfishClient` ein App-weites Singleton (`.shared`),
+        // deshalb hier direkt referenziert statt durch jeden Aufrufer durchgereicht.
+        if let localURL = DownloadManager.shared.localFileURL(itemId: item.id) {
+            let p = AVPlayer(url: localURL)
+            player = p
+            duration = item.durationSec ?? 0
+            attachObservers(to: p, client: client)
+            p.play()
+            isPlaying = true
+            isLoading = false
+            updateNowPlayingInfo(client: client)
+            return
+        }
+
         do {
             let playback = try await client.playback(itemId: item.id)
             guard mySeq == loadSeq else { return } // User hat inzwischen weitergesprungen
