@@ -188,8 +188,25 @@ targets:
         # Offline-Sync) + Shuffle in Video-Playlists + feste 2-Spalten-
         # Bibliotheksgrids (User-Wunsch im selben Zug). Großes Feature-Update,
         # daher 1.3 statt nur +0.0.1.
+        # User-Report 2026-09-11 (direkt nach dem Musik-Port): vier Bugs auf
+        # dem echten iPhone — Listenansicht/Player/Playlists/Offline-Sheet
+        # zu breit für iPhone-Bildschirm (feste Mac-Pixelbreiten), Sortieren/
+        # Genre-Untermenü flackerte auf (Menu-in-Menu-in-Toolbar auf iOS
+        # unzuverlässig, gleiche Fehlerklasse wie das dokumentierte tvOS-
+        # Menu-Problem), Musik pausierte beim Sperren (fehlender
+        # `audio`-UIBackgroundMode). Alle vier gefixt.
         CFBundleShortVersionString: "1.3"
-        CFBundleVersion: "191"
+        CFBundleVersion: "192"
+        # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
+        # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
+        # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
+        # Mode friert iOS jede App beim Sperren/Wechsel in eine andere App
+        # ein, `AVAudioSession.setCategory(.playback)` (siehe GoldfishApp.swift)
+        # allein reicht NICHT, das Recht muss zusätzlich im Info.plist
+        # deklariert werden (Apple-Konvention für jede Hintergrund-Audio-App:
+        # Musik-Player, Podcast-Apps, …).
+        UIBackgroundModes:
+          - audio
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -211,7 +228,7 @@ targets:
         # bei .iosdev, bereits sauber unter SYQL3PUXA9 registriert.
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.iosdev
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "191"
+        CURRENT_PROJECT_VERSION: "192"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SYQL3PUXA9  # siehe Kommentar beim GoldfishMac-Target
         TARGETED_DEVICE_FAMILY: "1,2"

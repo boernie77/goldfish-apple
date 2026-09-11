@@ -131,13 +131,24 @@ struct MusicAlbumDetailView: View {
             NavigationStack {
                 MusicPlaylistsView()
             }
+            // User-Report 2026-09-11: "Playlists sind nicht für das Iphone
+            // kompatibel" — ein festes `minWidth:480` zwingt den Sheet-Inhalt
+            // breiter als der iPhone-Bildschirm (typisch 375-430pt), SwiftUI
+            // beschneidet/verschiebt den Rest dann unsichtbar. Nur auf macOS
+            // sinnvoll (dort ist es die Mindestgröße eines frei skalierbaren
+            // Sheet-Fensters), auf iOS/tvOS füllt der Sheet ohnehin die volle
+            // Bildschirmbreite von selbst.
+            #if os(macOS)
             .frame(minWidth: 480, minHeight: 480)
+            #endif
         }
         .sheet(isPresented: $showOffline) {
             NavigationStack {
                 MusicOfflineView(library: library)
             }
+            #if os(macOS)
             .frame(minWidth: 480, minHeight: 480)
+            #endif
         }
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled {

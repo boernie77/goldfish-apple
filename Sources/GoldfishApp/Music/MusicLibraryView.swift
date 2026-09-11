@@ -22,6 +22,18 @@ struct MusicLibraryView: View {
     // übersieht. Jetzt EIN Menü-Button, der garantiert nie überläuft.
     @State private var showOffline = false
     @State private var showPlaylists = false
+    // User-Report 2026-09-11: "Wenn man auf Sortieren oder Genre klickt,
+    // dann ploppt kurz das Menü auf, aber verschwindet gleich wieder" — ein
+    // `Menu` VERSCHACHTELT in einem anderen `Menu` (Sortierung/Genre als
+    // Untermenüs von "Musik-Optionen") ist auf iOS in einer Toolbar
+    // nachweislich unzuverlässig, exakt dasselbe Muster wie das bereits in
+    // CLAUDE.md dokumentierte "Menu-in-Toolbar auf tvOS öffnet zuverlässig
+    // nichts" — dort ist die etablierte Lösung ebenfalls ein Sheet statt
+    // eines verschachtelten Menüs. Auf iOS ersetzt ein Sheet die beiden
+    // Untermenüs; macOS behält die (dort funktionierende) Menu-in-Menu-UI.
+    #if os(iOS)
+    @State private var showSortGenreSheet = false
+    #endif
     /// Kacheln/Liste/Alle Titel — EIN gemeinsamer 3-Wege-Umschalter (User-Wunsch
     /// 2026-09-11: "der Button Alle Titel gehört neben die Listen/Grid Ansicht.
     /// Und soll nicht im extra Fenster öffnen"). "Alle Titel" war zuvor ein
@@ -226,6 +238,16 @@ struct MusicLibraryView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    #if os(iOS)
+                    // Siehe Kommentar bei `showSortGenreSheet` oben — ein
+                    // Button statt eines verschachtelten Menüs, öffnet einen
+                    // zuverlässigen Sheet statt eines flackernden Untermenüs.
+                    Button {
+                        showSortGenreSheet = true
+                    } label: {
+                        Label("Sortieren & Genre", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    #else
                     Menu("Sortierung") {
                         Picker("Sortierung", selection: $sortOption) {
                             ForEach(AlbumSort.allCases, id: \.self) { option in
@@ -269,6 +291,7 @@ struct MusicLibraryView: View {
                             }
                         }
                     }
+                    #endif
                     Divider()
                     Toggle(isOn: $librarySyncEnabled) {
                         Text("Bibliothek offline synchronisieren")
@@ -283,6 +306,65 @@ struct MusicLibraryView: View {
                 }
             }
         }
+        #if os(iOS)
+        .sheet(isPresented: $showSortGenreSheet) {
+            NavigationStack {
+                List {
+                    Section("Sortierung") {
+                        Picker("Sortierung", selection: $sortOption) {
+                            ForEach(AlbumSort.allCases, id: \.self) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        Button {
+                            sortAscending.toggle()
+                        } label: {
+                            Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                        }
+                    }
+                    if !availableGenres.isEmpty {
+                        Section("Genre") {
+                            Button {
+                                selectedGenres.removeAll()
+                            } label: {
+                                HStack {
+                                    Text("Alle Genres")
+                                    Spacer()
+                                    if selectedGenres.isEmpty {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            ForEach(availableGenres, id: \.self) { genre in
+                                Button {
+                                    if selectedGenres.contains(genre) {
+                                        selectedGenres.remove(genre)
+                                    } else {
+                                        selectedGenres.insert(genre)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(genre)
+                                        Spacer()
+                                        if selectedGenres.contains(genre) {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Sortieren & Genre")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Fertig") { showSortGenreSheet = false }
+                    }
+                }
+            }
+        }
+        #endif
         // Sheet statt Push-Navigation (User-Report 2026-09-11: kompletter
         // Bibliotheken-Tab brach beim Zurücknavigieren) — mehrere gleichzeitige
         // `navigationDestination`-Modifier (for:/isPresented:) auf derselben View
@@ -294,13 +376,19 @@ struct MusicLibraryView: View {
             NavigationStack {
                 MusicOfflineView(library: library)
             }
+            // Siehe Kommentar in MusicAlbumDetailView: minWidth:480 sprengt
+            // den iPhone-Bildschirm, nur auf macOS sinnvoll.
+            #if os(macOS)
             .frame(minWidth: 480, minHeight: 480)
+            #endif
         }
         .sheet(isPresented: $showPlaylists) {
             NavigationStack {
                 MusicPlaylistsView()
             }
+            #if os(macOS)
             .frame(minWidth: 480, minHeight: 480)
+            #endif
         }
         .task {
             await load()
@@ -384,6 +472,24 @@ struct MusicLibraryView: View {
             // in SwiftUI unzuverlässig (gleiche Falle wie bei den Track-
             // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
             // stattdessen über `.onTapGesture` + `navigationDestination(isPresented:)`.
+            // User-Report 2026-09-11: "Die Ansicht Liste ist nicht für das
+            // Iphone optimiert. Da sieht man gar nichts" — `MusicAlbumRow`/
+            // `MusicAlbumListHeader` sind auf feste, per Drag verstellbare
+            // Spaltenbreiten ausgelegt (Cover 44 + Album 260 + Künstler 160 +
+            // Genre 120 + Titelzahl 60 + Favorit 22 + Abstände ≈ 750pt) — auf
+            // einem iPhone (typisch 375-430pt Breite) weit mehr, als je
+            // hinpasst, der Rest fällt unsichtbar rechts raus. Auf iOS
+            // deshalb eine eigene, kompakte Zeile ohne feste Spaltenbreiten
+            // (Cover+Titel/Künstler/Genre gestapelt, kein Resize — macht auf
+            // Touch ohnehin keinen Sinn).
+            #if os(iOS)
+            List(filteredAlbums) { album in
+                MusicAlbumRowCompact(album: album)
+                    .contentShape(Rectangle())
+                    .onTapGesture { navigateToAlbum = album }
+            }
+            .listStyle(.plain)
+            #else
             VStack(spacing: 0) {
                 MusicAlbumListHeader(albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth)
                 List(filteredAlbums) { album in
@@ -393,6 +499,7 @@ struct MusicLibraryView: View {
                 }
                 .listStyle(.plain)
             }
+            #endif
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
@@ -577,6 +684,42 @@ private struct MusicAlbumListHeader: View {
 /// "Es fehlt noch eine Listenansicht", später ergänzt um Künstler-/Genre-Spalten
 /// + Spaltenbreiten) — kompaktes Cover-Thumbnail statt großer Kachel, analog zur
 /// Browser-Album-Listenzeile (`.track-row--album`).
+/// Kompakte, iOS-only Album-Listenzeile ohne feste Spaltenbreiten (siehe
+/// Kommentar bei ihrem Aufrufer in `albumContent`) — Titel/Künstler/Genre
+/// stapeln sich statt in eigenen Spalten nebeneinander zu stehen, damit
+/// nichts auf schmalen iPhone-Breiten abgeschnitten wird.
+private struct MusicAlbumRowCompact: View {
+    let album: MusicAlbum
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(album.artist).foregroundStyle(.secondary).lineLimit(1)
+                    if let genre = album.genre, !genre.isEmpty {
+                        Text("·").foregroundStyle(.secondary)
+                        Text(genre).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .font(.caption)
+            }
+            Spacer(minLength: 8)
+            if let count = album.trackCount {
+                Text("\(count)").font(.caption).foregroundStyle(.secondary)
+            }
+            MusicFavoriteButton(isFavorite: album.favorite ?? false) { newValue in
+                try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct MusicAlbumRow: View {
     let album: MusicAlbum
     let albumWidth: Double
