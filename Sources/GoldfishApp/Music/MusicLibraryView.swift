@@ -63,6 +63,15 @@ struct MusicLibraryView: View {
     // durchgereicht statt eigenständiger @AppStorage in `MusicAlbumRow`, weil
     // separate Structs mit je eigenem @AppStorage sich beim Ziehen nicht
     // gegenseitig live aktualisieren würden (kein gemeinsamer Observer).
+    // User-Korrektur 2026-09-11 ("Der Trennstrich zwischen Album und Künstler
+    // ist nicht verschiebbar! Das war doch der Sinn des ganzen!!"): Runde 10
+    // hatte dort nur eine STATISCHE Linie ergänzt, weil "Album" bis dahin die
+    // flexible Füllspalte (`maxWidth: .infinity`) war — eine Füllspalte kann
+    // keine per Drag verstellbare "Breite" im selben Sinn haben wie eine feste
+    // Spalte. Fix: "Album" bekommt jetzt genau wie Künstler/Genre eine eigene
+    // feste, per Drag verstellbare Breite; ein Spacer() am Zeilenende füllt
+    // den verbleibenden Platz (Album ist nicht mehr die Füllspalte).
+    @AppStorage("musicAlbumListAlbumWidth") private var albumColWidth: Double = 260
     @AppStorage("musicAlbumListArtistWidth") private var artistColWidth: Double = 160
     @AppStorage("musicAlbumListGenreWidth") private var genreColWidth: Double = 120
 
@@ -371,9 +380,9 @@ struct MusicLibraryView: View {
             // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
             // stattdessen über `.onTapGesture` + `navigationDestination(isPresented:)`.
             VStack(spacing: 0) {
-                MusicAlbumListHeader(artistWidth: $artistColWidth, genreWidth: $genreColWidth)
+                MusicAlbumListHeader(albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth)
                 List(filteredAlbums) { album in
-                    MusicAlbumRow(album: album, artistWidth: artistColWidth, genreWidth: genreColWidth)
+                    MusicAlbumRow(album: album, albumWidth: albumColWidth, artistWidth: artistColWidth, genreWidth: genreColWidth)
                         .contentShape(Rectangle())
                         .onTapGesture { navigateToAlbum = album }
                 }
@@ -515,6 +524,7 @@ private struct MusicColumnResizeHandle: View {
 /// die Resize-Handles sitzen als Overlay am rechten Spaltenrand, verändern
 /// also nicht die HStack-Breiten selbst.
 private struct MusicAlbumListHeader: View {
+    @Binding var albumWidth: Double
     @Binding var artistWidth: Double
     @Binding var genreWidth: Double
 
@@ -525,14 +535,15 @@ private struct MusicAlbumListHeader: View {
             // Überschrift steht bewusst schon eine Zeile höher als die
             // Cover-Thumbnails der Datenzeilen darunter, soll also bündig ab
             // dem linken Rand beginnen statt erst nach der 44pt-Cover-Lücke.
+            // "Album" bekommt eine eigene, per Drag verstellbare Breite
+            // (User-Korrektur 2026-09-11: "Der Trennstrich zwischen Album
+            // und Künstler ist nicht verschiebbar! Das war doch der Sinn des
+            // ganzen!!" — die vorherige Version war nur eine statische
+            // Linie, weil "Album" bis dahin die flexible Füllspalte war).
             Text("Album")
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: albumWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
-                    // Statischer Trenner (kein Drag) — "Album" bleibt die
-                    // flexible Füllspalte, nur Künstler/Genre sind verstellbar.
-                    // User-Report: "Zwischen Album und Künstler fehlt der
-                    // Trennstrich" — bisher gab es dort GAR keinen Handle.
-                    Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 1)
+                    MusicColumnResizeHandle(width: $albumWidth).offset(x: 14)
                 }
             Text("Künstler")
                 .frame(width: artistWidth, alignment: .leading)
@@ -546,6 +557,7 @@ private struct MusicAlbumListHeader: View {
                 }
             Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
+            Spacer(minLength: 0) // füllt den Rest (Album ist nicht mehr die Füllspalte)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -560,6 +572,7 @@ private struct MusicAlbumListHeader: View {
 /// Browser-Album-Listenzeile (`.track-row--album`).
 private struct MusicAlbumRow: View {
     let album: MusicAlbum
+    let albumWidth: Double
     let artistWidth: Double
     let genreWidth: Double
     @EnvironmentObject var client: GoldfishClient
@@ -571,7 +584,7 @@ private struct MusicAlbumRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
             Text(album.displayTitle)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: albumWidth, alignment: .leading)
             Text(album.artist)
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
@@ -587,6 +600,7 @@ private struct MusicAlbumRow: View {
                 try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
             }
             .frame(width: 22)
+            Spacer(minLength: 0)
         }
     }
 }
