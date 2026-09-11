@@ -79,7 +79,18 @@ struct GoldfishApp: App {
         // wird) — robuster als sich auf SwiftUIs Fenster-Uniqueness-Garantie zu verlassen.
         WindowGroup(id: "player") {
             if let request = playerLaunch.pendingPlayer {
-                PlayerView(item: request.item, queue: request.queue, queueIndex: request.queueIndex, randomContext: request.randomContext, startFromBeginning: request.startFromBeginning)
+                // Bug gefunden 2026-09-11 (User-Report: "auch beim Streaming
+                // funktioniert die Qualitätsauswahl aktuell nicht!!!"): diese
+                // Zeile ließ `preferredAudioIndex`/`preferredSubtitle`/
+                // `preferredProfile` der `request` KOMPLETT unter den Tisch
+                // fallen — `PlayerView` bekam sie nie, weil der Mac-Player über
+                // diese eigene `WindowGroup`-Szene läuft (anders als iOS/tvOS,
+                // die PlayerView direkt als Sheet mit vollen Parametern öffnen,
+                // siehe ItemDetailView.swift). Betraf also nicht nur die neue
+                // Qualitäts-Auswahl, sondern vermutlich auch Ton-/Untertitel-
+                // Vorwahl aus dem Detail-Dialog — auf dem Mac lief seit jeher
+                // immer nur die jeweilige Default-Wahl.
+                PlayerView(item: request.item, queue: request.queue, queueIndex: request.queueIndex, randomContext: request.randomContext, startFromBeginning: request.startFromBeginning, preferredAudioIndex: request.preferredAudioIndex, preferredSubtitle: request.preferredSubtitle, preferredProfile: request.preferredProfile)
                     .environmentObject(client)
                     .environmentObject(downloads)
                     .environmentObject(transcode)
