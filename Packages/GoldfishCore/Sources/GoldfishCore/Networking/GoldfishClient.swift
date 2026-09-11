@@ -740,12 +740,17 @@ public final class GoldfishClient: ObservableObject {
 
     // MARK: - Playlists
 
-    public func fetchPlaylists() async throws -> [Playlist] {
-        try await perform("/api/playlists")
+    /// `kind`: "video" (Default — bestehende Aufrufer sollen weiterhin NUR Video-
+    /// Playlists sehen, siehe CLAUDE.md "Playlists (per User)" — strikt nach Video/
+    /// Musik getrennt seit 2026-09-04 server-seitig, der Mac-Client hatte das nur nie
+    /// nachvollzogen) oder "music" (Musik-Playlists, nur über die Musik-Bibliothek
+    /// erreichbar, siehe `MusicPlaylistsView`).
+    public func fetchPlaylists(kind: String = "video") async throws -> [Playlist] {
+        try await perform("/api/playlists", query: [URLQueryItem(name: "kind", value: kind)])
     }
 
-    public func createPlaylist(name: String) async throws -> Playlist {
-        let body = try JSONEncoder().encode(["name": name])
+    public func createPlaylist(name: String, kind: String = "video") async throws -> Playlist {
+        let body = try JSONEncoder().encode(["name": name, "kind": kind])
         return try await perform("/api/playlists", method: "POST", jsonBody: body)
     }
 

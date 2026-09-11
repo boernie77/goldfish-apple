@@ -15,6 +15,7 @@ struct MusicAlbumDetailView: View {
     @State private var tracks: [Item] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var addToPlaylistItem: Item?
 
     var body: some View {
         Group {
@@ -35,6 +36,13 @@ struct MusicAlbumDetailView: View {
                             trackRow(track, index: idx)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                addToPlaylistItem = track
+                            } label: {
+                                Label("Zu Playlist hinzufügen", systemImage: "text.badge.plus")
+                            }
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -42,6 +50,9 @@ struct MusicAlbumDetailView: View {
         }
         .navigationTitle(album.displayTitle)
         .task { await load() }
+        .sheet(item: $addToPlaylistItem) { track in
+            AddToPlaylistSheet(item: track, kind: "music")
+        }
     }
 
     private var header: some View {

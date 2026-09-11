@@ -530,6 +530,11 @@ public struct Playlist: Decodable, Identifiable, Hashable {
     public let itemCount: Int
     public let posterItemId: Int64?
     public let posterMetadataId: Int64?
+    /// "video" | "music" — server trennt seit 2026-09-04 strikt (siehe
+    /// CLAUDE.md "Playlists (per User)"), der Client hat das bisher nie
+    /// dekodiert. Fehlt der Key (ältere Server-Antworten theoretisch), gilt
+    /// "video" als Fallback.
+    public let kind: String?
 }
 
 // MARK: - Folders

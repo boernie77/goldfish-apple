@@ -56,6 +56,15 @@ struct MusicLibraryView: View {
         .navigationDestination(for: MusicAlbum.self) { album in
             MusicAlbumDetailView(album: album)
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink {
+                    MusicPlaylistsView()
+                } label: {
+                    Label("Playlists", systemImage: "music.note.list")
+                }
+            }
+        }
         .task { await load() }
     }
 
@@ -86,6 +95,11 @@ private struct MusicAlbumCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            if let count = album.trackCount, count > 0 {
+                Text("\(count) Titel")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

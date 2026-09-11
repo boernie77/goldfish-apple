@@ -311,6 +311,10 @@ struct PlaylistDetailView: View {
 /// Tap fügt hinzu/entfernt.
 struct AddToPlaylistSheet: View {
     let item: Item
+    /// "video" (Default) oder "music" — bestimmt, welche Playlist-Liste geladen/
+    /// angeboten wird (server trennt beide strikt, siehe CLAUDE.md "Playlists (per
+    /// User)"). Musik-Aufrufer (`MusicAlbumDetailView`) übergeben explizit "music".
+    var kind: String = "video"
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var client: GoldfishClient
 
@@ -371,7 +375,7 @@ struct AddToPlaylistSheet: View {
 
     private func load() async {
         isLoading = true
-        async let allTask = client.fetchPlaylists()
+        async let allTask = client.fetchPlaylists(kind: kind)
         async let memberTask = client.fetchPlaylistsForItem(itemId: item.id)
         playlists = (try? await allTask) ?? []
         memberOf = Set((try? await memberTask)?.map(\.id) ?? [])
@@ -391,7 +395,7 @@ struct AddToPlaylistSheet: View {
     private func createAndAdd() async {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard let created = try? await client.createPlaylist(name: trimmed) else { return }
+        guard let created = try? await client.createPlaylist(name: trimmed, kind: kind) else { return }
         playlists.append(created)
         _ = try? await client.addToPlaylist(playlistId: created.id, itemId: item.id)
         memberOf.insert(created.id)
