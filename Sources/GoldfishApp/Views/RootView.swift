@@ -222,14 +222,41 @@ struct MainTabView: View {
         }
         // Persistente Musik-Mini-Leiste (User-Wunsch 2026-09-11, seit demselben Tag auch
         // iOS: "ALLES") — unten statt oben, damit sie den Kopfbereich/Toolbar nicht
-        // verdrängt; sitzt hier auf MainTabView-Ebene (nicht in ItemGridView/
-        // MusicLibraryView selbst), damit sie jede Navigation übersteht, analog zum
-        // Browser-Mini-Player außerhalb von #grid. tvOS bleibt ausgenommen (kein
-        // Musik-Feature dort, siehe GoldfishTV-Abschnitt in CLAUDE.md).
-        #if os(macOS) || os(iOS)
+        // verdrängt. tvOS bleibt ausgenommen (kein Musik-Feature dort, siehe
+        // GoldfishTV-Abschnitt in CLAUDE.md).
+        // NUR macOS hier auf MainTabView-Ebene außen um `styledTabView` — auf macOS gibt
+        // es keine native, vom System gezeichnete Bottom-Tab-Bar, die dabei im Weg wäre.
+        // **NICHT auf iOS so machen** (User-Report 2026-09-11: "Ich kann, wenn ein Lied
+        // läuft, nicht die Bibliotheken wechseln, zurück auf Start, in die Einstellungen
+        // etc" — ein `.safeAreaInset(edge:.bottom)` außen UM die `TabView` herum schiebt
+        // zwar deren Inhalt visuell hoch, die NATIVE, von UIKit gezeichnete Tab-Leiste
+        // selbst bleibt aber am tatsächlichen Bildschirmrand verankert — unsere Mini-Leiste
+        // landet exakt an derselben Bildschirmposition WIE die Tab-Leiste und fängt deren
+        // Taps ab, sichtbar UND unsichtbar zugleich "verdeckt"). Auf iOS sitzt die
+        // Mini-Leiste deshalb pro Tab INNERHALB jedes einzelnen Tab-Inhalts (siehe
+        // `legacyTabView`/`modernTabView` unten) — dort reserviert ein `safeAreaInset`
+        // korrekt Platz OBERHALB der nativen Tab-Leiste, exakt das Apple-Music-/Podcasts-
+        // Muster "Mini-Player schwebt über der Tab-Leiste".
+        #if os(macOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MusicPlayerBar()
         }
+        #endif
+    }
+
+    /// Reserviert auf iOS Platz für die Mini-Player-Leiste OBERHALB der nativen
+    /// Tab-Leiste — siehe ausführlicher Kommentar in `body` oben, warum das pro
+    /// Tab-Inhalt statt einmal außen um die `TabView` passieren muss. No-op auf
+    /// macOS (dort sitzt die Leiste weiterhin einmal außen, siehe `body`) und
+    /// tvOS (kein Musik-Feature dort).
+    @ViewBuilder
+    private func withMusicBar<V: View>(_ content: V) -> some View {
+        #if os(iOS)
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            MusicPlayerBar()
+        }
+        #else
+        content
         #endif
     }
 
@@ -288,16 +315,16 @@ struct MainTabView: View {
     private var modernTabView: some View {
         TabView(selection: tabSelection) {
             Tab("Start", systemImage: "house", value: MainTab.home) {
-                HomeView(path: $homePath)
+                withMusicBar(HomeView(path: $homePath))
             }
             Tab("Bibliotheken", systemImage: "books.vertical", value: MainTab.libraries) {
-                LibrariesView(path: $librariesPath)
+                withMusicBar(LibrariesView(path: $librariesPath))
             }
             Tab("Downloads", systemImage: "arrow.down.circle", value: MainTab.downloads) {
-                DownloadsView(path: $downloadsPath)
+                withMusicBar(DownloadsView(path: $downloadsPath))
             }
             Tab("Einstellungen", systemImage: "gearshape", value: MainTab.settings) {
-                SettingsView(path: $settingsPath)
+                withMusicBar(SettingsView(path: $settingsPath))
             }
         }
     }
@@ -315,22 +342,22 @@ struct MainTabView: View {
                 .tag(MainTab.search)
             #endif
 
-            HomeView(path: $homePath)
+            withMusicBar(HomeView(path: $homePath))
                 .tabItem { Label("Start", systemImage: "house") }
                 .tag(MainTab.home)
 
-            LibrariesView(path: $librariesPath)
+            withMusicBar(LibrariesView(path: $librariesPath))
                 .tabItem { Label("Bibliotheken", systemImage: "books.vertical") }
                 .tag(MainTab.libraries)
 
             // User-Anfrage 2026-09-03: "der Downloadbereich kann bei Apple TV eigentlich
             // entfernt werden" — am 2026-09-04 wieder zurückgenommen ("könnte doch nützlich
             // sein"), Tab ist jetzt wieder für alle Plattformen da.
-            DownloadsView(path: $downloadsPath)
+            withMusicBar(DownloadsView(path: $downloadsPath))
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
                 .tag(MainTab.downloads)
 
-            SettingsView(path: $settingsPath)
+            withMusicBar(SettingsView(path: $settingsPath))
                 .tabItem { Label("Einstellungen", systemImage: "gearshape") }
                 .tag(MainTab.settings)
         }

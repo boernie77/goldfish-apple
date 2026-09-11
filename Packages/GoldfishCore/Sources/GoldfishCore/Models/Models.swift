@@ -169,6 +169,11 @@ public struct Item: Codable, Identifiable, Hashable {
     /// `releasedAt` (das ist bei jedem Item durch den Datei-mtime-Fallback
     /// immer gesetzt, siehe Server-Kommentar bei `model.Item.Year`).
     public let year: Int?
+    /// `user_item_state.last_played_at`, seit „🎵 Alle Titel"-Feature server-
+    /// seitig im JSON exponiert (siehe Server-CLAUDE.md „Musik-Bibliotheken"),
+    /// im Client bis jetzt nie dekodiert. User-Wunsch 2026-09-11: "Zuletzt
+    /// abgespielt"-Filter für die Musik-App — braucht dieses Feld pro Track.
+    public let lastPlayedAt: String?
 
     public var displayTitle: String {
         metadata?.title ?? title
@@ -262,7 +267,7 @@ public struct Item: Codable, Identifiable, Hashable {
              trickplayStatus: trickplayStatus, variantCount: variantCount, variantSplit: variantSplit,
              introStartSec: introStartSec, introEndSec: introEndSec,
              artist: artist, album: album, genre: genre, trackNo: trackNo,
-             musicAlbumId: musicAlbumId, year: year)
+             musicAlbumId: musicAlbumId, year: year, lastPlayedAt: lastPlayedAt)
     }
 
     public var releasedDateLabel: String? {

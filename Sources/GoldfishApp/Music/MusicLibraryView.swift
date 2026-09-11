@@ -146,9 +146,30 @@ struct MusicLibraryView: View {
         return result
     }
 
+    /// "Zuletzt abgespielt zuerst" in der "Alle Titel"-Ansicht (User-Wunsch
+    /// 2026-09-11: "ich hätte gerne noch den Filter zuletzt abgespielt") —
+    /// bewusst NUR hier und nicht im Album-Sortierung-Menü, weil `MusicAlbum`
+    /// (server-seitiges Aggregat, siehe `music_albums`) keinen eigenen
+    /// Zuletzt-gespielt-Zeitstempel trägt, nur einzelne `Item`s (`items
+    /// .last_played_at`) — ein Album-weiter "zuletzt gehört"-Sort hätte
+    /// dafür einen eigenen Server-Endpoint gebraucht. Nie gespielte Titel
+    /// (`lastPlayedAt == nil`) landen ans Ende, unabhängig von der Richtung.
+    @State private var recentlyPlayedFirst = false
+
     private var filteredTracks: [Item] {
-        guard !search.isEmpty else { return allTracks }
-        return allTracks.filter {
+        var result = allTracks
+        if recentlyPlayedFirst {
+            result.sort {
+                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
+                case let (a?, b?): return a > b
+                case (nil, nil): return false
+                case (nil, _): return false
+                case (_, nil): return true
+                }
+            }
+        }
+        guard !search.isEmpty else { return result }
+        return result.filter {
             $0.displayTitle.localizedCaseInsensitiveContains(search)
                 || ($0.artist ?? "").localizedCaseInsensitiveContains(search)
                 || ($0.album ?? "").localizedCaseInsensitiveContains(search)
@@ -554,6 +575,15 @@ struct MusicLibraryView: View {
                         Label("Shuffle abspielen", systemImage: "shuffle")
                     }
                     .disabled(filteredTracks.isEmpty)
+                    // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" —
+                    // siehe Kommentar bei `recentlyPlayedFirst` oben.
+                    Button {
+                        recentlyPlayedFirst.toggle()
+                    } label: {
+                        Label("Zuletzt abgespielt zuerst", systemImage: recentlyPlayedFirst ? "clock.fill" : "clock")
+                    }
+                    .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
+                    .help("Nach zuletzt gehörten Titeln sortieren")
                 }
                 // Siehe Kommentar in MusicAlbumDetailView.header — Text+Icon-
                 // Labels quetschen sich auf iPhone-Breite silbengetrennt
