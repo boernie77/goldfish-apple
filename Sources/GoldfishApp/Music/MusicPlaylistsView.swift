@@ -226,6 +226,9 @@ struct MusicPlaylistDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Aus Playlist entfernen")
+                            MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                                try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                            }
                             MusicDownloadIcon(item: track)
                         }
                     }

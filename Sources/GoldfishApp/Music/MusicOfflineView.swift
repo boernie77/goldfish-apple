@@ -49,6 +49,9 @@ struct MusicOfflineView: View {
                             }
                             Spacer()
                             Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
+                            MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                                try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                            }
                             MusicDownloadIcon(item: track)
                         }
                         .contentShape(Rectangle())

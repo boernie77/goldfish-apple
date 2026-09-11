@@ -534,8 +534,19 @@ public final class GoldfishClient: ObservableObject {
     /// Album-Kachel-Übersicht einer Musik-Bibliothek — Client-Pendant zum
     /// Browser `views.js renderAlbumTiles`, holt `GET
     /// /api/libraries/{id}/albums` statt der generischen `/api/items`-Route.
-    public func fetchAlbums(libraryId: Int64) async throws -> [MusicAlbum] {
-        try await perform("/api/libraries/\(libraryId)/albums")
+    /// `genres`: mehrfacher `genre=`-Query-Param (Server: `ListMusicAlbumsFiltered`,
+    /// OR-verknüpft), leer = kein Filter.
+    public func fetchAlbums(libraryId: Int64, genres: [String] = []) async throws -> [MusicAlbum] {
+        let query = genres.map { URLQueryItem(name: "genre", value: $0) }
+        return try await perform("/api/libraries/\(libraryId)/albums", query: query)
+    }
+
+    /// `GET /api/libraries/{id}/genres` — Trefferliste für den Genre-Filter,
+    /// bei `kind=music` aus `items.genre` (Tag-Wert) gespeist.
+    public func fetchGenres(libraryId: Int64) async throws -> [String] {
+        struct Response: Decodable { let genres: [String] }
+        let resp: Response = try await perform("/api/libraries/\(libraryId)/genres")
+        return resp.genres
     }
 
     public func fetchAlbum(id: Int64) async throws -> AlbumDetail {

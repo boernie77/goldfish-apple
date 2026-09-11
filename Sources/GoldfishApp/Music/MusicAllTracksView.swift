@@ -60,6 +60,9 @@ struct MusicAllTracksView: View {
                                 Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
                             }
                             Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
+                            MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                                try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                            }
                             MusicDownloadIcon(item: track)
                         }
                         .contentShape(Rectangle())

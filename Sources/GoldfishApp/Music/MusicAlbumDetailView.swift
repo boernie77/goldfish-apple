@@ -70,6 +70,9 @@ struct MusicAlbumDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Zu Playlist hinzufügen")
+                            MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                                try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                            }
                             MusicDownloadIcon(item: track)
                         }
                     }
@@ -153,7 +156,12 @@ struct MusicAlbumDetailView: View {
                 .frame(width: 140, height: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 4) {
-                Text(album.displayTitle).font(.title2.weight(.semibold))
+                HStack(spacing: 8) {
+                    Text(album.displayTitle).font(.title2.weight(.semibold))
+                    MusicFavoriteButton(isFavorite: album.favorite ?? false) { newValue in
+                        try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
+                    }
+                }
                 Text(album.artist).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     if let year = album.year, year > 0 { Text(String(year)) }

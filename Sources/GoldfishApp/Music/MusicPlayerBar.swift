@@ -9,6 +9,7 @@ import SwiftUI
 struct MusicPlayerBar: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
+    @State private var showQueue = false
 
     var body: some View {
         if let item = musicPlayer.currentItem {
@@ -26,6 +27,15 @@ struct MusicPlayerBar: View {
                 Spacer(minLength: 12)
 
                 HStack(spacing: 18) {
+                    // Shuffle/Repeat vor den Transportbuttons — Konvention jedes
+                    // gängigen Musik-Players (Spotify/Apple Music). User-Wunsch
+                    // 2026-09-11: "was haben andere Musikplayer".
+                    Button { musicPlayer.isShuffling.toggle() } label: {
+                        Image(systemName: "shuffle")
+                    }
+                    .foregroundStyle(musicPlayer.isShuffling ? Color.accentColor : .primary)
+                    .help("Zufallswiedergabe")
+
                     Button { musicPlayer.previous(client: client) } label: {
                         Image(systemName: "backward.fill")
                     }
@@ -44,7 +54,13 @@ struct MusicPlayerBar: View {
                     Button { musicPlayer.next(client: client) } label: {
                         Image(systemName: "forward.fill")
                     }
-                    .disabled((musicPlayer.currentIndex ?? 0) + 1 >= musicPlayer.queue.count)
+                    .disabled(!musicPlayer.isShuffling && musicPlayer.repeatMode == .off && (musicPlayer.currentIndex ?? 0) + 1 >= musicPlayer.queue.count)
+
+                    Button { musicPlayer.repeatMode.cycle() } label: {
+                        Image(systemName: musicPlayer.repeatMode.systemImage)
+                    }
+                    .foregroundStyle(musicPlayer.repeatMode == .off ? .primary : Color.accentColor)
+                    .help("Wiederholen (Aus/Alle/Einzeln)")
                 }
                 .buttonStyle(.plain)
                 .font(.body)
@@ -52,16 +68,35 @@ struct MusicPlayerBar: View {
                 progressSlider
                     .frame(minWidth: 160, maxWidth: 320)
 
-                Button { musicPlayer.stop() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                HStack(spacing: 14) {
+                    Button { showQueue = true } label: {
+                        Image(systemName: "list.bullet")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Wird als Nächstes gespielt")
+
+                    // Natives AirPlay-Icon — fixe Größe, AVRoutePickerView bringt
+                    // sein eigenes Kreis-Icon mit, keine zusätzliche Umrandung.
+                    AirPlayButton()
+                        .frame(width: 20, height: 20)
+
+                    Button { musicPlayer.stop() } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
             .background(.bar)
             .overlay(Divider(), alignment: .top)
+            .sheet(isPresented: $showQueue) {
+                NavigationStack {
+                    MusicQueueView()
+                }
+                .frame(minWidth: 420, minHeight: 480)
+            }
         }
     }
 

@@ -30,6 +30,33 @@ final class MusicPlayerEngine: ObservableObject {
     /// true während `playback(itemId:)` läuft — Mini-Leiste zeigt dann einen Spinner
     /// statt der (noch nicht bekannten) Fortschrittsanzeige.
     @Published private(set) var isLoading = false
+    /// Zufallswiedergabe (User-Wunsch 2026-09-11: "was haben andere Musikplayer" —
+    /// Shuffle fehlte komplett). Bewusst KEINE physische Neuordnung von `queue`
+    /// (würde die sichtbare Reihenfolge in `MusicQueueView` verfälschen) —
+    /// `next()` wählt bei aktivem Shuffle stattdessen einen zufälligen anderen
+    /// Index, `queue` bleibt die "echte" Albumreihenfolge.
+    @Published var isShuffling = false
+    @Published var repeatMode: RepeatMode = .off
+
+    enum RepeatMode {
+        case off, all, one
+
+        mutating func cycle() {
+            switch self {
+            case .off: self = .all
+            case .all: self = .one
+            case .one: self = .off
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .off: return "repeat"
+            case .all: return "repeat"
+            case .one: return "repeat.1"
+            }
+        }
+    }
 
     private var player: AVPlayer?
     private var timeObserverToken: Any?
@@ -67,9 +94,52 @@ final class MusicPlayerEngine: ObservableObject {
     }
 
     func next(client: GoldfishClient) {
-        guard let currentIndex, currentIndex + 1 < queue.count else { return }
-        self.currentIndex = currentIndex + 1
+        guard let currentIndex, !queue.isEmpty else { return }
+        // Repeat-Eins hat immer Vorrang, unabhängig von Shuffle — Konvention
+        // jedes gängigen Musik-Players (Spotify/Apple Music/Browser).
+        if repeatMode == .one {
+            seek(to: 0)
+            player?.play()
+            isPlaying = true
+            updateNowPlayingPlaybackState()
+            return
+        }
+        if isShuffling, queue.count > 1 {
+            var newIndex = currentIndex
+            while newIndex == currentIndex {
+                newIndex = Int.random(in: queue.indices)
+            }
+            self.currentIndex = newIndex
+            Task { await loadAndPlayCurrent(client: client) }
+            return
+        }
+        if currentIndex + 1 < queue.count {
+            self.currentIndex = currentIndex + 1
+        } else if repeatMode == .all {
+            self.currentIndex = 0
+        } else {
+            return // Ende der Warteschlange, kein Repeat — Wiedergabe stoppt.
+        }
         Task { await loadAndPlayCurrent(client: client) }
+    }
+
+    /// Direkter Sprung zu einem Titel in der Warteschlange (`MusicQueueView`-Tap).
+    func jump(to index: Int, client: GoldfishClient) {
+        guard queue.indices.contains(index) else { return }
+        currentIndex = index
+        Task { await loadAndPlayCurrent(client: client) }
+    }
+
+    /// Entfernt einen Titel aus der laufenden Warteschlange (`MusicQueueView`).
+    /// Der gerade spielende Titel selbst lässt sich NICHT entfernen (dafür gibt
+    /// es "Player schließen") — vermeidet den Sonderfall "aktueller Index
+    /// verschwindet mitten in der Wiedergabe".
+    func removeFromQueue(at index: Int) {
+        guard queue.indices.contains(index), index != currentIndex else { return }
+        queue.remove(at: index)
+        if let currentIndex, index < currentIndex {
+            self.currentIndex = currentIndex - 1
+        }
     }
 
     func previous(client: GoldfishClient) {

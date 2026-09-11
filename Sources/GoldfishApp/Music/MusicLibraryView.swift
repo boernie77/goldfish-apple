@@ -31,6 +31,26 @@ struct MusicLibraryView: View {
     /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
     /// Server-Scan ab, ohne einen eigenen Hintergrund-Daemon zu brauchen).
     @AppStorage private var librarySyncEnabled: Bool
+    // Sortierung + Genre-Filter (User-Wunsch 2026-09-11: "was haben andere
+    // Musikbibliotheken" — beides fehlte, Album-Übersicht war fest nach
+    // Künstler/Album sortiert). Genre-Filter läuft server-seitig (genre=
+    // Query-Param, ListMusicAlbumsFiltered, analog Browser), Sortierung
+    // client-seitig auf der bereits geladenen Liste.
+    @State private var sortOption: AlbumSort = .artist
+    @State private var availableGenres: [String] = []
+    @State private var selectedGenres: Set<String> = []
+    @State private var navigateToAlbum: MusicAlbum?
+
+    enum AlbumSort: String, CaseIterable {
+        case artist, album, year
+        var label: String {
+            switch self {
+            case .artist: return "Künstler"
+            case .album: return "Album"
+            case .year: return "Jahr"
+            }
+        }
+    }
 
     init(library: Library) {
         self.library = library
@@ -41,10 +61,21 @@ struct MusicLibraryView: View {
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
 
     private var filteredAlbums: [MusicAlbum] {
-        guard !search.isEmpty else { return albums }
-        return albums.filter {
-            $0.album.localizedCaseInsensitiveContains(search) || $0.artist.localizedCaseInsensitiveContains(search)
+        var result = albums
+        if !search.isEmpty {
+            result = result.filter {
+                $0.album.localizedCaseInsensitiveContains(search) || $0.artist.localizedCaseInsensitiveContains(search)
+            }
         }
+        switch sortOption {
+        case .artist:
+            result.sort { ($0.artist, $0.album) < ($1.artist, $1.album) }
+        case .album:
+            result.sort { $0.album.localizedStandardCompare($1.album) == .orderedAscending }
+        case .year:
+            result.sort { ($0.year ?? 0) > ($1.year ?? 0) } // neueste zuerst
+        }
+        return result
     }
 
     var body: some View {
@@ -56,21 +87,26 @@ struct MusicLibraryView: View {
             } else if albums.isEmpty {
                 ContentUnavailableMessage(text: "Keine Alben gefunden.")
             } else if isListView {
+                // KEIN NavigationLink-Wrapper mehr um die ganze Zeile — das
+                // Favoriten-Herz (User-Wunsch 2026-09-11) ist selbst ein Button,
+                // und ein Button verschachtelt im Label eines NavigationLink ist
+                // in SwiftUI unzuverlässig (gleiche Falle wie bei den Track-
+                // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
+                // stattdessen über `.onTapGesture` + `navigationDestination(item:)`.
                 List(filteredAlbums) { album in
-                    NavigationLink(value: album) {
-                        MusicAlbumRow(album: album)
-                    }
+                    MusicAlbumRow(album: album)
+                        .contentShape(Rectangle())
+                        .onTapGesture { navigateToAlbum = album }
                 }
                 .listStyle(.plain)
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 20) {
                         ForEach(filteredAlbums) { album in
-                            NavigationLink(value: album) {
-                                MusicAlbumCard(album: album)
-                                    .frame(width: cardWidth)
-                            }
-                            .buttonStyle(.plain)
+                            MusicAlbumCard(album: album)
+                                .frame(width: cardWidth)
+                                .contentShape(Rectangle())
+                                .onTapGesture { navigateToAlbum = album }
                         }
                     }
                     .padding()
@@ -82,8 +118,18 @@ struct MusicLibraryView: View {
         }
         .navigationTitle(library.name)
         .searchable(text: $search, prompt: "Alben/Künstler durchsuchen")
-        .navigationDestination(for: MusicAlbum.self) { album in
-            MusicAlbumDetailView(album: album, library: library)
+        // `.navigationDestination(item:)` braucht macOS 14 (Deployment-Target ist
+        // 13.0) — die `isPresented:`-Variante gibt es schon seit macOS 13. Einzige
+        // `navigationDestination`-Modifier auf dieser View (kein `for:` mehr
+        // daneben) — die macOS-13-Fragilität aus dem Bibliotheken-Tab-Vorfall kam
+        // von MEHREREN gleichzeitigen Modifiern, nicht von diesem Typ an sich.
+        .navigationDestination(isPresented: Binding(
+            get: { navigateToAlbum != nil },
+            set: { if !$0 { navigateToAlbum = nil } }
+        )) {
+            if let navigateToAlbum {
+                MusicAlbumDetailView(album: navigateToAlbum, library: library)
+            }
         }
         .toolbar {
             // Listenansicht + Playlists sollen IMMER sichtbar sein (User-Wunsch
@@ -108,6 +154,44 @@ struct MusicLibraryView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Menu("Sortierung") {
+                        Picker("Sortierung", selection: $sortOption) {
+                            ForEach(AlbumSort.allCases, id: \.self) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+                    if !availableGenres.isEmpty {
+                        Menu("Genre") {
+                            Button {
+                                selectedGenres.removeAll()
+                            } label: {
+                                if selectedGenres.isEmpty {
+                                    Label("Alle Genres", systemImage: "checkmark")
+                                } else {
+                                    Text("Alle Genres")
+                                }
+                            }
+                            Divider()
+                            ForEach(availableGenres, id: \.self) { genre in
+                                Button {
+                                    if selectedGenres.contains(genre) {
+                                        selectedGenres.remove(genre)
+                                    } else {
+                                        selectedGenres.insert(genre)
+                                    }
+                                } label: {
+                                    if selectedGenres.contains(genre) {
+                                        Label(genre, systemImage: "checkmark")
+                                    } else {
+                                        Text(genre)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
                     Toggle(isOn: $librarySyncEnabled) {
                         Text("Bibliothek offline synchronisieren")
                     }
@@ -158,13 +242,19 @@ struct MusicLibraryView: View {
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled { Task { await syncLibraryIfNeeded() } }
         }
+        .onChange(of: selectedGenres) { _ in
+            Task { await load() }
+        }
     }
 
     private func load() async {
         isLoading = true
         errorMessage = nil
         do {
-            albums = try await client.fetchAlbums(libraryId: library.id)
+            albums = try await client.fetchAlbums(libraryId: library.id, genres: Array(selectedGenres))
+            if availableGenres.isEmpty {
+                availableGenres = (try? await client.fetchGenres(libraryId: library.id)) ?? []
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -200,6 +290,9 @@ private struct MusicAlbumRow: View {
             if let count = album.trackCount, count > 0 {
                 Text("\(count) Titel").font(.caption).foregroundStyle(.secondary)
             }
+            MusicFavoriteButton(isFavorite: album.favorite ?? false) { newValue in
+                try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
+            }
         }
     }
 }
@@ -224,6 +317,15 @@ private struct MusicAlbumCard: View {
                             .foregroundStyle(.white)
                             .padding(6)
                     }
+                }
+                // Favoriten-Herz oben rechts auf dem Cover (User-Wunsch 2026-09-11).
+                .overlay(alignment: .topTrailing) {
+                    MusicFavoriteButton(isFavorite: album.favorite ?? false) { newValue in
+                        try? await client.setAlbumFavorite(albumId: album.id, favorite: newValue)
+                    }
+                    .padding(6)
+                    .background(.black.opacity(0.35), in: Circle())
+                    .padding(6)
                 }
             Text(album.displayTitle)
                 .font(.subheadline.weight(.medium))
