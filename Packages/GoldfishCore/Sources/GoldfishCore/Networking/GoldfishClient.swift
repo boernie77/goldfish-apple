@@ -38,11 +38,35 @@ public final class GoldfishClient: ObservableObject {
     private let session: URLSession
     private let decoder: JSONDecoder
 
+    /// "Goldfish-Mac/209" / "Goldfish-iOS/189" / "Goldfish-TV/<build>" — siehe
+    /// `X-Goldfish-Client`-Kommentar in `init()`. `CFBundleVersion` ist der
+    /// vom jeweiligen `project.yml`-Target gepflegte Build-Zähler.
+    private static let clientLabel: String = {
+        #if os(macOS)
+        let platform = "Mac"
+        #elseif os(tvOS)
+        let platform = "TV"
+        #else
+        let platform = "iOS"
+        #endif
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "?"
+        return "Goldfish-\(platform)/\(build)"
+    }()
+
     private init() {
         let config = URLSessionConfiguration.default
         config.httpCookieStorage = .shared
         config.httpShouldSetCookies = true
         config.httpCookieAcceptPolicy = .always
+        // Eigener Client-Header fürs Server-Aktivitätsprotokoll (User-Wunsch
+        // 2026-09-11: "auf welchem Gerät etwas passiert ist") — der Default-
+        // User-Agent von URLSession (CFNetwork/Darwin-Build) sieht auf Mac/
+        // iOS/tvOS praktisch identisch aus, der Server kann daraus NICHT
+        // verlässlich die Plattform ableiten (siehe `deviceLabel()` im
+        // Server-Repo, Kommentar dort). `httpAdditionalHeaders` gilt für
+        // JEDEN Request dieser Session automatisch — kein Anfassen der drei
+        // einzelnen `perform*`-Helfer nötig.
+        config.httpAdditionalHeaders = ["X-Goldfish-Client": Self.clientLabel]
         self.session = URLSession(configuration: config)
         self.decoder = JSONDecoder()
 
@@ -721,6 +745,27 @@ public final class GoldfishClient: ObservableObject {
             query.append(URLQueryItem(name: "profile", value: profile))
         }
         return try await perform("/api/playback/\(itemId)", query: query)
+    }
+
+    /// Gegenstück zu `playback(itemId:...)` fürs Server-Protokoll (User-Wunsch
+    /// 2026-09-11: "nicht nur Wiedergabe gestartet, sondern auch beendet").
+    /// `reason`: "ended" (natürlich zu Ende gelaufen) oder "closed" (Player
+    /// manuell geschlossen/verlassen). Best-effort — ein Netzwerkfehler hier
+    /// darf das Schließen des Players nie blockieren, deshalb `try?` beim
+    /// Aufrufer statt einer throws-Signatur, die zum Awaiten verleiten würde.
+    public func reportPlaybackStop(itemId: Int64, reason: String, positionSec: Double, durationSec: Double) async throws {
+        struct Body: Encodable { let reason: String; let positionSec: Double; let durationSec: Double }
+        let body = try JSONEncoder().encode(Body(reason: reason, positionSec: positionSec, durationSec: durationSec))
+        try await performVoid("/api/playback/\(itemId)/stop", method: "POST", jsonBody: body)
+    }
+
+    /// Meldet einen Wiedergabe-Fehler ans Server-Protokoll (User-Wunsch
+    /// 2026-09-11: "wenn zum Beispiel ein Video abbricht"). Best-effort, siehe
+    /// `reportPlaybackStop`-Kommentar.
+    public func reportPlaybackError(itemId: Int64, message: String) async throws {
+        struct Body: Encodable { let message: String }
+        let body = try JSONEncoder().encode(Body(message: message))
+        try await performVoid("/api/playback/\(itemId)/error", method: "POST", jsonBody: body)
     }
 
     // MARK: - Collections

@@ -66,6 +66,9 @@ struct PlayerView: View {
 
     @State private var player: AVPlayer?
     @State private var errorMessage: String?
+    /// Siehe `reportStop()`-Kommentar — verhindert einen doppelten Stop-Report
+    /// pro Wiedergabe-Session.
+    @State private var playbackStopReported = false
     @State private var resumeTimer: Timer?
     @State private var timeObserverToken: Any?
     @State private var didEndObserverToken: NSObjectProtocol?
@@ -651,6 +654,7 @@ struct PlayerView: View {
     #endif
 
     private func closePlayer() {
+        Task { await reportStop(reason: "closed") }
         #if os(macOS)
         // Real bug found 2026-08-19: this cleared the window (`hostWindow?.close()`) but
         // never reset `PlayerLaunchCoordinator.pendingPlayer` to nil — SwiftUI's
@@ -941,6 +945,11 @@ struct PlayerView: View {
 
     private func setUp() async {
         errorMessage = nil
+        // Protokoll-Ergänzung 2026-09-11 ("nicht nur Wiedergabe gestartet,
+        // sondern auch beendet") — siehe reportStop()/reportError() unten;
+        // genau EIN Stop-Report pro Session, egal ob über didPlayToEndTime
+        // oder manuelles Schließen ausgelöst.
+        playbackStopReported = false
         isTranscode = false
         transcodeURLTemplate = nil
         virtualOffset = 0
@@ -1027,6 +1036,7 @@ struct PlayerView: View {
             let requestURL = isTranscode ? transcodeURLWithParams(audioBase, start: startAt) : playback.url
             guard let streamURL = client.resolvedURL(forServerPath: requestURL) else {
                 errorMessage = "Stream-URL konnte nicht ermittelt werden."
+                reportPlaybackErrorToServer(errorMessage ?? "")
                 return
             }
             virtualOffset = isTranscode ? startAt : 0
@@ -1055,6 +1065,7 @@ struct PlayerView: View {
             startResumeTimer(for: p)
         } catch {
             errorMessage = error.localizedDescription
+            reportPlaybackErrorToServer(error.localizedDescription)
         }
     }
 
@@ -1099,6 +1110,7 @@ struct PlayerView: View {
             // Observers.
             if player.currentItem?.status == .failed, errorMessage == nil {
                 errorMessage = player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen."
+                reportPlaybackErrorToServer(errorMessage ?? "")
                 return
             }
             currentTime = virtualOffset + time.seconds
@@ -1132,6 +1144,7 @@ struct PlayerView: View {
             queue: .main
         ) { _ in
             Task {
+                await reportStop(reason: "ended")
                 await markWatchedNow()
                 // User-Wunsch 2026-08-28: im Zufallsmodus am Videoende automatisch
                 // das nächste Zufallsvideo starten (wie der Browser-Shuffle,
@@ -1168,7 +1181,28 @@ struct PlayerView: View {
                 return
             }
             errorMessage = "Stream-Fehler (\(event.errorStatusCode)): \(comment)"
+            reportPlaybackErrorToServer(errorMessage ?? "")
         }
+    }
+
+    /// Meldet das Ende einer Wiedergabe-Session ans Server-Protokoll (User-
+    /// Wunsch 2026-09-11: "nicht nur Wiedergabe gestartet, sondern auch
+    /// beendet") — Mac/iOS/tvOS-Gegenstück zu `player.js reportPlaybackStop`.
+    /// Genau EIN Report pro Session (`playbackStopReported`-Flag, per
+    /// `setUp()` zurückgesetzt), egal ob über `didPlayToEndTime` oder
+    /// manuelles Schließen ausgelöst. Best-effort (`try?`) — offline/ohne
+    /// Netz bleibt es einfach aus, kein Blocker fürs Schließen des Players.
+    private func reportStop(reason: String) async {
+        guard !playbackStopReported else { return }
+        playbackStopReported = true
+        try? await client.reportPlaybackStop(itemId: item.id, reason: reason, positionSec: currentTime, durationSec: duration)
+    }
+
+    /// Meldet einen Wiedergabe-Fehler ans Server-Protokoll (User-Wunsch
+    /// 2026-09-11: "wenn zum Beispiel ein Video abbricht"). Best-effort, wie
+    /// `reportStop`.
+    private func reportPlaybackErrorToServer(_ message: String) {
+        Task { try? await client.reportPlaybackError(itemId: item.id, message: message) }
     }
 
     /// Unconditional "gesehen"-Markierung beim echten Wiedergabe-Ende — Ergänzung zu
