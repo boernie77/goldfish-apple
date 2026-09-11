@@ -22,6 +22,10 @@ struct MusicLibraryView: View {
     // übersieht. Jetzt EIN Menü-Button, der garantiert nie überläuft.
     @State private var showOffline = false
     @State private var showPlaylists = false
+    @State private var showAllTracks = false
+    /// Kachel-/Listenansicht der Album-Übersicht (User-Wunsch 2026-09-11) — global
+    /// persistiert, analog zu `musicListView` im Browser (`CLAUDE.md` "Listenansicht").
+    @AppStorage("musicLibraryListView") private var isListView = false
     /// "gesamte Bibliothek offline halten" (User-Wunsch 2026-09-11) — pro Bibliothek
     /// persistiert, kein globaler Schalter. Kein echter Push-/Hintergrund-Sync: läuft
     /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
@@ -51,6 +55,13 @@ struct MusicLibraryView: View {
                 ContentUnavailableMessage(text: errorMessage)
             } else if albums.isEmpty {
                 ContentUnavailableMessage(text: "Keine Alben gefunden.")
+            } else if isListView {
+                List(filteredAlbums) { album in
+                    NavigationLink(value: album) {
+                        MusicAlbumRow(album: album)
+                    }
+                }
+                .listStyle(.plain)
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 20) {
@@ -76,6 +87,14 @@ struct MusicLibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isListView.toggle()
+                } label: {
+                    Label(isListView ? "Kachelansicht" : "Listenansicht", systemImage: isListView ? "square.grid.2x2" : "list.bullet")
+                }
+                .help(isListView ? "Zur Kachelansicht wechseln" : "Zur Listenansicht wechseln")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Toggle(isOn: $librarySyncEnabled) {
                         Text("Bibliothek offline synchronisieren")
@@ -86,9 +105,14 @@ struct MusicLibraryView: View {
                         Label("📶 Offline verfügbar", systemImage: "arrow.down.circle")
                     }
                     Button {
+                        showAllTracks = true
+                    } label: {
+                        Label("🎵 Alle Titel", systemImage: "music.note.list")
+                    }
+                    Button {
                         showPlaylists = true
                     } label: {
-                        Label("🎵 Playlists", systemImage: "music.note.list")
+                        Label("🎵 Playlists", systemImage: "text.badge.star")
                     }
                 } label: {
                     Label("Musik-Optionen", systemImage: "ellipsis.circle")
@@ -114,6 +138,12 @@ struct MusicLibraryView: View {
             }
             .frame(minWidth: 480, minHeight: 480)
         }
+        .sheet(isPresented: $showAllTracks) {
+            NavigationStack {
+                MusicAllTracksView(library: library)
+            }
+            .frame(minWidth: 560, minHeight: 560)
+        }
         .task {
             await load()
             await syncLibraryIfNeeded()
@@ -138,6 +168,32 @@ struct MusicLibraryView: View {
         guard librarySyncEnabled else { return }
         guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
         downloadAllMissing(items, client: client, downloads: downloads)
+    }
+}
+
+/// Zeilen-Darstellung eines Albums für die Listenansicht (User-Wunsch 2026-09-11:
+/// "Es fehlt noch eine Listenansicht") — kompaktes Cover-Thumbnail statt großer
+/// Kachel, analog zur Browser-Album-Listenzeile (`.track-row--album`).
+private struct MusicAlbumRow: View {
+    let album: MusicAlbum
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle)
+                Text(album.artist.isEmpty ? " " : album.artist)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let count = album.trackCount, count > 0 {
+                Text("\(count) Titel").font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
