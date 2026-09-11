@@ -210,6 +210,8 @@ final class MusicPlayerEngine: ObservableObject {
         do {
             let playback = try await client.playback(itemId: item.id)
             guard mySeq == loadSeq else { return } // User hat inzwischen weitergesprungen
+            // Bug-Fix 2026-09-11: siehe reportPlaybackStart-Kommentar in GoldfishClient.
+            Task { try? await client.reportPlaybackStart(itemId: item.id) }
             guard let streamURL = client.resolvedURL(forServerPath: playback.url) else {
                 errorMessage = "Stream-URL konnte nicht ermittelt werden."
                 isLoading = false

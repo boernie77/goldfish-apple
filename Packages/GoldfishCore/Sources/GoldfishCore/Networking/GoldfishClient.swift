@@ -747,6 +747,18 @@ public final class GoldfishClient: ObservableObject {
         return try await perform("/api/playback/\(itemId)", query: query)
     }
 
+    /// Meldet den tatsächlichen Wiedergabe-Start ans Server-Protokoll (Bug-Fix
+    /// 2026-09-11: "Jetzt habe ich aber 2x Wiedergabe gestartet im Protokoll
+    /// stehen!" — der Server loggte "play" früher automatisch bei JEDEM
+    /// `GET /api/playback/{id}`, aber dieser Endpoint wird AUCH vom reinen
+    /// Stream-Info-Prefetch für den Detail-Dialog aufgerufen
+    /// (`ItemDetailView.loadStreams`), nicht nur vom tatsächlichen Play.
+    /// Deshalb explizit NUR aus `PlayerView.setUp()`/`MusicPlayerEngine`
+    /// aufrufen, NIE aus `loadStreams`. Best-effort, siehe `reportPlaybackStop`.
+    public func reportPlaybackStart(itemId: Int64) async throws {
+        try await performVoid("/api/playback/\(itemId)/start", method: "POST")
+    }
+
     /// Gegenstück zu `playback(itemId:...)` fürs Server-Protokoll (User-Wunsch
     /// 2026-09-11: "nicht nur Wiedergabe gestartet, sondern auch beendet").
     /// `reason`: "ended" (natürlich zu Ende gelaufen) oder "closed" (Player

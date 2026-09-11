@@ -1000,6 +1000,9 @@ struct PlayerView: View {
         do {
             let resumeSec = startFromBeginning ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
             let playback = try await client.playback(itemId: item.id, profile: preferredProfile)
+            // Bug-Fix 2026-09-11: NUR hier (der tatsächliche Play-Pfad), nie in
+            // ItemDetailView.loadStreams — siehe reportPlaybackStart-Kommentar.
+            Task { try? await client.reportPlaybackStart(itemId: item.id) }
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
             playbackQualityLabel = Self.qualityLabel(for: playback)
