@@ -32,8 +32,20 @@ struct DownloadsView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 150), spacing: 12, alignment: .top)]
 
+    // Musik-Downloads bekommen einen eigenen, in sich geschlossenen Bereich
+    // ("📶 Offline verfügbar" innerhalb der Musik-Bibliothek, siehe
+    // MusicOfflineView.swift) — User-Vorgabe 2026-09-11: "Musikordner...
+    // soll in sich geschlossen sein". Diese generische Downloads-Ansicht
+    // (Filme/Serien/YouTube) filtert sie deshalb komplett heraus, statt sie
+    // fälschlich unter "🎬 Filme" zu zeigen (Bug, gefixt 2026-09-11,
+    // User-Report: "wir hatten doch festgelegt, dass heruntergeladene
+    // Musik nicht im normalen Download Bereich auftaucht... Das ist aber
+    // leider nicht so!"). `musicAlbumId` ist nur bei Musik-Items gesetzt
+    // (siehe `Item`-Modell-Kommentar "Musik-Felder, nur kind=music").
     private var allRecords: [DownloadRecord] {
-        downloads.records.values.sorted { $0.title < $1.title }
+        downloads.records.values
+            .filter { $0.cachedItem?.musicAlbumId == nil }
+            .sorted { $0.title < $1.title }
     }
     private var doneRecords: [DownloadRecord] { allRecords.filter { $0.state == .done } }
     private var inProgressRecords: [DownloadRecord] { allRecords.filter { $0.state == .downloading || $0.state == .queued } }
@@ -167,7 +179,7 @@ struct DownloadsView: View {
                         } label: {
                             Label("Alle gesehenen löschen", systemImage: "checkmark.circle")
                         }
-                        .disabled(downloads.watchedDownloadCount == 0)
+                        .disabled(downloads.watchedDownloadCount() == 0)
 
                         Button(role: .destructive) {
                             showingDeleteAllConfirm = true
@@ -186,7 +198,7 @@ struct DownloadsView: View {
                 Button("Alle gesehenen löschen", role: .destructive) {
                     showingDeleteWatchedConfirm = true
                 }
-                .disabled(downloads.watchedDownloadCount == 0)
+                .disabled(downloads.watchedDownloadCount() == 0)
                 Button("Alle löschen", role: .destructive) {
                     showingDeleteAllConfirm = true
                 }
@@ -199,8 +211,8 @@ struct DownloadsView: View {
                 }
                 Button("Abbrechen", role: .cancel) {}
             }
-            .confirmationDialog("Alle \(downloads.watchedDownloadCount) gesehenen Downloads löschen?", isPresented: $showingDeleteWatchedConfirm, titleVisibility: .visible) {
-                Button("\(downloads.watchedDownloadCount) gesehene Downloads löschen", role: .destructive) {
+            .confirmationDialog("Alle \(downloads.watchedDownloadCount()) gesehenen Downloads löschen?", isPresented: $showingDeleteWatchedConfirm, titleVisibility: .visible) {
+                Button("\(downloads.watchedDownloadCount()) gesehene Downloads löschen", role: .destructive) {
                     downloads.deleteWatchedDownloads()
                 }
                 Button("Abbrechen", role: .cancel) {}

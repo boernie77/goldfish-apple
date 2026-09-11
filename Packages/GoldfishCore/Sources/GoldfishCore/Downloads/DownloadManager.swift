@@ -807,8 +807,18 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// und räumt danach für JEDES Item einheitlich über `deleteDownload` auf (Datei +
     /// Poster + Formatanpassungs-Cache + Record), egal ob es fertig, laufend oder
     /// fehlgeschlagen war.
-    public func deleteAllDownloads() {
+    /// "Alle löschen" — bewusst NUR Video-/Filme-/Serien-/YouTube-Downloads
+    /// (`excludeMusic`, Default `true`): Musik hat ihren eigenen, in sich
+    /// geschlossenen Offline-Bereich (`MusicOfflineView`, siehe CLAUDE.md
+    /// "Musikordner... soll in sich geschlossen sein") — der generische
+    /// "Alle löschen"-Button im Video-Downloads-Tab darf heruntergeladene
+    /// Musik nicht mit wegräumen (Bug, gefixt 2026-09-11 im selben Zug wie
+    /// die Anzeige-Trennung, User-Report: Musik tauchte im normalen
+    /// Download-Bereich auf — derselbe fehlende Filter hätte hier auch
+    /// stillschweigend Musik-Downloads gelöscht).
+    public func deleteAllDownloads(excludeMusic: Bool = true) {
         for itemId in Array(records.keys) {
+            if excludeMusic, records[itemId]?.cachedItem?.musicAlbumId != nil { continue }
             tasks[itemId]?.cancel()
             tasks[itemId] = nil
             deleteDownload(itemId: itemId)
@@ -818,18 +828,24 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// User-Anfrage 2026-08-30: neben „Alle löschen" auch „Alle gesehenen löschen" — räumt
     /// nur fertige Downloads weg, deren gecachter `Item`-Snapshot als gesehen markiert ist
     /// (`updateCachedWatched` hält den nach jedem `setWatched` aktuell). Laufende/
-    /// fehlgeschlagene Downloads bleiben unangetastet.
-    public func deleteWatchedDownloads() {
+    /// fehlgeschlagene Downloads bleiben unangetastet. `excludeMusic` — siehe
+    /// `deleteAllDownloads`-Kommentar, gleicher Grund.
+    public func deleteWatchedDownloads(excludeMusic: Bool = true) {
         for itemId in Array(records.keys) {
             guard let rec = records[itemId], rec.state == .done, rec.cachedItem?.watched == true else { continue }
+            if excludeMusic, rec.cachedItem?.musicAlbumId != nil { continue }
             deleteDownload(itemId: itemId)
         }
     }
 
     /// Anzahl fertiger, als gesehen markierter Downloads des aktuellen Users — für die
-    /// UI (Button ausgrauen + Bestätigungstext).
-    public var watchedDownloadCount: Int {
-        records.values.filter { $0.state == .done && $0.cachedItem?.watched == true }.count
+    /// UI (Button ausgrauen + Bestätigungstext). Ohne Musik (siehe oben), sonst würde der
+    /// Zähler im Video-Downloads-Tab Musiktitel mitzählen, die der Button gar nicht löscht.
+    public func watchedDownloadCount(excludeMusic: Bool = true) -> Int {
+        records.values.filter {
+            $0.state == .done && $0.cachedItem?.watched == true
+                && (!excludeMusic || $0.cachedItem?.musicAlbumId == nil)
+        }.count
     }
 }
 
