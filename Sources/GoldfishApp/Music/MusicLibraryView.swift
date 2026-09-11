@@ -22,10 +22,17 @@ struct MusicLibraryView: View {
     // übersieht. Jetzt EIN Menü-Button, der garantiert nie überläuft.
     @State private var showOffline = false
     @State private var showPlaylists = false
-    @State private var showAllTracks = false
-    /// Kachel-/Listenansicht der Album-Übersicht (User-Wunsch 2026-09-11) — global
-    /// persistiert, analog zu `musicListView` im Browser (`CLAUDE.md` "Listenansicht").
-    @AppStorage("musicLibraryListView") private var isListView = false
+    /// Kacheln/Liste/Alle Titel — EIN gemeinsamer 3-Wege-Umschalter (User-Wunsch
+    /// 2026-09-11: "der Button Alle Titel gehört neben die Listen/Grid Ansicht.
+    /// Und soll nicht im extra Fenster öffnen"). "Alle Titel" war zuvor ein
+    /// eigenes Sheet (`MusicAllTracksView`) — jetzt einfach ein dritter Modus
+    /// direkt in dieser Ansicht, kein separates Fenster/Sheet mehr nötig.
+    /// Global persistiert, analog zu `musicListView` im Browser.
+    @AppStorage("musicLibraryDisplayMode") private var displayMode: DisplayMode = .grid
+
+    enum DisplayMode: String {
+        case grid, list, allTracks
+    }
     /// "gesamte Bibliothek offline halten" (User-Wunsch 2026-09-11) — pro Bibliothek
     /// persistiert, kein globaler Schalter. Kein echter Push-/Hintergrund-Sync: läuft
     /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
@@ -37,9 +44,18 @@ struct MusicLibraryView: View {
     // Query-Param, ListMusicAlbumsFiltered, analog Browser), Sortierung
     // client-seitig auf der bereits geladenen Liste.
     @State private var sortOption: AlbumSort = .artist
+    /// Sortierrichtung (User-Wunsch 2026-09-11: "bei Sortierung fehlt die
+    /// Richtung") — EIN gemeinsamer Schalter für alle drei Sortierfelder,
+    /// analog zum ⬆/⬇-Button neben dem Sort-Dropdown im Browser.
+    @State private var sortAscending = true
     @State private var availableGenres: [String] = []
     @State private var selectedGenres: Set<String> = []
     @State private var navigateToAlbum: MusicAlbum?
+    // "Alle Titel"-Modus (User-Wunsch 2026-09-11) — eigener, lazy geladener
+    // Datensatz statt der Album-Liste; nutzt dasselbe Suchfeld wie die
+    // Album-Übersicht, filtert aber Titel/Künstler/Album statt Alben.
+    @State private var allTracks: [Item] = []
+    @State private var allTracksLoaded = false
 
     enum AlbumSort: String, CaseIterable {
         case artist, album, year
@@ -69,55 +85,49 @@ struct MusicLibraryView: View {
         }
         switch sortOption {
         case .artist:
-            result.sort { ($0.artist, $0.album) < ($1.artist, $1.album) }
+            result.sort {
+                sortAscending
+                    ? ($0.artist, $0.album) < ($1.artist, $1.album)
+                    : ($0.artist, $0.album) > ($1.artist, $1.album)
+            }
         case .album:
-            result.sort { $0.album.localizedStandardCompare($1.album) == .orderedAscending }
+            result.sort {
+                let order = $0.album.localizedStandardCompare($1.album)
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
+            }
         case .year:
-            result.sort { ($0.year ?? 0) > ($1.year ?? 0) } // neueste zuerst
+            result.sort {
+                sortAscending ? ($0.year ?? 0) < ($1.year ?? 0) : ($0.year ?? 0) > ($1.year ?? 0)
+            }
         }
         return result
     }
 
+    private var filteredTracks: [Item] {
+        guard !search.isEmpty else { return allTracks }
+        return allTracks.filter {
+            $0.displayTitle.localizedCaseInsensitiveContains(search)
+                || ($0.artist ?? "").localizedCaseInsensitiveContains(search)
+                || ($0.album ?? "").localizedCaseInsensitiveContains(search)
+        }
+    }
+
     var body: some View {
         Group {
-            if isLoading {
-                ProgressView()
-            } else if let errorMessage {
-                ContentUnavailableMessage(text: errorMessage)
-            } else if albums.isEmpty {
-                ContentUnavailableMessage(text: "Keine Alben gefunden.")
-            } else if isListView {
-                // KEIN NavigationLink-Wrapper mehr um die ganze Zeile — das
-                // Favoriten-Herz (User-Wunsch 2026-09-11) ist selbst ein Button,
-                // und ein Button verschachtelt im Label eines NavigationLink ist
-                // in SwiftUI unzuverlässig (gleiche Falle wie bei den Track-
-                // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
-                // stattdessen über `.onTapGesture` + `navigationDestination(item:)`.
-                List(filteredAlbums) { album in
-                    MusicAlbumRow(album: album)
-                        .contentShape(Rectangle())
-                        .onTapGesture { navigateToAlbum = album }
-                }
-                .listStyle(.plain)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 20) {
-                        ForEach(filteredAlbums) { album in
-                            MusicAlbumCard(album: album)
-                                .frame(width: cardWidth)
-                                .contentShape(Rectangle())
-                                .onTapGesture { navigateToAlbum = album }
-                        }
-                    }
-                    .padding()
-                    // Platz für die persistente Mini-Player-Leiste (safeAreaInset in
-                    // MainTabView) — ohne das läge die letzte Album-Reihe teils dahinter.
-                    .padding(.bottom, musicPlayer.currentItem != nil ? 72 : 0)
-                }
+            switch displayMode {
+            case .allTracks:
+                allTracksContent
+            case .grid, .list:
+                albumContent
             }
         }
         .navigationTitle(library.name)
-        .searchable(text: $search, prompt: "Alben/Künstler durchsuchen")
+        // Zeigt die Trefferzahl der aktuellen Filterung (Suche/Genre) — User-
+        // Wunsch 2026-09-11: "beim Filtern sollten immer die Anzahl der
+        // aktuellen Treffer angezeigt werden". macOS-Fensterleisten-Untertitel,
+        // kein zusätzliches UI-Element nötig.
+        .navigationSubtitle(displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
+        .searchable(text: $search, prompt: displayMode == .allTracks ? "Titel/Künstler/Album durchsuchen" : "Alben/Künstler durchsuchen")
         // `.navigationDestination(item:)` braucht macOS 14 (Deployment-Target ist
         // 13.0) — die `isPresented:`-Variante gibt es schon seit macOS 13. Einzige
         // `navigationDestination`-Modifier auf dieser View (kein `for:` mehr
@@ -136,13 +146,31 @@ struct MusicLibraryView: View {
             // 2026-09-11), nicht im "···"-Menü verschwinden können — beide daher
             // als eigene ToolbarItems VOR dem Menü, wie schon der Listen/Kachel-
             // Umschalter.
+            // Kacheln/Liste/Alle Titel als EIN Segment-Control (User-Wunsch
+            // 2026-09-11: "der Button Alle Titel gehört neben die Listen/Grid
+            // Ansicht") — ersetzt den früheren einzelnen Kachel/Liste-Umschalter
+            // UND den separaten "Alle Titel"-Sheet-Button.
+            ToolbarItem(placement: .primaryAction) {
+                Picker("Ansicht", selection: $displayMode) {
+                    Image(systemName: "square.grid.2x2").tag(DisplayMode.grid)
+                    Image(systemName: "list.bullet").tag(DisplayMode.list)
+                    Image(systemName: "music.note.list").tag(DisplayMode.allTracks)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 110)
+                .help("Kacheln / Liste / Alle Titel")
+            }
+            // Zufallswiedergabe der GANZEN Bibliothek (User-Wunsch 2026-09-11:
+            // "Shuffleplay fehlt in der Übersicht ... aus der kompletten
+            // Bibliothek shuffeln") — unabhängig vom ⇄-Shuffle-Toggle in der
+            // Mini-Leiste, der nur die AKTUELL laufende Queue mischt.
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isListView.toggle()
+                    Task { await shufflePlayLibrary() }
                 } label: {
-                    Label(isListView ? "Kachelansicht" : "Listenansicht", systemImage: isListView ? "square.grid.2x2" : "list.bullet")
+                    Label("Zufallswiedergabe", systemImage: "shuffle")
                 }
-                .help(isListView ? "Zur Kachelansicht wechseln" : "Zur Listenansicht wechseln")
+                .help("Zufällige Wiedergabe der ganzen Bibliothek")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -161,6 +189,12 @@ struct MusicLibraryView: View {
                             }
                         }
                         .pickerStyle(.inline)
+                        Divider()
+                        Button {
+                            sortAscending.toggle()
+                        } label: {
+                            Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                        }
                     }
                     if !availableGenres.isEmpty {
                         Menu("Genre") {
@@ -200,11 +234,6 @@ struct MusicLibraryView: View {
                     } label: {
                         Label("📶 Offline verfügbar", systemImage: "arrow.down.circle")
                     }
-                    Button {
-                        showAllTracks = true
-                    } label: {
-                        Label("🎵 Alle Titel", systemImage: "music.note.list")
-                    }
                 } label: {
                     Label("Musik-Optionen", systemImage: "ellipsis.circle")
                 }
@@ -229,15 +258,15 @@ struct MusicLibraryView: View {
             }
             .frame(minWidth: 480, minHeight: 480)
         }
-        .sheet(isPresented: $showAllTracks) {
-            NavigationStack {
-                MusicAllTracksView(library: library)
-            }
-            .frame(minWidth: 560, minHeight: 560)
-        }
         .task {
             await load()
             await syncLibraryIfNeeded()
+            if displayMode == .allTracks { await loadAllTracks() }
+        }
+        .onChange(of: displayMode) { newMode in
+            if newMode == .allTracks, !allTracksLoaded {
+                Task { await loadAllTracks() }
+            }
         }
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled { Task { await syncLibraryIfNeeded() } }
@@ -265,6 +294,120 @@ struct MusicLibraryView: View {
         guard librarySyncEnabled else { return }
         guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
         downloadAllMissing(items, client: client, downloads: downloads)
+    }
+
+    /// Lädt ALLE Titel der Bibliothek (nicht nur das gerade offene Album) und
+    /// startet die Wiedergabe gemischt ab einem zufälligen Titel — schaltet
+    /// dafür auch gleich den Shuffle-Modus der Engine ein, damit `next()`
+    /// (Titel-Ende, ⏭) ebenfalls weiter zufällig bleibt statt in die (bereits
+    /// gemischte, aber danach fixe) Reihenfolge zurückzufallen.
+    private func shufflePlayLibrary() async {
+        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        musicPlayer.isShuffling = true
+        musicPlayer.play(queue: items.shuffled(), startIndex: 0, client: client)
+    }
+
+    private func loadAllTracks() async {
+        guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+        allTracks = items.sorted {
+            if $0.artist != $1.artist { return ($0.artist ?? "") < ($1.artist ?? "") }
+            if $0.album != $1.album { return ($0.album ?? "") < ($1.album ?? "") }
+            return ($0.trackNo ?? 0) < ($1.trackNo ?? 0)
+        }
+        allTracksLoaded = true
+    }
+
+    @ViewBuilder
+    private var albumContent: some View {
+        if isLoading {
+            ProgressView()
+        } else if let errorMessage {
+            ContentUnavailableMessage(text: errorMessage)
+        } else if albums.isEmpty {
+            ContentUnavailableMessage(text: "Keine Alben gefunden.")
+        } else if displayMode == .list {
+            // KEIN NavigationLink-Wrapper mehr um die ganze Zeile — das
+            // Favoriten-Herz (User-Wunsch 2026-09-11) ist selbst ein Button,
+            // und ein Button verschachtelt im Label eines NavigationLink ist
+            // in SwiftUI unzuverlässig (gleiche Falle wie bei den Track-
+            // Zeilen, siehe Kommentare in MusicAlbumDetailView). Tap navigiert
+            // stattdessen über `.onTapGesture` + `navigationDestination(isPresented:)`.
+            List(filteredAlbums) { album in
+                MusicAlbumRow(album: album)
+                    .contentShape(Rectangle())
+                    .onTapGesture { navigateToAlbum = album }
+            }
+            .listStyle(.plain)
+        } else {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 20) {
+                    ForEach(filteredAlbums) { album in
+                        MusicAlbumCard(album: album)
+                            .frame(width: cardWidth)
+                            .contentShape(Rectangle())
+                            .onTapGesture { navigateToAlbum = album }
+                    }
+                }
+                .padding()
+                // Platz für die persistente Mini-Player-Leiste (safeAreaInset in
+                // MainTabView) — ohne das läge die letzte Album-Reihe teils dahinter.
+                .padding(.bottom, musicPlayer.currentItem != nil ? 72 : 0)
+            }
+        }
+    }
+
+    /// "Alle Titel"-Inhalt — inline statt Sheet (User-Wunsch 2026-09-11), teilt
+    /// sich das Suchfeld der Bibliotheksansicht (filtert dann Titel statt Alben).
+    @ViewBuilder
+    private var allTracksContent: some View {
+        if !allTracksLoaded {
+            ProgressView()
+        } else if allTracks.isEmpty {
+            ContentUnavailableMessage(text: "Keine Titel gefunden.")
+        } else {
+            List {
+                HStack {
+                    Button {
+                        musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client)
+                    } label: {
+                        Label("Alle abspielen", systemImage: "play.fill")
+                    }
+                    .disabled(filteredTracks.isEmpty)
+                    Button {
+                        musicPlayer.isShuffling = true
+                        musicPlayer.play(queue: filteredTracks.shuffled(), startIndex: 0, client: client)
+                    } label: {
+                        Label("Shuffle abspielen", systemImage: "shuffle")
+                    }
+                    .disabled(filteredTracks.isEmpty)
+                }
+                ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(track.displayTitle)
+                                .fontWeight(musicPlayer.currentItem?.id == track.id ? .semibold : .regular)
+                            Text([track.artist, track.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if musicPlayer.currentItem?.id == track.id, musicPlayer.isPlaying {
+                            Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
+                        }
+                        Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
+                        MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                            try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                        }
+                        MusicDownloadIcon(item: track)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        musicPlayer.play(queue: filteredTracks, startIndex: idx, client: client)
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
     }
 }
 

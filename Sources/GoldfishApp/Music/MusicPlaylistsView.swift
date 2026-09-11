@@ -203,6 +203,12 @@ struct MusicPlaylistDetailView: View {
                         } label: {
                             Label("Alle abspielen", systemImage: "play.fill")
                         }
+                        Button {
+                            musicPlayer.isShuffling = true
+                            musicPlayer.play(queue: tracks.shuffled(), startIndex: 0, client: client)
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                        }
                         Toggle(isOn: $playlistSyncEnabled) {
                             Label("Playlist offline synchronisieren", systemImage: playlistSyncEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "arrow.triangle.2.circlepath.circle")
                         }

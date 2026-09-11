@@ -198,6 +198,9 @@ struct PlaylistDetailView: View {
     @State private var showTVActionsMenu = false
     #endif
     @State private var renameText = ""
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     private let cardWidth: CGFloat = 150
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12, alignment: .top)] }
@@ -233,6 +236,22 @@ struct PlaylistDetailView: View {
         }
         .navigationTitle(playlist.name)
         .toolbar {
+            // Shuffle-Wiedergabe der Playlist (User-Wunsch 2026-09-11: "In den
+            // Playlists fehlt Shuffle auch. Im übrigen auch bei den Filmplaylists")
+            // — vorerst nur macOS (öffnet direkt ein Player-Fenster wie das
+            // bestehende globale Zufall-Feature in LibrariesView), iOS/tvOS folgen
+            // später zusammen mit dem übrigen Musik-Player-Rollout.
+            #if os(macOS)
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    shufflePlay()
+                } label: {
+                    Label("Shuffle", systemImage: "shuffle")
+                }
+                .disabled(items.isEmpty)
+                .help("Playlist in zufälliger Reihenfolge abspielen")
+            }
+            #endif
             ToolbarItem(placement: .primaryAction) {
                 // tvOS-Fix 2026-09-03: gleiches `Menu`-in-Toolbar-Problem wie in `ItemGridView`/
                 // `DownloadsView` — hier nur zwei einfache Aktionen, ein `.confirmationDialog`
@@ -304,6 +323,21 @@ struct PlaylistDetailView: View {
         }
         isLoading = false
     }
+
+    #if os(macOS)
+    /// Öffnet ein Player-Fenster direkt mit der gemischten Playlist als Queue —
+    /// gleiches Muster wie das bestehende globale Zufall-Feature (`LibrariesView
+    /// .openRandomPlayerWindow`), nur mit einer FESTEN (gemischten) Queue statt
+    /// server-seitigem `randomItem`, `randomContext: nil` entsprechend.
+    private func shufflePlay() {
+        guard !items.isEmpty else { return }
+        let shuffled = items.shuffled()
+        PlayerLaunchCoordinator.shared.present(
+            PlayerLaunchRequest(item: shuffled[0], queue: shuffled, queueIndex: 0, randomContext: nil, startFromBeginning: true),
+            openWindow: openWindow
+        )
+    }
+    #endif
 }
 
 /// "Zu Playlist hinzufügen" — opened from `ItemDetailView`. Lädt die eigenen Playlists,

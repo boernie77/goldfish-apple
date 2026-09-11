@@ -24,10 +24,12 @@ struct MusicAlbumDetailView: View {
     @State private var addToPlaylistItem: Item?
     @State private var showPlaylists = false
     @State private var showOffline = false
-    @State private var showAllTracks = false
     // Gleiche Keys wie in MusicLibraryView, damit der komplette Toolbar
-    // (Listenansicht/Playlists/Sync-Toggle/Offline/Alle Titel) auf JEDER
-    // Musik-Seite identisch verfügbar ist, nicht nur auf der Album-Übersicht.
+    // (Listenansicht/Playlists/Sync-Toggle/Offline) auf JEDER Musik-Seite
+    // identisch verfügbar ist, nicht nur auf der Album-Übersicht. "Alle
+    // Titel" lebt seit 2026-09-11 nur noch dort als Ansichts-Modus (kein
+    // Sheet mehr, siehe MusicLibraryView-Kommentar "soll nicht im extra
+    // Fenster öffnen") — hier deshalb absichtlich nicht dupliziert.
     @AppStorage("musicLibraryListView") private var isListView = false
     @AppStorage private var librarySyncEnabled: Bool
 
@@ -92,6 +94,14 @@ struct MusicAlbumDetailView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    Task { await shufflePlayLibrary() }
+                } label: {
+                    Label("Zufallswiedergabe", systemImage: "shuffle")
+                }
+                .help("Zufällige Wiedergabe der ganzen Bibliothek")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showPlaylists = true
                 } label: {
                     Label("Playlists", systemImage: "music.note.list")
@@ -107,11 +117,6 @@ struct MusicAlbumDetailView: View {
                         showOffline = true
                     } label: {
                         Label("📶 Offline verfügbar", systemImage: "arrow.down.circle")
-                    }
-                    Button {
-                        showAllTracks = true
-                    } label: {
-                        Label("🎵 Alle Titel", systemImage: "music.note.list")
                     }
                 } label: {
                     Label("Musik-Optionen", systemImage: "ellipsis.circle")
@@ -133,12 +138,6 @@ struct MusicAlbumDetailView: View {
                 MusicOfflineView(library: library)
             }
             .frame(minWidth: 480, minHeight: 480)
-        }
-        .sheet(isPresented: $showAllTracks) {
-            NavigationStack {
-                MusicAllTracksView(library: library)
-            }
-            .frame(minWidth: 560, minHeight: 560)
         }
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled {
@@ -174,6 +173,13 @@ struct MusicAlbumDetailView: View {
                         musicPlayer.play(queue: tracks, startIndex: 0, client: client)
                     } label: {
                         Label("Album abspielen", systemImage: "play.fill")
+                    }
+                    .disabled(tracks.isEmpty)
+                    Button {
+                        musicPlayer.isShuffling = true
+                        musicPlayer.play(queue: tracks.shuffled(), startIndex: 0, client: client)
+                    } label: {
+                        Label("Shuffle", systemImage: "shuffle")
                     }
                     .disabled(tracks.isEmpty)
                     Button {
@@ -220,6 +226,12 @@ struct MusicAlbumDetailView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func shufflePlayLibrary() async {
+        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        musicPlayer.isShuffling = true
+        musicPlayer.play(queue: items.shuffled(), startIndex: 0, client: client)
     }
 }
 #endif

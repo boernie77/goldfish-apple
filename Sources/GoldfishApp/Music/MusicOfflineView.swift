@@ -33,10 +33,18 @@ struct MusicOfflineView: View {
                 ContentUnavailableMessage(text: "Noch keine offline gespeicherten Titel. Lade Alben, Playlists oder einzelne Titel herunter, oder aktiviere die Bibliotheks-Synchronisation.")
             } else {
                 List {
-                    Button {
-                        musicPlayer.play(queue: offlineTracks, startIndex: 0, client: client)
-                    } label: {
-                        Label("Alle offline abspielen", systemImage: "play.fill")
+                    HStack {
+                        Button {
+                            musicPlayer.play(queue: offlineTracks, startIndex: 0, client: client)
+                        } label: {
+                            Label("Alle offline abspielen", systemImage: "play.fill")
+                        }
+                        Button {
+                            musicPlayer.isShuffling = true
+                            musicPlayer.play(queue: offlineTracks.shuffled(), startIndex: 0, client: client)
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                        }
                     }
                     ForEach(offlineTracks) { track in
                         HStack {
