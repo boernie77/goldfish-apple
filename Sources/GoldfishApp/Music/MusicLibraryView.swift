@@ -86,6 +86,10 @@ struct MusicLibraryView: View {
             MusicAlbumDetailView(album: album)
         }
         .toolbar {
+            // Listenansicht + Playlists sollen IMMER sichtbar sein (User-Wunsch
+            // 2026-09-11), nicht im "···"-Menü verschwinden können — beide daher
+            // als eigene ToolbarItems VOR dem Menü, wie schon der Listen/Kachel-
+            // Umschalter.
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isListView.toggle()
@@ -93,6 +97,14 @@ struct MusicLibraryView: View {
                     Label(isListView ? "Kachelansicht" : "Listenansicht", systemImage: isListView ? "square.grid.2x2" : "list.bullet")
                 }
                 .help(isListView ? "Zur Kachelansicht wechseln" : "Zur Listenansicht wechseln")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showPlaylists = true
+                } label: {
+                    Label("Playlists", systemImage: "music.note.list")
+                }
+                .help("Musik-Playlists")
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -108,11 +120,6 @@ struct MusicLibraryView: View {
                         showAllTracks = true
                     } label: {
                         Label("🎵 Alle Titel", systemImage: "music.note.list")
-                    }
-                    Button {
-                        showPlaylists = true
-                    } label: {
-                        Label("🎵 Playlists", systemImage: "text.badge.star")
                     }
                 } label: {
                     Label("Musik-Optionen", systemImage: "ellipsis.circle")
