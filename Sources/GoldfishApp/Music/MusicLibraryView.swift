@@ -475,13 +475,21 @@ private enum MusicAlbumColumn {
 private struct MusicColumnResizeHandle: View {
     @Binding var width: Double
     @State private var dragStartWidth: Double?
+    @State private var isHovering = false
 
     var body: some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(width: 10)
+            .frame(width: 16) // User-Feedback 2026-09-11: "Ziehbereich etwas
+            // größer machen um wenige Pixel" (war 10pt, oft knapp verfehlt)
+            .overlay(
+                Rectangle()
+                    .fill(isHovering ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.35))
+                    .frame(width: isHovering ? 2 : 1)
+            )
             .contentShape(Rectangle())
             .onHover { hovering in
+                isHovering = hovering
                 if hovering {
                     NSCursor.resizeLeftRight.push()
                 } else {
@@ -517,12 +525,12 @@ private struct MusicAlbumListHeader: View {
             Text("Künstler")
                 .frame(width: artistWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
-                    MusicColumnResizeHandle(width: $artistWidth).offset(x: 11)
+                    MusicColumnResizeHandle(width: $artistWidth).offset(x: 14)
                 }
             Text("Genre")
                 .frame(width: genreWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
-                    MusicColumnResizeHandle(width: $genreWidth).offset(x: 11)
+                    MusicColumnResizeHandle(width: $genreWidth).offset(x: 14)
                 }
             Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
