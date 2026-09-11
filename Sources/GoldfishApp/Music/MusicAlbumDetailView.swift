@@ -9,6 +9,11 @@ import SwiftUI
 /// musicPlayAlbum() auf statt openDetail() zu öffnen").
 struct MusicAlbumDetailView: View {
     let album: MusicAlbum
+    /// Für den vollständigen Musik-Toolbar (User-Wunsch 2026-09-11: "Es sollen
+    /// alle Buttons immer zu sehen sein! Genauso wie in der Übersicht") — die
+    /// Bibliotheks-Optionen (Offline-Sync/📶/Alle Titel) brauchen die Library,
+    /// die reicht `MusicLibraryView` beim Push jetzt mit durch.
+    let library: Library
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
@@ -18,12 +23,19 @@ struct MusicAlbumDetailView: View {
     @State private var errorMessage: String?
     @State private var addToPlaylistItem: Item?
     @State private var showPlaylists = false
-    // Gleicher Key wie in MusicLibraryView — Listenansicht ist dort die einzige
-    // Stelle mit sichtbarer Wirkung (Album-Übersicht Kacheln/Liste), der Toggle
-    // hier wirkt sich also erst beim Zurückgehen aus. Trotzdem hier mit
-    // angeboten (User-Wunsch 2026-09-11: "Hier fehlen die Buttons" — sollen auf
-    // JEDER Musik-Seite sichtbar sein, nicht nur auf der Album-Übersicht selbst).
+    @State private var showOffline = false
+    @State private var showAllTracks = false
+    // Gleiche Keys wie in MusicLibraryView, damit der komplette Toolbar
+    // (Listenansicht/Playlists/Sync-Toggle/Offline/Alle Titel) auf JEDER
+    // Musik-Seite identisch verfügbar ist, nicht nur auf der Album-Übersicht.
     @AppStorage("musicLibraryListView") private var isListView = false
+    @AppStorage private var librarySyncEnabled: Bool
+
+    init(album: MusicAlbum, library: Library) {
+        self.album = album
+        self.library = library
+        self._librarySyncEnabled = AppStorage(wrappedValue: false, "musicLibrarySync.\(library.id)")
+    }
 
     var body: some View {
         Group {
@@ -83,6 +95,25 @@ struct MusicAlbumDetailView: View {
                 }
                 .help("Musik-Playlists")
             }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Toggle(isOn: $librarySyncEnabled) {
+                        Text("Bibliothek offline synchronisieren")
+                    }
+                    Button {
+                        showOffline = true
+                    } label: {
+                        Label("📶 Offline verfügbar", systemImage: "arrow.down.circle")
+                    }
+                    Button {
+                        showAllTracks = true
+                    } label: {
+                        Label("🎵 Alle Titel", systemImage: "music.note.list")
+                    }
+                } label: {
+                    Label("Musik-Optionen", systemImage: "ellipsis.circle")
+                }
+            }
         }
         .task { await load() }
         .sheet(item: $addToPlaylistItem) { track in
@@ -93,6 +124,26 @@ struct MusicAlbumDetailView: View {
                 MusicPlaylistsView()
             }
             .frame(minWidth: 480, minHeight: 480)
+        }
+        .sheet(isPresented: $showOffline) {
+            NavigationStack {
+                MusicOfflineView(library: library)
+            }
+            .frame(minWidth: 480, minHeight: 480)
+        }
+        .sheet(isPresented: $showAllTracks) {
+            NavigationStack {
+                MusicAllTracksView(library: library)
+            }
+            .frame(minWidth: 560, minHeight: 560)
+        }
+        .onChange(of: librarySyncEnabled) { enabled in
+            if enabled {
+                Task {
+                    guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+                    downloadAllMissing(items, client: client, downloads: downloads)
+                }
+            }
         }
     }
 

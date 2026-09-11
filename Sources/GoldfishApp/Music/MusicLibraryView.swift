@@ -83,7 +83,7 @@ struct MusicLibraryView: View {
         .navigationTitle(library.name)
         .searchable(text: $search, prompt: "Alben/Künstler durchsuchen")
         .navigationDestination(for: MusicAlbum.self) { album in
-            MusicAlbumDetailView(album: album)
+            MusicAlbumDetailView(album: album, library: library)
         }
         .toolbar {
             // Listenansicht + Playlists sollen IMMER sichtbar sein (User-Wunsch
