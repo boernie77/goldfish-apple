@@ -12,6 +12,7 @@ import SwiftUI
 struct MusicPlaylistsView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
+    @Environment(\.dismiss) private var dismiss
     @State private var playlists: [Playlist] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -43,6 +44,9 @@ struct MusicPlaylistsView: View {
             MusicPlaylistDetailView(playlist: playlist)
         }
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Fertig") { dismiss() }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     newName = ""

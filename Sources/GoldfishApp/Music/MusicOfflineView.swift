@@ -13,6 +13,7 @@ struct MusicOfflineView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
     @EnvironmentObject var downloads: DownloadManager
+    @Environment(\.dismiss) private var dismiss
 
     private var offlineTracks: [Item] {
         downloads.records.values
@@ -61,6 +62,11 @@ struct MusicOfflineView: View {
             }
         }
         .navigationTitle("📶 Offline verfügbar")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Fertig") { dismiss() }
+            }
+        }
     }
 }
 #endif

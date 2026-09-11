@@ -95,11 +95,24 @@ struct MusicLibraryView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $showOffline) {
-            MusicOfflineView(library: library)
+        // Sheet statt Push-Navigation (User-Report 2026-09-11: kompletter
+        // Bibliotheken-Tab brach beim Zurücknavigieren) — mehrere gleichzeitige
+        // `navigationDestination`-Modifier (for:/isPresented:) auf derselben View
+        // sind auf macOS 13 ein bekannt fragiles SwiftUI-NavigationStack-Muster.
+        // Ein Sheet mit eigenem, isoliertem `NavigationStack` innen rührt den
+        // äußeren Bibliotheken-Stack gar nicht erst an — exakt das bereits
+        // bewährte Muster von `AddToPlaylistSheet` an anderer Stelle im Code.
+        .sheet(isPresented: $showOffline) {
+            NavigationStack {
+                MusicOfflineView(library: library)
+            }
+            .frame(minWidth: 480, minHeight: 480)
         }
-        .navigationDestination(isPresented: $showPlaylists) {
-            MusicPlaylistsView()
+        .sheet(isPresented: $showPlaylists) {
+            NavigationStack {
+                MusicPlaylistsView()
+            }
+            .frame(minWidth: 480, minHeight: 480)
         }
         .task {
             await load()
@@ -136,6 +149,19 @@ private struct MusicAlbumCard: View {
         VStack(alignment: .leading, spacing: 6) {
             PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                // Titelzahl direkt auf dem Cover (User-Wunsch 2026-09-11), analog zum
+                // Browser-Badge `.folder-count` unten rechts auf der Ordner-Kachel.
+                .overlay(alignment: .bottomTrailing) {
+                    if let count = album.trackCount, count > 0 {
+                        Text("\(count) Titel")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
+                }
             Text(album.displayTitle)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
@@ -143,11 +169,6 @@ private struct MusicAlbumCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            if let count = album.trackCount, count > 0 {
-                Text("\(count) Titel")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
