@@ -51,10 +51,31 @@ struct MusicPlayerBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.displayTitle).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(item.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                // User-Wunsch 2026-09-11: "die Fortschrittsanzeige in
+                // Zahlen" — bewusst kein Balken (der bräuchte in der
+                // schmalen kompakten Leiste eigenen Platz), sondern
+                // "verstrichen / gesamt" neben dem Künstler, wie es in der
+                // Zeile ohnehin schon Platz für Sekundärtext gibt.
+                HStack(spacing: 4) {
+                    Text(item.artist ?? "").lineLimit(1)
+                    Text("· \(formatted(musicPlayer.currentTime))/\(formatted(musicPlayer.duration))")
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            HStack(spacing: 20) {
+            HStack(spacing: 18) {
+                // User-Wunsch 2026-09-11: "den Zurückpfeil" — Vorheriger-
+                // Titel-Button fehlte in der kompakten Leiste bisher
+                // komplett (nur im vollen Sheet vorhanden).
+                Button { musicPlayer.previous(client: client) } label: {
+                    Image(systemName: "backward.fill")
+                }
+                .disabled(musicPlayer.currentIndex == 0 && musicPlayer.currentTime <= 3)
+
                 Button { musicPlayer.togglePlayPause() } label: {
                     if musicPlayer.isLoading {
                         ProgressView().controlSize(.small)
