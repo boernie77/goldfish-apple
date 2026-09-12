@@ -176,6 +176,16 @@ struct MusicLibraryView: View {
         }
     }
 
+    // Eine aktive Suche außerhalb von "Alle Titel" zeigt jetzt die
+    // matchenden TRACKS selbst als Trefferliste (User-Report 2026-09-12:
+    // "wenn ich nach einem Titel gesucht habe, dann kam kein Treffer. Auch
+    // nicht das Album" — die Album-Kacheln/Liste filterten bis dahin nur
+    // gegen Album-/Künstlername, nie gegen Track-Titel, exakt das gleiche
+    // Muster wie der zeitgleich gefixte Server-/Browser-Bug). Nutzt
+    // denselben Track-Zeilen-Renderer wie "Alle Titel" (`allTracksContent`/
+    // `filteredTracks`), lädt `allTracks` dafür bei Bedarf lazy nach.
+    private var showingTrackSearchResults: Bool { !search.isEmpty && displayMode != .allTracks }
+
     var body: some View {
         VStack(spacing: 0) {
             // Trefferzahl der aktuellen Filterung (Suche/Genre) — User-Report
@@ -186,7 +196,7 @@ struct MusicLibraryView: View {
             // Session) — deshalb jetzt als echtes, garantiert sichtbares
             // Text-Element im Inhaltsbereich.
             HStack {
-                Text(displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
+                Text(displayMode == .allTracks || showingTrackSearchResults ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -195,16 +205,29 @@ struct MusicLibraryView: View {
             .padding(.top, 8)
 
             Group {
-                switch displayMode {
-                case .allTracks:
-                    allTracksContent
-                case .grid, .list:
-                    albumContent
+                if showingTrackSearchResults {
+                    if !allTracksLoaded {
+                        ProgressView()
+                    } else {
+                        allTracksContent
+                    }
+                } else {
+                    switch displayMode {
+                    case .allTracks:
+                        allTracksContent
+                    case .grid, .list:
+                        albumContent
+                    }
                 }
             }
         }
         .navigationTitle(library.name)
-        .searchable(text: $search, prompt: displayMode == .allTracks ? "Titel/Künstler/Album durchsuchen" : "Alben/Künstler durchsuchen")
+        .searchable(text: $search, prompt: displayMode == .allTracks ? "Titel/Künstler/Album durchsuchen" : "Titel, Künstler oder Album durchsuchen")
+        .onChange(of: search) { newValue in
+            if !newValue.isEmpty, !allTracksLoaded {
+                Task { await loadAllTracks() }
+            }
+        }
         // `.navigationDestination(item:)` braucht macOS 14 (Deployment-Target ist
         // 13.0) — die `isPresented:`-Variante gibt es schon seit macOS 13. Einzige
         // `navigationDestination`-Modifier auf dieser View (kein `for:` mehr
