@@ -292,3 +292,19 @@ außerhalb von „Alle Titel" zeigt jetzt `allTracksContent`/`filteredTracks`
 bei Bedarf lazy nachgeladen (`onChange(of: search)`), nicht erst beim
 Umschalten in den „Alle Titel"-Modus. Suchfeld-Prompt entsprechend auf
 „Titel, Künstler oder Album durchsuchen" erweitert.
+
+**🔴→✅ Musik-Bibliothekskachel ohne Vorschaubild (Bug, gefixt 2026-09-12,
+iOS 198/Mac 214, User-Report: "die Musikbibliothek hat kein Hintergrundbild,
+so wie die anderen"):** `LibrariesView.loadPreviews()` holt für die
+Bibliotheks-Kachel ein Zufalls-Item und fällt für dessen Vorschaubild auf
+`posterURL(metadataId:)` (kein TMDB-Match bei Musik → nil) bzw.
+`thumbURL(itemId:)` zurück — Musik-Tracks haben aber NIE ein Thumbnail (der
+Scanner überspringt die Thumbnail-Generierung bei Audio komplett, siehe
+Server-CLAUDE.md „Musik-Bibliotheken"). Beide Fallbacks lieferten für einen
+Musik-Track also grundsätzlich nichts, die Kachel blieb dauerhaft ohne Bild
+(kein Cache-File wurde je geschrieben, der `guard`-Fetch schlug still fehl —
+heilt sich beim nächsten Start automatisch, kein Cache-Reset nötig). Fix:
+neuer erster Fallback über `item.musicAlbumId` +
+`client.albumCoverURL(albumId:)` (Album-Cover, existiert bei Musik-Tracks
+so gut wie immer). Betrifft `LibrariesView.swift`, gemeinsame Datei für
+macOS + iOS.

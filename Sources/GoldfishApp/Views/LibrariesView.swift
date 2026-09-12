@@ -438,7 +438,17 @@ struct LibrariesView: View {
             // repräsentatives Cover holen und dauerhaft ablegen.
             guard let item = try? await client.randomItem(libraryId: lib.id) else { continue }
             let networkURL: URL?
-            if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId) {
+            // Musik-Bibliothek: kein Poster (kein TMDB-Match), kein Thumbnail
+            // (Scanner überspringt Thumbnail-Generierung bei Audio komplett,
+            // siehe Server-CLAUDE.md "Musik-Bibliotheken") — beide Fallbacks
+            // unten liefern für einen Musik-Track also immer nichts, die
+            // Bibliotheks-Kachel blieb dadurch dauerhaft ohne Vorschaubild
+            // (User-Report 2026-09-12: "Musikbibliothek hat kein
+            // Hintergrundbild, so wie die anderen"). Fix: Album-Cover über
+            // `musicAlbumId` statt Item-Thumbnail.
+            if let albumId = item.musicAlbumId, let url = client.albumCoverURL(albumId: albumId) {
+                networkURL = url
+            } else if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId) {
                 networkURL = url
             } else {
                 networkURL = client.thumbURL(itemId: item.id)
