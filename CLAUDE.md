@@ -275,3 +275,20 @@ Favoriten/Offline-Sync/AirPlay/Hintergrund-Wiedergabe, seit Build 196 auch
 auf iOS. Der `.safeAreaInset`+`TabView`-Fallstrick oben ist hier der
 wichtigste Merkposten für jede künftige "Leiste über der Tab-Leiste"-
 Anforderung.
+
+**🔴→✅ Suche fand keine Titel-Treffer (Bug, gefixt 2026-09-12, iOS 197/Mac
+213, User-Report: "wenn ich nach einem Titel gesucht habe, dann kam kein
+Treffer. Auch nicht das Album"):** `MusicLibraryView.filteredAlbums`
+filterte eine Suche in der Kachel-/Listen-Übersicht (`.grid`/`.list`) bis
+dahin ausschließlich gegen `album`/`artist` — nie gegen einen Track-Titel.
+Ein Titel-Treffer lieferte dadurch 0 Ergebnisse, auch das enthaltende Album
+tauchte nicht auf. Nur im „Alle Titel"-Modus (`filteredTracks`) funktionierte
+Titelsuche schon vorher korrekt. Exakt dasselbe Muster wie der zeitgleich
+gefixte Server-/Browser-Bug (siehe Server-Repo `CLAUDE.md`/DECISIONS.md,
+dort wurde die Album-Bündelung einer Suche komplett durch eine flache
+Track-Trefferliste ersetzt). Fix hier identisch: eine aktive Suche
+außerhalb von „Alle Titel" zeigt jetzt `allTracksContent`/`filteredTracks`
+(matcht Titel+Artist+Album) statt der Album-Kacheln — `allTracks` wird dafür
+bei Bedarf lazy nachgeladen (`onChange(of: search)`), nicht erst beim
+Umschalten in den „Alle Titel"-Modus. Suchfeld-Prompt entsprechend auf
+„Titel, Künstler oder Album durchsuchen" erweitert.
