@@ -1,94 +1,148 @@
-# Goldfish für Mac & iOS (Prototyp)
+# Goldfish für Mac, iPhone/iPad & Apple TV
 
-Native SwiftUI-App für den Goldfish-Server (dieses Repo: `/Users/christian/Projekte/Videoplayer`).
-Zwei Xcode-Targets (`GoldfishMac`, `GoldfishiOS`) teilen sich den gesamten Netzwerk-/
-Modell-Code im lokalen Swift-Package `Packages/GoldfishCore`.
+Native SwiftUI-App für den [Goldfish-Videoserver](https://github.com/boernie77/goldfish)
+(selbstgehostet, Jellyfin-light). Drei Xcode-Targets — **GoldfishMac**,
+**GoldfishiOS**, **GoldfishTV** — teilen sich den kompletten Netzwerk-/
+Modell-/Download-Code im lokalen Swift-Package `Packages/GoldfishCore`.
 
-## Aktueller Stand (MVP)
+## ✅ Offiziell im App Store
 
-- **Login** per Username/Passwort (Cookie-Session, 30 Tage gültig, automatischer
-  Session-Check beim App-Start via `/api/auth/status`) **und** per **SSO/Authentik**
-  (Button „Mit SSO anmelden" öffnet den Login in einem eingebetteten WKWebView; der
-  Server macht den kompletten OIDC/PKCE-Tausch selbst, die App erkennt Erfolg/Fehler
-  nur am Redirect-Ziel)
-- **Home-Screen** (erster Tab): Fortsetzen / Als nächstes / Zuletzt hinzugefügt pro
-  Bibliothek, horizontal scrollbar
-- Bibliotheken-Liste → **Ordner-Navigation** (Unterordner als Kacheln, kombiniert mit
-  Items auf derselben Ebene) → Detail-Ansicht
-- **Staffel-Ansicht** für TV-Bibliotheken: Top-Level-Ordner öffnet automatisch die
-  Staffel-Übersicht statt einer flachen Dateiliste, mit Episoden-Liste pro Staffel
-- Abspielen via `AVPlayer`/`VideoPlayer` — Direct-Play oder Server-Transcode je nach
-  `/api/playback/{id}`-Antwort, inkl. Resume-Position (lesen + alle 15s speichern)
-- **Offline-Download**: `/api/download/{id}` lädt die Originaldatei lokal in
-  `Application Support/GoldfishDownloads/` — Abspielen danach komplett ohne Netz
-  (Player prüft zuerst, ob eine lokale Datei existiert)
-- Favorit/Gesehen togglebar
+Alle drei Plattformen sind unter dem gemeinsamen App-Store-Eintrag
+**„Goldfish Media"** veröffentlicht (App Store durchsuchen nach „Goldfish
+Media" — oder auf iPhone/iPad/Mac/Apple TV direkt im App Store danach
+suchen). Aktueller Stand:
 
-## Bewusst noch nicht drin (nächste Schritte)
+| Plattform | Version | Bemerkung |
+|---|---|---|
+| iOS/iPadOS | 1.3 | reiner Online-Player + Downloads, inkl. vollem Musik-Player |
+| macOS | 1.0 | zusätzlich lokale/externe Bibliotheken + Formatanpassung |
+| tvOS (Apple TV) | 1.1 | Fokus auf Wiedergabe + Downloads, kein SSO/WebKit |
 
-- Hintergrund-Downloads (aktuell nur im Vordergrund, bricht ab wenn App beendet wird)
-- Downloads laufen nicht automatisch über eine App-Group zwischen iOS und Mac synchron
-- Kein Metadaten-Editieren, keine Bulk-Aktionen, keine Suche über Home hinweg
+Für den eigenen Gebrauch reicht die Installation aus dem App Store — dieses
+Repo ist für **Entwicklung/Weiterbau** gedacht (neue Features, Bugfixes,
+lokale Test-Builds vor der nächsten Store-Einreichung).
 
-## Projekt öffnen & auf deinem Mac testen
+## Features (Kurzüberblick)
 
-1. **Xcode installiert?** Falls nicht: App Store → „Xcode" installieren (kostenlos).
+- **Login**: Email/Passwort oder SSO über Authentik (eingebettetes WebView,
+  nur Mac/iOS — tvOS hat kein WebKit).
+- **Home-Screen**: Fortsetzen / Als nächstes / Zuletzt hinzugefügt pro
+  Bibliothek, plus eigener Such-Tab (library-gescoped).
+- **Bibliotheks-/Ordner-Navigation** inkl. **Staffel-Ansicht** für Serien
+  (Poster, Cast-Leiste, Episoden pro Staffel).
+- **Player**: Direct Play/Server-Transcode je nach `/api/playback/{id}`,
+  Qualitäts-Auswahl, Ton-/Untertitel-Umschaltung (inkl. KI-/OCR-generierter
+  Untertitel), Trailer-Wiedergabe (YouTube, per `yt-dlp`-Server-Extraktion),
+  Resume-Position.
+- **Downloads/Offline**: Video- und Musik-Downloads, komplett ohne
+  Netzwerk abspielbar.
+- **Musik-Player** (Mac + iOS): eigener Mini-Player mit Warteschlange,
+  Playlists, Favoriten, Offline-Sync, AirPlay, Hintergrund-Wiedergabe —
+  funktional an Apple Music/Spotify angelehnt.
+- **Gesehen-Sync zwischen zwei Accounts** (z. B. zwei Familienmitglieder),
+  respektiert dabei die Library-ACL + FSK-Grenze des Partners.
+- **Nur macOS**: lokale/externe Bibliotheken (USB-Platten etc.) mit
+  automatischer Formatanpassung/Puffer-Verwaltung, unabhängig vom Server.
+- **Nicht enthalten** (bewusst): Admin-Bereich (Nutzerverwaltung,
+  Library-Manager, Scan-Steuerung) — das bleibt Browser-only.
+
+## Projekt öffnen & lokal bauen
+
+1. **Xcode installiert?** Falls nicht: App Store → „Xcode" (kostenlos).
 2. Terminal:
-   ```
+   ```bash
    cd ~/Projekte/GoldfishApple
    open GoldfishApple.xcodeproj
    ```
-3. In Xcode oben links das Scheme **„GoldfishMac"** auswählen (Dropdown neben
-   Play-Button), als Ziel **„My Mac"**.
-4. **Signierung einmalig einrichten:** Projekt-Navigator → `GoldfishApple` (blaues
-   Icon oben) → Target `GoldfishMac` → Tab „Signing & Capabilities" → bei „Team"
-   deine Apple-ID auswählen (falls noch keine hinterlegt: Xcode → Settings →
-   Accounts → „+" → mit deiner normalen Apple-ID anmelden, **kein** bezahlter
-   Account nötig). Xcode erstellt automatisch ein „Personal Team".
-5. **⌘R** (oder Play-Button) → App baut und startet direkt auf deinem Mac.
-6. Beim ersten Start: Server-Adresse (z. B. `https://goldfish.example.com`),
-   deinen Goldfish-Benutzernamen + Passwort eingeben.
+3. Scheme oben links wählen: **GoldfishMac** (Ziel „My Mac"), **GoldfishiOS**
+   (Ziel: Simulator oder eigenes iPhone) oder **GoldfishTV** (Ziel:
+   tvOS-Simulator oder eigenes Apple TV).
+4. **Signierung**: Projekt-Navigator → `GoldfishApple` → jeweiliges Target →
+   Tab „Signing & Capabilities" → Team auswählen. Mit einem kostenlosen
+   Apple-Account läuft die App nur auf dem Simulator bzw. 7 Tage auf einem
+   angeschlossenen eigenen Gerät; mit einem bezahlten Entwickler-Account
+   (hier: Team `SYQL3PUXA9`) funktioniert auch die dauerhafte Installation
+   auf echten Geräten sowie App-Store-Einreichungen.
+5. **⌘R** → App baut und startet.
 
-Kein 7-Tage-Ablauf, kein App Store nötig — die App bleibt einfach auf deinem Mac,
-du kannst sie jederzeit über Xcode neu bauen und starten.
+Beim ersten Start: Server-Adresse (z. B. `https://goldfish.example.com`),
+Goldfish-Benutzername + Passwort eingeben (oder „Mit SSO anmelden", falls am
+Server konfiguriert).
 
-## iOS-Target testen (optional, gleiche Codebasis)
+## Auf ein echtes iPhone/Apple TV installieren (ohne Xcode-UI)
 
-Scheme auf **„GoldfishiOS"** wechseln, als Ziel einen Simulator (z. B. „iPhone 16")
-oder dein eigenes iPhone per Kabel/WLAN wählen (dort greift dann die 7-Tage-Grenze,
-falls du keinen bezahlten Account hast — für den Simulator nicht relevant).
+Mit dem bezahlten Team (`SYQL3PUXA9`) funktioniert die komplette Kette auch
+rein über die Kommandozeile — praktisch für schnelle Testzyklen:
+
+```bash
+# Geräte-UDID herausfinden
+xcrun devicectl list devices
+
+# Bauen + signieren
+xcodebuild -project GoldfishApple.xcodeproj -scheme GoldfishiOS \
+  -destination 'id=<UDID>' -allowProvisioningUpdates build
+
+# Installieren + starten (Pfad zur .app aus dem xcodebuild-Output, i. d. R.
+# unter ~/Library/Developer/Xcode/DerivedData/.../Build/Products/Debug-iphoneos/)
+xcrun devicectl device install app --device <UDID> <Pfad-zur-App>.app
+xcrun devicectl device process launch --device <UDID> com.goldfish.iosdev
+```
+
+Für `GoldfishTV` analog, Bundle-ID `com.goldfish.tvos`.
 
 ## Projekt-Struktur
 
 ```
 GoldfishApple/
-├── project.yml                       # xcodegen-Definition (Xcode-Projekt wird daraus generiert)
-├── GoldfishApple.xcodeproj/          # generiert, nicht von Hand editieren
-├── Packages/GoldfishCore/            # geteilter Code (Mac + iOS)
+├── project.yml                       # xcodegen-Definition (3 Targets: Mac/iOS/TV)
+├── GoldfishApple.xcodeproj/           # generiert, nicht von Hand editieren
+├── Packages/GoldfishCore/             # geteilter Code (alle 3 Plattformen)
 │   └── Sources/GoldfishCore/
-│       ├── Models/Models.swift       # Codable-Structs passend zum Server-JSON
-│       ├── Networking/GoldfishClient.swift
-│       └── Downloads/DownloadManager.swift
-└── Sources/GoldfishApp/              # SwiftUI-UI, für beide Plattformen gemeinsam
-    ├── GoldfishApp.swift             # @main
-    ├── Views/                        # Login, Libraries, Grid, Detail, Downloads, Settings
-    └── Player/PlayerView.swift
+│       ├── Models/                    # Codable-Structs passend zum Server-JSON
+│       ├── Networking/                # GoldfishClient
+│       ├── Downloads/                 # DownloadManager (Video + Musik)
+│       ├── Local/                     # lokale/externe Bibliotheken (nur Mac)
+│       └── Trickplay/                 # Hover-Vorschau-Sprites
+└── Sources/GoldfishApp/                # SwiftUI-UI
+    ├── GoldfishApp.swift               # @main
+    ├── Views/                          # Login, Libraries, Grid, Detail, Home, Suche, …
+    ├── Music/                          # eigenständiger Musik-Player (Mac + iOS)
+    ├── Player/PlayerView.swift         # Video-Wiedergabe (AVPlayer)
+    └── Resources/                      # Assets, Info.plists, ffmpeg-Binaries (nur Mac)
 ```
 
 ## Nach Code-Änderungen: Projekt neu generieren
 
 Wenn neue Swift-Dateien/Ordner hinzukommen oder `project.yml` geändert wird:
-```
+```bash
 cd ~/Projekte/GoldfishApple
 xcodegen generate
 ```
-Xcode danach schließen + neu öffnen falls es offen war.
+Xcode danach schließen + neu öffnen, falls es offen war. **Achtung:**
+`GoldfishMac.entitlements` (App Sandbox) nach jedem `generate` prüfen — wird
+gelegentlich zurückgesetzt, siehe Kommentare in der Datei.
 
-## Build-Check ohne Xcode-UI (z. B. für Claude/CI)
+## Build-Check ohne Xcode-UI (z. B. für CI/Claude)
 
-```
+```bash
 xcodebuild -project GoldfishApple.xcodeproj -scheme GoldfishMac \
   -destination 'platform=macOS' build
 xcodebuild -project GoldfishApple.xcodeproj -scheme GoldfishiOS \
   -destination 'generic/platform=iOS Simulator' build
+xcodebuild -project GoldfishApple.xcodeproj -scheme GoldfishTV \
+  -destination 'generic/platform=tvOS Simulator' build
 ```
+
+## Neue Version einreichen (Kurz-Checkliste)
+
+1. Version/Build in `project.yml` für das betroffene Target hochzählen
+   (`CFBundleShortVersionString`/`CFBundleVersion`), danach `xcodegen generate`.
+2. Auf einem echten Gerät verifizieren (siehe oben), nicht nur im Simulator —
+   gerade Audio-/Berechtigungs-Bugs zeigen sich oft nur auf echter Hardware.
+3. In App Store Connect: neue Version über den „+"-Button neben der
+   jeweiligen Plattform anlegen (nicht die bereits „Bereit für Vertrieb"
+   stehende Version editieren), Build zuweisen, „Neues in dieser Version"
+   ausfüllen, Export-Compliance-Fragen beantworten, zur Prüfung einreichen.
+4. Bei bereits **live** stehenden Versionen ist die Beschreibung selbst
+   NICHT mehr direkt editierbar — nur der Werbetext. Eine geänderte
+   Beschreibung braucht immer eine neue Versionseinreichung.
