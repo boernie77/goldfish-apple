@@ -141,6 +141,17 @@ struct ItemDetailView: View {
                 actionButtonsRow
                 #endif
 
+                // User-Wunsch 2026-09-13 (nur macOS): Abspielen/Favorit/Gesehen UND der
+                // Offline-Herunterladen-Button sollen wie auf Apple TV direkt zwischen
+                // Genre und Beschreibungstext stehen, statt erst ganz unten nach Cast-
+                // Strip/Ton-/Untertitel-Auswahl — dort sind sie ohne Scrollen sichtbar.
+                // Bewusst NUR macOS (iOS nicht angefragt, bleibt unten wie bisher) —
+                // tvOS hat schon sein eigenes, unverändertes Muster oben.
+                #if os(macOS)
+                actionButtonsRow
+                DownloadButtonRow(item: selectedItem, profile: pickedProfile)
+                #endif
+
                 if let overview = item.metadata?.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.body)
@@ -295,14 +306,19 @@ struct ItemDetailView: View {
 
                 CastStripView(metadataId: item.metadataId)
 
-                #if !os(tvOS)
+                // macOS zeigt beide Reihen bereits weiter oben (siehe Kommentar bei den
+                // Genres) — hier also nur noch iOS, tvOS hat sein eigenes Muster oben.
+                #if os(iOS)
                 actionButtonsRow
                 #endif
 
                 // User-Anfrage 2026-09-03, zurückgenommen 2026-09-04 ("könnte doch nützlich
                 // sein"): Download-Button ist jetzt auch auf tvOS wieder da, passend zum
-                // wieder eingeblendeten Downloads-Tab (siehe RootView).
+                // wieder eingeblendeten Downloads-Tab (siehe RootView). macOS zeigt ihn
+                // bereits weiter oben, hier also nur noch iOS/tvOS.
+                #if os(iOS) || os(tvOS)
                 DownloadButtonRow(item: selectedItem, profile: pickedProfile)
+                #endif
             }
             .padding()
         }
