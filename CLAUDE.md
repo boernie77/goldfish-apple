@@ -213,7 +213,7 @@ Chronologisch, Build 0100 (2026-08-19) bis Build 206:
   zeigt noch keine FSK — der Server liefert dafür aktuell KEIN Age-Rating-
   Feld im `ShowOut`-Struct.
 
-## Detail-Ansicht: Aktions-Reihe höher (nur macOS, seit Build 215, 2026-09-13)
+## Detail-Ansicht: Aktions-Reihe höher (macOS + iOS, seit Build 215/199, 2026-09-13)
 
 User-Wunsch: "Abspielen und Offline Speichern (inkl der Buttons für Favorit/
 gesehen, etc) höher, Sie sollen zwischen Genre und den Beschreibungstext des
@@ -221,19 +221,16 @@ Films... Ähnlich wie auf Apple TV". `ItemDetailView.swift` hatte diese
 Anordnung serienmäßig NUR für tvOS (`#if os(tvOS)`, seit dem Fokus-Engine-Fix
 2026-09-03, siehe „Gelöste Bugs" oben) — und selbst dort saß der
 Download-Button weiterhin unten, nicht zusammen mit den Action-Buttons.
-macOS (und iOS) hatten beides ganz unten, nach Cast-Strip/Ton-Untertitel-
-Auswahl.
+macOS/iOS hatten beides ganz unten, nach Cast-Strip/Ton-Untertitel-Auswahl.
 
-Fix: neuer `#if os(macOS)`-Block direkt nach der Genre-Zeile (vor
+Fix: neuer `#if os(macOS) || os(iOS)`-Block direkt nach der Genre-Zeile (vor
 `overview`) mit `actionButtonsRow` UND `DownloadButtonRow` zusammen — beide
-gleichzeitig verschoben, wie explizit gewünscht. Die bestehenden
-`#if os(tvOS)`/unten-Blöcke wurden entsprechend umgeschrieben, damit auf
-macOS nichts doppelt erscheint (`actionButtonsRow` unten jetzt nur noch
-`#if os(iOS)`, `DownloadButtonRow` unten nur noch `#if os(iOS) || os(tvOS)`).
-**Bewusst NUR macOS geändert** — iOS war nicht Teil der Anfrage und bleibt
-unverändert (Scrollen bis zum Cast-Strip ist dort die Norm, engerer
-Bildschirm); tvOS behält sein eigenes, seit 2026-09-03 bewährtes Muster
-unverändert (Action-Buttons oben, Download unten).
+gleichzeitig verschoben, wie explizit gewünscht. Zunächst nur für macOS
+gebaut (Build 215), auf Nachfrage direkt am selben Tag auch auf iOS
+ausgeweitet (Build 199) — die unteren Vorkommen sind jetzt vollständig
+entfernt (kein Restvorkommen mehr für macOS/iOS weiter unten). tvOS behält
+sein eigenes, seit 2026-09-03 bewährtes Muster unverändert (Action-Buttons
+oben, Download unten, kein Bundling der beiden).
 
 ## Was die App NICHT hat
 

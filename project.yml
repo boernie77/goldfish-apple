@@ -196,7 +196,7 @@ targets:
         # Menu-Problem), Musik pausierte beim Sperren (fehlender
         # `audio`-UIBackgroundMode). Alle vier gefixt.
         CFBundleShortVersionString: "1.3"
-        CFBundleVersion: "198"
+        CFBundleVersion: "199"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
