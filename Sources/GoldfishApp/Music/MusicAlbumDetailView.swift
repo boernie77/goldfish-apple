@@ -32,6 +32,16 @@ struct MusicAlbumDetailView: View {
     // Fenster öffnen") — hier deshalb absichtlich nicht dupliziert.
     @AppStorage("musicLibraryListView") private var isListView = false
     @AppStorage private var librarySyncEnabled: Bool
+    // "☰ Spalten"-Dropdown für die Track-Liste (User-Wunsch 2026-09-14),
+    // siehe MusicColumns.swift — bewusst NUR macOS (User-Vorgabe "Nicht für
+    // iOS und Apple TV").
+    #if os(macOS)
+    @State private var musicColumnsRefresh = false
+    private var visibleColumns: Set<MusicColumn> {
+        _ = musicColumnsRefresh
+        return MusicColumnVisibility.visible(for: "albumTracks", default: [])
+    }
+    #endif
 
     init(album: MusicAlbum, library: Library) {
         self.album = album
@@ -127,6 +137,20 @@ struct MusicAlbumDetailView: View {
                 }
                 .help("Musik-Playlists")
             }
+            #if os(macOS)
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    MusicColumnsMenuContent(
+                        context: "albumTracks",
+                        available: [.lastPlayed, .playCount, .added],
+                        defaultVisible: [],
+                        refreshToken: $musicColumnsRefresh
+                    )
+                } label: {
+                    Label("Spalten", systemImage: "line.3.horizontal")
+                }
+            }
+            #endif
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Toggle(isOn: $librarySyncEnabled) {
@@ -254,6 +278,23 @@ struct MusicAlbumDetailView: View {
             if musicPlayer.currentItem?.id == track.id, musicPlayer.isPlaying {
                 Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
             }
+            #if os(macOS)
+            if visibleColumns.contains(.lastPlayed) {
+                Text(musicDateLabel(track.lastPlayedAt))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 90, alignment: .trailing)
+            }
+            if visibleColumns.contains(.playCount) {
+                Text(track.playCount.map { "\($0)" } ?? "—")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 50, alignment: .trailing)
+            }
+            if visibleColumns.contains(.added) {
+                Text(musicDateLabel(track.addedAt))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 90, alignment: .trailing)
+            }
+            #endif
             Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
         }
     }

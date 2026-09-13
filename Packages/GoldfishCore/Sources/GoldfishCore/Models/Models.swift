@@ -174,6 +174,9 @@ public struct Item: Codable, Identifiable, Hashable {
     /// im Client bis jetzt nie dekodiert. User-Wunsch 2026-09-11: "Zuletzt
     /// abgespielt"-Filter für die Musik-App — braucht dieses Feld pro Track.
     public let lastPlayedAt: String?
+    /// `user_item_state.play_count` — User-Wunsch 2026-09-14: "wie oft
+    /// abgespielt" als Musik-Listenspalte (Mac/Linux/Browser, NICHT iOS/tvOS).
+    public let playCount: Int?
 
     public var displayTitle: String {
         metadata?.title ?? title
@@ -267,7 +270,7 @@ public struct Item: Codable, Identifiable, Hashable {
              trickplayStatus: trickplayStatus, variantCount: variantCount, variantSplit: variantSplit,
              introStartSec: introStartSec, introEndSec: introEndSec,
              artist: artist, album: album, genre: genre, trackNo: trackNo,
-             musicAlbumId: musicAlbumId, year: year, lastPlayedAt: lastPlayedAt)
+             musicAlbumId: musicAlbumId, year: year, lastPlayedAt: lastPlayedAt, playCount: playCount)
     }
 
     public var releasedDateLabel: String? {
@@ -296,6 +299,11 @@ public struct MusicAlbum: Codable, Identifiable, Hashable {
     public let coverSource: String?
     public let trackCount: Int?
     public let favorite: Bool?
+    /// Album-weite Aggregate über alle Tracks (SUM/MAX/MIN) — User-Wunsch
+    /// 2026-09-14, gleiche Felder wie bei `Item`, hier für die Album-Liste.
+    public let addedAt: String?
+    public let lastPlayedAt: String?
+    public let playCount: Int?
 
     public var displayTitle: String { album.isEmpty ? "(Unbekanntes Album)" : album }
 }

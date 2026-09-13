@@ -378,6 +378,82 @@ geladene Daten zusätzlich noch einmal lokal filtert — ein reiner
 Server-Fix erreicht einen solchen zweiten, client-eigenen Filterschritt
 nicht automatisch mit.
 
+### Musik-Listenspalten "Zuletzt abgespielt"/"Wiedergaben"/"Hinzugefügt" + Spalten-Auswahl (seit Mac 220, 2026-09-14)
+
+User-Wunsch: "Ich will die Spalten zuletzt abgespielt, wie oft abgespielt
+und hinzugefügt noch als Spalten in der Spaltenansicht für Alben und Lieder
+haben. Und ein Dropdown, wo ich ausfählen kann, welche Spalten angezeigt
+werden. Das ganze auch für MacOS und Linux und auf dem Server. Nicht für
+iOS und Apple TV" — Server+Browser bereits als v1.3.26 deployed (siehe
+Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
+**ausschließlich macOS** (`#if os(macOS)`-gated), iOS/tvOS unverändert.
+
+- **Neue Modell-Felder** (`GoldfishCore/Models.swift`, plattformübergreifend,
+  aber nur auf macOS konsumiert): `Item.playCount: Int?`,
+  `MusicAlbum.addedAt/lastPlayedAt/playCount: String?/String?/Int?` — kommen
+  vom bereits erweiterten Server-JSON, reine additive Felder (kein Call-Site
+  musste angepasst werden außer `Item.withWatched()`, das den synthetisierten
+  Memberwise-Init explizit aufruft und dadurch bei jeder neuen Property
+  zwingend mit durchreichen muss).
+- **`Sources/GoldfishApp/Music/MusicColumns.swift`** (NEU, komplett
+  `#if os(macOS)`): `MusicColumn`-Enum (`artist/album/genre/year/duration/
+  count/lastPlayed/playCount/added` — deckt auch die bereits bestehenden
+  Spalten mit ab, damit ein einziges Enum für alle drei Kontexte reicht),
+  `MusicColumnVisibility` (UserDefaults-Allowlist pro Kontext-String
+  `"albums"`/`"allTracks"`/`"albumTracks"`, Komma-getrennte Rohwerte —
+  bewusst eine ALLOWLIST wie im Browser: eine neue Spalte ist nie ungefragt
+  für Bestandsnutzer sichtbar), `MusicColumnsMenuContent` (wiederverwendbare
+  `Toggle`-pro-Spalte-Menü-View, in ein `Menu("☰ Spalten")`/`Menu {...}
+  label: Label("Spalten", ...)` eingebettet — SwiftUI rendert `Toggle`s in
+  einem `Menu` nativ als ankreuzbare Einträge, kein eigenes Popover nötig).
+- **Drei Aufrufstellen, drei unabhängige Sichtbarkeits-Kontexte** (bewusst
+  getrennt statt ein globaler Schalter — User-Wunsch nennt "Alben UND
+  Lieder", die Spaltenauswahl soll pro Ansicht sinnvoll sein):
+  1. **Album-Übersicht-Listenansicht** (`MusicLibraryView.albumContent`,
+     Kontext `"albums"`) — `MusicAlbumListHeader`/`MusicAlbumRow` (bereits
+     bestehende, per Drag verstellbare Spalten Album/Künstler/Genre/Titel)
+     bekamen die drei neuen Spalten als OPT-IN dazwischen (vor der festen
+     "Titel"-Zählspalte), inkl. eigener `@AppStorage`-Breiten
+     (`musicAlbumListLastPlayedWidth`/…) + demselben
+     `MusicColumnResizeHandle`-Drag-Mechanismus wie die bestehenden Spalten.
+     Menü sitzt im "Musik-Optionen"-Toolbar-Dropdown, neben dem bestehenden
+     Sortierung-/Genre-Untermenü (macOS-Zweig).
+  2. **"Alle Titel"** (`MusicLibraryView.allTracksContent`, Kontext
+     `"allTracks"`) — hatte bisher gar keine Spaltenstruktur (bloße
+     `HStack`-Zeile), die drei neuen Spalten wurden dort als feste,
+     NICHT per Drag verstellbare Text-Slots ergänzt (kleinerer Umbau als
+     bei der Album-Übersicht gerechtfertigt, da die bestehende Zeile
+     ohnehin keine Kopfzeile/Spaltenraster hat) — Menü-Button direkt in der
+     bestehenden Aktionsleiste ("Alle abspielen"/"Shuffle"/"Zuletzt
+     abgespielt zuerst"), macOS-only via `#if`.
+  3. **Album-Detail-Tracklist** (`MusicAlbumDetailView.trackRow`, Kontext
+     `"albumTracks"`) — gleiches Muster wie (2): drei feste Text-Slots,
+     Menü-Button als eigenes `ToolbarItem` neben "Musik-Optionen".
+- **`musicDateLabel(_:)`** (in `MusicLibraryView.swift`, `internal` statt
+  `private` — wird auch von `MusicAlbumDetailView.swift` genutzt):
+  parst den vom Server gelieferten RFC3339-String (Go's `time.Time`-JSON,
+  Format variiert leicht je nach Bruchteilssekunden/Zeitzone) lenient über
+  `ISO8601DateFormatter` (zwei Versuche: mit/ohne `.withFractionalSeconds`),
+  Fallback auf die ersten 10 Zeichen (`YYYY-MM-DD`) falls beide scheitern,
+  `"—"` bei leerem/fehlendem Wert. Zeigt ein kurzes lokalisiertes
+  `DateFormatter().dateStyle = .short`-Datum.
+- **Refresh-Mechanismus:** `MusicColumnVisibility` liegt in reinem
+  `UserDefaults`, SwiftUI beobachtet das nicht automatisch — jede der drei
+  Views hat ein eigenes `@State private var musicColumnsRefresh = false`,
+  das `MusicColumnsMenuContent` bei jedem Toggle umschaltet; die
+  `visible…Columns`-computed-property liest `_ = musicColumnsRefresh`
+  zuerst (erzwingt die SwiftUI-Abhängigkeit), dann erst
+  `MusicColumnVisibility.visible(for:default:)`.
+- **`xcodegen generate` nach dem Anlegen von `MusicColumns.swift` nötig**
+  (sonst `error: cannot find type 'MusicColumn' in scope` — der Ordner
+  wird per Glob in `project.yml` eingesammelt, eine neue Datei erscheint
+  aber erst nach Regenerierung im `.xcodeproj`). Build-Reihenfolge für
+  künftige neue Dateien in `Sources/GoldfishApp/`: Datei anlegen →
+  `xcodegen generate` → erst dann bauen.
+- Build-Reihenfolge geprüft: `GoldfishMac`/`GoldfishiOS`/`GoldfishTV` bauen
+  alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
+  konsumieren die drei neuen Felder aber nirgends aktiv).
+
 ### Startseite: Serien-/Kanalname klickbar → Serien-/Kanalübersicht (seit Mac 219, 2026-09-13)
 
 User-Wunsch: "wenn ich auf der Startseite auf den Seriennamen oder bei

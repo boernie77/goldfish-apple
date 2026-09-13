@@ -86,6 +86,26 @@ struct MusicLibraryView: View {
     @AppStorage("musicAlbumListAlbumWidth") private var albumColWidth: Double = 260
     @AppStorage("musicAlbumListArtistWidth") private var artistColWidth: Double = 160
     @AppStorage("musicAlbumListGenreWidth") private var genreColWidth: Double = 120
+    // Drei neue, OPT-IN-Spalten (User-Wunsch 2026-09-14: "zuletzt abgespielt/
+    // wie oft abgespielt/hinzugefügt als Spalten... und ein Dropdown, wo ich
+    // auswählen kann, welche Spalten angezeigt werden") — Breiten wie die
+    // bestehenden Spalten per AppStorage, Sichtbarkeit separat über
+    // `MusicColumnVisibility` (siehe MusicColumns.swift), Default: alle drei
+    // ausgeblendet (Allowlist-Prinzip, analog zum Browser).
+    @AppStorage("musicAlbumListLastPlayedWidth") private var lastPlayedColWidth: Double = 130
+    @AppStorage("musicAlbumListPlayCountWidth") private var playCountColWidth: Double = 90
+    @AppStorage("musicAlbumListAddedWidth") private var addedColWidth: Double = 120
+    #if os(macOS)
+    @State private var musicColumnsRefresh = false
+    private var visibleAlbumColumns: Set<MusicColumn> {
+        _ = musicColumnsRefresh
+        return MusicColumnVisibility.visible(for: "albums", default: [])
+    }
+    private var visibleAllTracksColumns: Set<MusicColumn> {
+        _ = musicColumnsRefresh
+        return MusicColumnVisibility.visible(for: "allTracks", default: [])
+    }
+    #endif
 
     enum AlbumSort: String, CaseIterable {
         case artist, album, year
@@ -316,6 +336,14 @@ struct MusicLibraryView: View {
                         } label: {
                             Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
                         }
+                    }
+                    Menu("☰ Spalten") {
+                        MusicColumnsMenuContent(
+                            context: "albums",
+                            available: [.lastPlayed, .playCount, .added],
+                            defaultVisible: [],
+                            refreshToken: $musicColumnsRefresh
+                        )
                     }
                     if !availableGenres.isEmpty {
                         Menu("Genre") {
@@ -554,11 +582,19 @@ struct MusicLibraryView: View {
             }
             #else
             VStack(spacing: 0) {
-                MusicAlbumListHeader(albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth)
+                MusicAlbumListHeader(
+                    albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth,
+                    lastPlayedWidth: $lastPlayedColWidth, playCountWidth: $playCountColWidth, addedWidth: $addedColWidth,
+                    visibleColumns: visibleAlbumColumns
+                )
                 List(filteredAlbums) { album in
-                    MusicAlbumRow(album: album, albumWidth: albumColWidth, artistWidth: artistColWidth, genreWidth: genreColWidth)
-                        .contentShape(Rectangle())
-                        .onTapGesture { navigateToAlbum = album }
+                    MusicAlbumRow(
+                        album: album, albumWidth: albumColWidth, artistWidth: artistColWidth, genreWidth: genreColWidth,
+                        lastPlayedWidth: lastPlayedColWidth, playCountWidth: playCountColWidth, addedWidth: addedColWidth,
+                        visibleColumns: visibleAlbumColumns
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { navigateToAlbum = album }
                 }
                 .listStyle(.plain)
             }
@@ -618,6 +654,19 @@ struct MusicLibraryView: View {
                     }
                     .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
                     .help("Nach zuletzt gehörten Titeln sortieren")
+                    #if os(macOS)
+                    Spacer()
+                    Menu {
+                        MusicColumnsMenuContent(
+                            context: "allTracks",
+                            available: [.lastPlayed, .playCount, .added],
+                            defaultVisible: [],
+                            refreshToken: $musicColumnsRefresh
+                        )
+                    } label: {
+                        Label("Spalten", systemImage: "line.3.horizontal")
+                    }
+                    #endif
                 }
                 // Siehe Kommentar in MusicAlbumDetailView.header — Text+Icon-
                 // Labels quetschen sich auf iPhone-Breite silbengetrennt
@@ -638,6 +687,23 @@ struct MusicLibraryView: View {
                         if musicPlayer.currentItem?.id == track.id, musicPlayer.isPlaying {
                             Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
                         }
+                        #if os(macOS)
+                        if visibleAllTracksColumns.contains(.lastPlayed) {
+                            Text(musicDateLabel(track.lastPlayedAt))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 90, alignment: .trailing)
+                        }
+                        if visibleAllTracksColumns.contains(.playCount) {
+                            Text(track.playCount.map { "\($0)" } ?? "—")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 50, alignment: .trailing)
+                        }
+                        if visibleAllTracksColumns.contains(.added) {
+                            Text(musicDateLabel(track.addedAt))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 90, alignment: .trailing)
+                        }
+                        #endif
                         Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
                         MusicFavoriteButton(isFavorite: track.favorite) { newValue in
                             try? await client.setFavorite(itemId: track.id, favorite: newValue)
@@ -667,6 +733,26 @@ struct MusicLibraryView: View {
 private enum MusicAlbumColumn {
     static let widthRange: ClosedRange<CGFloat> = 60...400
     static let countWidth: CGFloat = 60
+}
+
+/// Formatiert einen vom Server gelieferten Datums-String (RFC3339, teils mit
+/// Bruchteilssekunden/Zeitzone) als kurzes, lesbares Datum für die neuen
+/// Spalten "Zuletzt gehört"/"Hinzugefügt" — lenient statt ein hartes Format
+/// zu erzwingen, weil Go's `time.Time`-JSON-Encoding leicht variiert.
+func musicDateLabel(_ iso: String?) -> String {
+    guard let iso, !iso.isEmpty else { return "—" }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var date = formatter.date(from: iso)
+    if date == nil {
+        formatter.formatOptions = [.withInternetDateTime]
+        date = formatter.date(from: iso)
+    }
+    guard let date else { return String(iso.prefix(10)) }
+    let out = DateFormatter()
+    out.dateStyle = .short
+    out.timeStyle = .none
+    return out.string(from: date)
 }
 
 /// Ziehbarer Spaltentrenner (User-Wunsch 2026-09-11: "zumindest beim Mac macht
@@ -725,6 +811,12 @@ private struct MusicAlbumListHeader: View {
     @Binding var albumWidth: Double
     @Binding var artistWidth: Double
     @Binding var genreWidth: Double
+    #if os(macOS)
+    @Binding var lastPlayedWidth: Double
+    @Binding var playCountWidth: Double
+    @Binding var addedWidth: Double
+    var visibleColumns: Set<MusicColumn> = []
+    #endif
 
     var body: some View {
         HStack(spacing: 12) {
@@ -753,6 +845,29 @@ private struct MusicAlbumListHeader: View {
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $genreWidth).offset(x: 14)
                 }
+            #if os(macOS)
+            if visibleColumns.contains(.lastPlayed) {
+                Text("Zuletzt gehört")
+                    .frame(width: lastPlayedWidth, alignment: .leading)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $lastPlayedWidth).offset(x: 14)
+                    }
+            }
+            if visibleColumns.contains(.playCount) {
+                Text("Wiedergaben")
+                    .frame(width: playCountWidth, alignment: .trailing)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $playCountWidth).offset(x: 14)
+                    }
+            }
+            if visibleColumns.contains(.added) {
+                Text("Hinzugefügt")
+                    .frame(width: addedWidth, alignment: .leading)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $addedWidth).offset(x: 14)
+                    }
+            }
+            #endif
             Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
             Spacer(minLength: 0) // füllt den Rest (Album ist nicht mehr die Füllspalte)
@@ -809,6 +924,12 @@ private struct MusicAlbumRow: View {
     let albumWidth: Double
     let artistWidth: Double
     let genreWidth: Double
+    #if os(macOS)
+    var lastPlayedWidth: Double = 130
+    var playCountWidth: Double = 90
+    var addedWidth: Double = 120
+    var visibleColumns: Set<MusicColumn> = []
+    #endif
     @EnvironmentObject var client: GoldfishClient
 
     var body: some View {
@@ -827,6 +948,25 @@ private struct MusicAlbumRow: View {
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
                 .frame(width: genreWidth, alignment: .leading)
+            #if os(macOS)
+            if visibleColumns.contains(.lastPlayed) {
+                Text(musicDateLabel(album.lastPlayedAt))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .frame(width: lastPlayedWidth, alignment: .leading)
+            }
+            if visibleColumns.contains(.playCount) {
+                Text(album.playCount.map { "\($0)" } ?? "—")
+                    .foregroundStyle(.secondary)
+                    .frame(width: playCountWidth, alignment: .trailing)
+            }
+            if visibleColumns.contains(.added) {
+                Text(musicDateLabel(album.addedAt))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .frame(width: addedWidth, alignment: .leading)
+            }
+            #endif
             Text(album.trackCount.map { "\($0)" } ?? "")
                 .foregroundStyle(.secondary)
                 .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
