@@ -622,8 +622,11 @@ struct ItemGridView: View {
             // beschränkt (der bisherige `folder ?? "/"`-Fallback für TV/Privat-Libs zeigt
             // nur die Root-Ebene selbst, keine Unterordner — Favoriten in Unterordnern
             // blieben dadurch unsichtbar). Gleiche Behandlung wie eine aktive Suche.
+            // Flache Sort-Modi (Zuletzt abgespielt/Hinzugefügt/Laufzeit) gehören in
+            // dieselbe Kategorie wie Suche/Favoriten — siehe `ItemSort.isFlatSortMode`.
+            let isFlat = sort.isFlatSortMode
             let effectiveFolder: String?
-            if !search.isEmpty || favoritesOnly {
+            if !search.isEmpty || favoritesOnly || isFlat {
                 // Root spans the whole library, recursively; a subfolder stays scoped to
                 // that folder (also recursive) — matches grid.js's search-vs-flatView branch.
                 effectiveFolder = folder
@@ -642,7 +645,7 @@ struct ItemGridView: View {
                 favoritesOnly: favoritesOnly,
                 buckets: selectedBuckets.map(\.rawValue)
             )
-            async let foldersTask: [FolderTile] = effectivelyShowsFolderTiles && search.isEmpty && !favoritesOnly
+            async let foldersTask: [FolderTile] = effectivelyShowsFolderTiles && search.isEmpty && !favoritesOnly && !isFlat
                 ? client.fetchFolders(libraryId: library.id, parent: folder)
                 : []
             var fetchedItems = try await itemsTask
@@ -664,7 +667,7 @@ struct ItemGridView: View {
             // subpath, filter items down to true direct children (no further "/" in
             // relPath past the current folder prefix) — same end result as if the
             // server understood "direct children of X".
-            if effectivelyShowsFolderTiles, let folder, !folder.isEmpty {
+            if effectivelyShowsFolderTiles, !isFlat, let folder, !folder.isEmpty {
                 let prefix = folder + "/"
                 fetchedItems = fetchedItems.filter { item in
                     guard let relPath = item.relPath, relPath.hasPrefix(prefix) else { return false }

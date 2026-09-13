@@ -427,6 +427,23 @@ public enum ItemSort: String, CaseIterable, Identifiable, Equatable {
     public var defaultAscending: Bool {
         self == .title || self == .filename
     }
+
+    /// Flache, library-weite Sort-Modi (Ordner-/Staffel-Struktur wird ignoriert) —
+    /// Pendant zum Browser (`grid.js FLAT_SORTS`) UND zu GoldfishAndroid
+    /// (`LibraryViewModel.isFlatSortMode`, `SORT_PLAYED/SORT_ADDED/SORT_DURATION`).
+    /// User-Report 2026-09-14 ("Zuletzt abgespielt soll immer von da ausgehen, wo
+    /// man es auswählt, inkl. aller Unterordner. Also Flach!! ... Schaue doch bitte,
+    /// wie es woanders läuft"): der Mac-Client hatte `.played`/`.duration`/`.added`
+    /// zwar als Sortier-Optionen (seit 2026-08-20/25), aber nie diese Scope-Regel —
+    /// `ItemGridView.load()` schickte am Bibliotheks-Root `folder="/"` (nur lose
+    /// Root-Dateien, keine Rekursion in Unterordner/Serien), statt wie Android/
+    /// Browser rekursiv ab dem aktuellen Ordner zu laden. Server-Doku (Server-
+    /// CLAUDE.md "Flache library-weite Sort-Modi"): "Scope = nur nach unten flach
+    /// — im Library-Root library-weit, in einem Unterordner NUR dessen Inhalt
+    /// (rekursiv)".
+    public var isFlatSortMode: Bool {
+        self == .played || self == .added || self == .duration
+    }
 }
 
 public enum WatchedFilter: String, CaseIterable, Identifiable, Equatable {

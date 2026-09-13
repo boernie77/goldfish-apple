@@ -454,6 +454,41 @@ Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
   alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
   konsumieren die drei neuen Felder aber nirgends aktiv).
 
+### Flache Sort-Modi (Zuletzt abgespielt/Hinzugefügt/Laufzeit) ignorierten die Ordnerstruktur nicht (seit Mac 232, 2026-09-14)
+
+User-Report, deutlich frustriert: "Zuletzt abgespielt soll aber immer von
+da aus gehen, von wo man Zuletzt Abgespielt aus wählt. So wie am Server
+halt auch. Dann inkl aller Unterordner. Also Flach!! Warum machst du es
+jedesmal anders. Schaue doch bitte, wie es woanders läuft" — zu Recht:
+GoldfishAndroid hat dafür seit Längerem `LibraryViewModel.isFlatSortMode()`
+(`SORT_PLAYED`/`SORT_ADDED`/`SORT_DURATION`), auf das die Server-CLAUDE.md
+("Flache library-weite Sort-Modi") sogar explizit als "App-Pendant"
+verweist — die Mac-App hatte `.played`/`.duration`/`.added` zwar seit
+2026-08-20/25 als Sortier-**Optionen**, aber nie diese Scope-Regel
+mitbekommen.
+
+**Root Cause:** `ItemGridView.load()` schickte für TV-/Privat-Bibliotheken
+ohne aktive Suche/Favoriten-Filter immer `folder ?? "/"` — am
+Bibliotheks-Root bedeutet das server-seitig "NUR lose Root-Dateien, keine
+Rekursion in Serien-/Unterordner" (`internal/store/sqlite.go ListItems`:
+`folder="/"` ≠ `folder=""`). Bei "Zuletzt abgespielt" o. ä. fehlten dadurch
+alle Ergebnisse aus Serien-Ordnern — praktisch die meisten Treffer in einer
+TV-Bibliothek.
+
+**Fix:** neue `ItemSort.isFlatSortMode`-Property in `GoldfishCore/Models.swift`
+(exakt das Android-Pendant, 1:1 dieselben drei Fälle). `ItemGridView.load()`
+behandelt einen aktiven Flach-Sort jetzt genau wie Suche/Favoriten: `folder`
+wird unverändert (rekursiv) durchgereicht statt auf `"/"` erzwungen zu
+werden, UND die Folder-Tile-Anfrage sowie der "nur direkte Kinder"-Dedup-
+Filter (beide für die normale Kachel-Ansicht gedacht) werden komplett
+übersprungen — am Root zeigt das jetzt die ganze Bibliothek rekursiv flach,
+in einem geöffneten Ordner nur dessen Inhalt (rekursiv), exakt wie
+Server/Browser/Android. Build für GoldfishMac UND GoldfishiOS grün geprüft.
+**Bewusst NICHT angefasst:** `LocalLibraryItemsView`s eigener `LocalSort`-
+Enum (lokale, von der Platte gescannte Bibliotheken) — andere Datengrundlage
+(bereits eine flache In-Memory-Liste, kein Server-`folder`-Parameter), kein
+Bezug zum gemeldeten Bug.
+
 ### "Zuletzt abgespielt" fehlte komplett — `touchPlayed` nie aufgerufen (seit Mac 231, 2026-09-13)
 
 User-Report (nach dem `setUp()`-Doppelaufruf-Fix, siehe Eintrag direkt
