@@ -563,6 +563,35 @@ Zeitpunkt des Aufrufs gesperrt war (`FBSOpenApplicationErrorDomain error 7,
 "Locked"`) — kein Bug, App war bereits korrekt installiert, User musste sie
 nur von Hand entsperren+öffnen.
 
+### "Alle Titel"-Aktionsreihe: Buttons lösten sich gegenseitig aus (2026-09-14)
+
+User-Report beim Testen auf dem echten iPhone: "egal welchen Button ich
+klicke, es wird immer blau. Auch bei Play und shuffel" — auf Rückfrage
+präzisiert: "Das blau war nicht das Problem. Das war sogar gut. Aber er
+reagiert auch auf klick von Play und shuffel" + "Aktive Buttons dürfen
+gerne blau sein". Zwei getrennte Fragen, ein gemeinsamer Fix-Ort:
+
+- **Farbe war nie das eigentliche Problem** — ein `Button` ohne eigenen
+  Style zeigt innerhalb einer `List` sein Label standardmäßig in der
+  System-Akzentfarbe (Blau), das ist normales/gewolltes Verhalten für
+  „aktive", anklickbare Zeilen-Buttons. Keine Änderung an "Alle
+  abspielen"/"Shuffle abspielen" nötig — die dürfen blau bleiben.
+- **Der eigentliche Bug:** ein Klick auf "Alle abspielen" oder "Shuffle
+  abspielen" toggelte sichtbar auch den dritten Button ("Zuletzt
+  abgespielt zuerst", Uhr-Symbol) mit — ein bekannter SwiftUI/`List`-Effekt,
+  bei dem mehrere `Button`s in derselben Zeile ohne eigene, klar
+  abgegrenzte Trefferfläche gemeinsam statt einzeln auf einen Tap
+  reagieren. Fix: `.contentShape(Rectangle())` auf allen drei Buttons —
+  grenzt die Trefferfläche jedes Buttons exakt auf sein eigenes Label ein,
+  statt sie implizit von der List-Zeile/den Nachbar-Buttons erben zu
+  lassen. Der dritte Button behält zusätzlich sein `.buttonStyle(.plain)`
+  (nötig, damit seine bewusst bedingte Farbe — blau NUR wenn aktiv, sonst
+  `.primary` — überhaupt greift; ohne `.plain` würde ihn dieselbe
+  automatische List-Blaufärbung wie oben beschrieben auch im "aus"-Zustand
+  blau zeigen).
+- Getestet per Live-Install auf dem echten iPhone (`xcrun devicectl device
+  install app`, siehe „iOS-Testinstallation" oben) — kein Simulator-Only-Fix.
+
 ### Musik-Shuffle: Hörbuch-Erkennung auch per Namen (Mac/iOS 222, 2026-09-14)
 
 Nachtrag zum gleichnamigen Server-Fix (siehe Server-CLAUDE.md „Shuffle-Play"):

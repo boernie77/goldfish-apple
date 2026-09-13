@@ -643,11 +643,24 @@ struct MusicLibraryView: View {
         } else {
             List {
                 HStack {
+                    // `.contentShape(Rectangle())` ist auf ALLEN drei Buttons
+                    // nötig (User-Report 2026-09-14: "er reagiert auch auf
+                    // Klick von Play und shuffel" — die blaue Standardfarbe
+                    // selbst war laut User ausdrücklich "sogar gut", bleibt
+                    // also unangetastet). Ursache: ein bekannter SwiftUI/List-
+                    // Bug, bei dem mehrere `Button`s in derselben Zeile ohne
+                    // eigene, klar abgegrenzte Trefferfläche gemeinsam statt
+                    // einzeln auslösen — ein Klick auf "Play" toggelte dabei
+                    // sichtbar auch den dritten (Uhr-)Button mit aus. Fix:
+                    // `.contentShape(Rectangle())` grenzt die Trefferfläche
+                    // jedes Buttons exakt auf sein eigenes Label ein, statt
+                    // sie implizit von der List-Zeile erben zu lassen.
                     Button {
                         musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client)
                     } label: {
                         Label("Alle abspielen", systemImage: "play.fill")
                     }
+                    .contentShape(Rectangle())
                     .disabled(filteredTracks.isEmpty)
                     Button {
                         // Hörbücher auch hier vom Shuffle ausschließen,
@@ -659,6 +672,7 @@ struct MusicLibraryView: View {
                     } label: {
                         Label("Shuffle abspielen", systemImage: "shuffle")
                     }
+                    .contentShape(Rectangle())
                     .disabled(filteredTracks.isEmpty)
                     // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" —
                     // siehe Kommentar bei `recentlyPlayedFirst` oben.
@@ -667,7 +681,9 @@ struct MusicLibraryView: View {
                     } label: {
                         Label("Zuletzt abgespielt zuerst", systemImage: recentlyPlayedFirst ? "clock.fill" : "clock")
                     }
+                    .buttonStyle(.plain)
                     .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
+                    .contentShape(Rectangle())
                     .help("Nach zuletzt gehörten Titeln sortieren")
                     #if os(macOS)
                     Spacer()
