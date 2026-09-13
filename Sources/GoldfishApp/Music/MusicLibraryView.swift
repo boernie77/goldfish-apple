@@ -302,15 +302,29 @@ struct MusicLibraryView: View {
         }
     }
 
-    // Eine aktive Suche außerhalb von "Alle Titel" zeigt jetzt die
-    // matchenden TRACKS selbst als Trefferliste (User-Report 2026-09-12:
-    // "wenn ich nach einem Titel gesucht habe, dann kam kein Treffer. Auch
-    // nicht das Album" — die Album-Kacheln/Liste filterten bis dahin nur
-    // gegen Album-/Künstlername, nie gegen Track-Titel, exakt das gleiche
-    // Muster wie der zeitgleich gefixte Server-/Browser-Bug). Nutzt
-    // denselben Track-Zeilen-Renderer wie "Alle Titel" (`allTracksContent`/
-    // `filteredTracks`), lädt `allTracks` dafür bei Bedarf lazy nach.
-    private var showingTrackSearchResults: Bool { !search.isEmpty && displayMode != .allTracks }
+    // Eine aktive Suche zeigt jetzt IMMER dieselbe Trefferansicht — Alben
+    // oben, Titel darunter —, unabhängig davon, aus welchem Modus heraus
+    // gesucht wurde (User-Report 2026-09-13: "Es kommt immer die gleiche
+    // Darstellung, egal ob ich vom Grid, von der Albumlistenansicht oder von
+    // Alle Titel suche [...] Auf Linux werden oben die Alben als Treffer und
+    // unten die Titel angezeigt. So kann man auch auf ein Album klicken.").
+    // Vorher zeigte eine Suche NUR die reine Titelliste (`allTracksContent`)
+    // und NUR außerhalb von "Alle Titel" — Alben selbst waren nie als eigene,
+    // klickbare Treffer sichtbar, exakt wie in GoldfishLinux
+    // (`windows/music_page.py _render_search`) gelöst: Album-Treffer als
+    // Reihe kleiner klickbarer Kacheln, darunter die Titel-Tabelle. Gilt
+    // NUR für macOS (siehe `musicSearchResultsContent`) — iOS/tvOS behalten
+    // die bisherige reine Titelliste als Suchergebnis (kompaktere Bildschirme,
+    // kein explizit dafür angefragter Umbau).
+    private var isSearching: Bool { !search.isEmpty }
+
+    private var searchCountLabel: String {
+        #if os(macOS)
+        return "\(filteredAlbums.count) Alben · \(filteredTracks.count) Titel"
+        #else
+        return "\(filteredTracks.count) Titel"
+        #endif
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -322,7 +336,7 @@ struct MusicLibraryView: View {
             // Session) — deshalb jetzt als echtes, garantiert sichtbares
             // Text-Element im Inhaltsbereich.
             HStack {
-                Text(displayMode == .allTracks || showingTrackSearchResults ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")
+                Text(isSearching ? searchCountLabel : (displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -331,11 +345,15 @@ struct MusicLibraryView: View {
             .padding(.top, 8)
 
             Group {
-                if showingTrackSearchResults {
+                if isSearching {
                     if !allTracksLoaded {
                         ProgressView()
                     } else {
+                        #if os(macOS)
+                        musicSearchResultsContent
+                        #else
                         allTracksContent
+                        #endif
                     }
                 } else {
                     switch displayMode {
@@ -910,7 +928,107 @@ struct MusicLibraryView: View {
             }
         }
     }
+
+    #if os(macOS)
+    /// Vereinheitlichte Suchtreffer-Ansicht (seit 2026-09-13) — Pendant zu
+    /// `_render_search` in GoldfishLinux (`windows/music_page.py`): passende
+    /// Alben als klickbare Kachelreihe oben ("Alben · N"), passende Titel als
+    /// vollwertige, sortierbare Tabelle darunter ("Titel · N") — dieselbe
+    /// Spalten-Infrastruktur (`MusicTrackListHeader`/`MusicTrackListRow`,
+    /// Kontext "allTracks") wie in "Alle Titel" selbst, exakt wie die
+    /// Linux-App die "allTracks"-Spaltenkonfiguration auch für ihre
+    /// Suchtreffer-Tabelle wiederverwendet. `filteredAlbums`/`filteredTracks`
+    /// sind bereits vollständig such-/genre-/favoriten-gefiltert (siehe deren
+    /// Definition oben) — hier wird nur noch gerendert, nicht mehr gefiltert.
+    @ViewBuilder
+    private var musicSearchResultsContent: some View {
+        let albums = filteredAlbums
+        let tracks = filteredTracks
+        if albums.isEmpty && tracks.isEmpty {
+            ContentUnavailableMessage(text: "Kein Album und kein Titel passt zur Suche.")
+        } else {
+            List {
+                if !albums.isEmpty {
+                    Section("Alben · \(albums.count)") {
+                        // Analog Linux' `Gtk.FlowBox`: adaptive Spaltenzahl je
+                        // Fensterbreite, jede Kachel klickbar wie eine normale
+                        // Album-Kachel. Bewusst gedeckelt auf die ersten 48
+                        // Treffer (identisch zu Linux' `albums[:48]`) — eine
+                        // Suche mit hunderten Treffern soll nicht das ganze
+                        // Grid vor der eigentlich gesuchten Titel-Tabelle
+                        // aufblähen.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 8)], alignment: .leading, spacing: 8) {
+                            ForEach(albums.prefix(48)) { album in
+                                MusicSearchAlbumChip(album: album)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { navigateToAlbum = album }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                if !tracks.isEmpty {
+                    Section("Titel · \(tracks.count)") {
+                        MusicTrackListHeader(
+                            titleWidth: $atTitleWidth, artistWidth: $atArtistWidth, albumWidth: $atAlbumWidth,
+                            lastPlayedWidth: $atLastPlayedWidth, playCountWidth: $atPlayCountWidth, addedWidth: $atAddedWidth,
+                            visibleColumns: visibleAllTracksColumns,
+                            sortOption: $trackSortOption, sortAscending: $trackSortAscending
+                        )
+                        Color.clear.frame(height: 8).listRowSeparator(.hidden, edges: .bottom)
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, track in
+                            MusicTrackListRow(
+                                track: track, titleWidth: atTitleWidth, artistWidth: atArtistWidth, albumWidth: atAlbumWidth,
+                                lastPlayedWidth: atLastPlayedWidth, playCountWidth: atPlayCountWidth, addedWidth: atAddedWidth,
+                                visibleColumns: visibleAllTracksColumns,
+                                isCurrent: musicPlayer.currentItem?.id == track.id, isPlaying: musicPlayer.isPlaying
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                musicPlayer.play(queue: tracks, startIndex: idx, client: client)
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .safeAreaInset(edge: .bottom) {
+                if musicPlayer.currentItem != nil {
+                    Color.clear.frame(height: 64)
+                }
+            }
+        }
+    }
+    #endif
 }
+
+#if os(macOS)
+/// Ein Albentreffer in der Suchtreffer-Ansicht: kleines Cover links, Titel +
+/// Künstler daneben, alles linksbündig — Pendant zu `_album_chip` in
+/// GoldfishLinux (`windows/music_page.py`, dortiger Kommentar: "kleines
+/// Cover links, Titel und Künstler daneben, alles linksbündig").
+private struct MusicSearchAlbumChip: View {
+    let album: MusicAlbum
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 10) {
+            PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
+                .frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle).lineLimit(1)
+                if !album.artist.isEmpty {
+                    Text(album.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+#endif
 
 /// Spaltenbreiten der Album-Listenansicht — Min/Max-Grenzen für den Drag-Resize
 /// in `MusicColumnResizeHandle`, geteilt zwischen Kopfzeile (`MusicAlbumListHeader`)
