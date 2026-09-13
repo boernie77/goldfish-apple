@@ -313,8 +313,14 @@ struct MusicAlbumDetailView: View {
 
     private func shufflePlayLibrary() async {
         guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        // Hörbücher ausschließen — siehe Kommentar bei `MusicLibraryView
+        // .shufflePlayLibrary()`. Fehlte hier bisher komplett (nicht mal ein
+        // .m4b-Check), nachgezogen 2026-09-14 für Konsistenz mit der
+        // Album-Übersicht.
+        let playable = items.filter { !$0.isLikelyAudiobook }
+        guard !playable.isEmpty else { return }
         musicPlayer.isShuffling = true
-        musicPlayer.play(queue: items.shuffled(), startIndex: 0, client: client)
+        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
     }
 }
 #endif

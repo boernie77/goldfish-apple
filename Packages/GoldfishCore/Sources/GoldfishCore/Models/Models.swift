@@ -182,6 +182,24 @@ public struct Item: Codable, Identifiable, Hashable {
         metadata?.title ?? title
     }
 
+    /// Ob dieses Item wahrscheinlich ein Hörbuch ist — Container `.m4b` ODER
+    /// eine Namens-Erkennung ("Hörbuch"/"Hörbücher"/"Audiobook") in Titel/
+    /// Album/Ordnerpfad, case- UND akzent-insensitiv (`.folding` bildet "ö"
+    /// auf "o" ab, ein Muster trifft dadurch beide deutschen Formen).
+    /// Spiegelt den serverseitigen Zufalls-Ausschluss
+    /// (`ItemFilter.ExcludeAudiobooks`, siehe Server-CLAUDE.md „Shuffle-Play")
+    /// für die Client-Shuffle-Pfade, die den Server-Endpoint NICHT aufrufen
+    /// (Musik-Bibliotheks-Shuffle, Offline-Shuffle) — dort muss die App
+    /// selbst filtern, User-Wunsch 2026-09-14: "Bitte Hörbücher, Hörbuch,
+    /// Audiobook ausschließen".
+    public var isLikelyAudiobook: Bool {
+        if (container ?? "").lowercased() == "m4b" { return true }
+        let haystack = [title, album, relPath].compactMap { $0 }.joined(separator: " ")
+        guard !haystack.isEmpty else { return false }
+        let folded = haystack.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        return folded.contains("horbuch") || folded.contains("audiobook")
+    }
+
     public var resolutionLabel: String {
         guard let h = height, let w = width, h > 0 else { return "" }
         let effective = max(Double(h), Double(w) * 9.0 / 16.0)

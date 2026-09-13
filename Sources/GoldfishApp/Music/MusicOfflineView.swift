@@ -40,8 +40,14 @@ struct MusicOfflineView: View {
                             Label("Alle offline abspielen", systemImage: "play.fill")
                         }
                         Button {
+                            // Hörbücher vom Shuffle ausschließen (User-Wunsch
+                            // 2026-09-14) — fehlte hier bisher komplett, nicht
+                            // mal ein .m4b-Check, siehe Kommentar bei
+                            // `MusicLibraryView.shufflePlayLibrary()`.
+                            let playable = offlineTracks.filter { !$0.isLikelyAudiobook }
+                            guard !playable.isEmpty else { return }
                             musicPlayer.isShuffling = true
-                            musicPlayer.play(queue: offlineTracks.shuffled(), startIndex: 0, client: client)
+                            musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
                         } label: {
                             Label("Shuffle", systemImage: "shuffle")
                         }

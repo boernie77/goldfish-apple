@@ -549,3 +549,62 @@ angefragt, NICHT iOS/tvOS.
   dafür einen macOS-gated `import AppKit` (vorher nur `SwiftUI`/
   `GoldfishCore`). `GoldfishMac`/`GoldfishiOS`/`GoldfishTV` bauen weiterhin
   alle drei fehlerfrei (Änderung komplett `#if os(macOS)`-gated).
+
+### Musik-Shuffle: Hörbuch-Erkennung auch per Namen (Mac/iOS 222, 2026-09-14)
+
+Nachtrag zum gleichnamigen Server-Fix (siehe Server-CLAUDE.md „Shuffle-Play"):
+die Musik-Bibliotheks-Shuffle-Buttons (Mac+iOS) und der Offline-Shuffle rufen
+den Server-Zufalls-Endpoint gar nicht auf — sie laden alle Items direkt und
+mischen lokal, der servereigene Ausschluss konnte sie also nie erreichen.
+
+- **Neu: `Item.isLikelyAudiobook`** (`GoldfishCore/Models.swift`) — Container
+  `.m4b` ODER Namens-Erkennung ("Hörbuch"/"Hörbücher"/"Audiobook") in Titel/
+  Album/Ordnerpfad via `.folding([.diacriticInsensitive, .caseInsensitive])`
+  (bildet "ö" auf "o" ab, ein Muster trifft dadurch beide deutschen Formen).
+  Spiegelt `ItemFilter.ExcludeAudiobooks` auf dem Server.
+- Ersetzt an drei Stellen den bisherigen reinen `container == "m4b"`-Check:
+  `MusicLibraryView.shufflePlayLibrary()` (Album-Übersicht, Bibliotheks-weiter
+  Shuffle), `MusicLibraryView`s "Shuffle abspielen" in "Alle Titel",
+  `MusicAlbumDetailView.shufflePlayLibrary()` (hatte bisher gar KEINEN
+  Hörbuch-Filter, auch nicht den alten `.m4b`-Check).
+- **`MusicOfflineView`s Shuffle-Button hatte ebenfalls gar keinen Filter** —
+  nachgezogen, filtert jetzt auch per `isLikelyAudiobook`. "Alle offline
+  abspielen" (sequentiell, kein Zufall) bleibt bewusst ungefiltert — dieselbe
+  Konvention wie beim Server (nur der ZUFALLS-Pfad schließt Hörbücher aus,
+  eine bewusste Auswahl/Wiedergabe aller Titel nicht).
+- **Nicht geändert:** der Shuffle-Button INNERHALB eines einzelnen Albums
+  (`MusicAlbumDetailView._play_shuffled`, mischt nur die eigenen Tracks) und
+  Playlist-Shuffle (`MusicPlaylistsView`) — ein Hörbuch, dessen Kapitel der
+  User selbst in eine Playlist gepackt hat oder das er gerade als Album
+  hört, soll dabei nicht plötzlich Kapitel verschlucken.
+- `GoldfishMac`/`GoldfishiOS`/`GoldfishTV` bauen alle drei fehlerfrei
+  (`Item`-Erweiterung ist plattformübergreifend, aber `GoldfishTV` hat kein
+  Musik-Modul, das sie konsumiert).
+
+### "Alle Titel" optisch an Album-Listenansicht angeglichen (Mac 222, 2026-09-14)
+
+User-Report: "auf dem Mac ist die Seite Alle Titel optisch völlig anders
+aufgebaut, wie die Listenansicht der Alben. Das gefällt mir nicht. Bitte
+einheitlich aufbauen." Vorher: eine Karten-artige `HStack`-Zeile (Titel+
+Künstler/Album gestapelt in einer Zelle, Rest rechtsbündig durchgereicht),
+keine Kopfzeile, keine Spaltenbreiten. Jetzt (nur macOS — iOS behält die
+kompakte gestapelte Zeile, feste Spaltenbreiten ergeben auf iPhone-Breite
+keinen Sinn, gleiche Begründung wie bei `MusicAlbumRowCompact`):
+
+- Neue macOS-only Structs `MusicTrackListHeader`/`MusicTrackListRow` — 1:1
+  dasselbe Spacing-/Resize-Muster wie `MusicAlbumListHeader`/`MusicAlbumRow`
+  (`MusicColumnResizeHandle`, `MusicAlbumColumn.countWidth` für die feste
+  "Dauer"-Spalte). Spalten: Titel/Künstler/Album (per Drag verstellbar,
+  eigene `@AppStorage`-Breiten `musicAllTracks{Title,Artist,Album}Width`,
+  getrennt von den Album-Listen-Breiten — unterschiedliche
+  Spaltenbedeutung), optional Zuletzt gehört/Wiedergaben/Hinzugefügt (aus
+  demselben "☰ Spalten"-Menü wie zuvor, eigene Breiten-Keys
+  `musicAllTracks{LastPlayed,PlayCount,Added}Width`), feste Dauer-Spalte,
+  Favorit/Download als Icon-Slots.
+- `allTracksContent`s `List` bekommt auf macOS die Kopfzeile
+  (`MusicTrackListHeader`) vor dem `ForEach`, jede Zeile wird zur neuen
+  `MusicTrackListRow` — Tap-Handler (Wiedergabe ab angeklicktem Titel)
+  unverändert außen am `.onTapGesture` dran.
+- `GoldfishMac`/`GoldfishiOS` bauen beide fehlerfrei (die neuen Structs sind
+  komplett `#if os(macOS)`-gated, referenzieren `MusicColumn` — ein
+  macOS-only Typ).

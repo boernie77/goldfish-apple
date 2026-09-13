@@ -95,6 +95,19 @@ struct MusicLibraryView: View {
     @AppStorage("musicAlbumListLastPlayedWidth") private var lastPlayedColWidth: Double = 130
     @AppStorage("musicAlbumListPlayCountWidth") private var playCountColWidth: Double = 90
     @AppStorage("musicAlbumListAddedWidth") private var addedColWidth: Double = 120
+    // "Alle Titel" bekommt dieselbe Spalten-Kopfzeile + feste, per Drag
+    // verstellbare Breiten wie die Album-Listenansicht (User-Wunsch
+    // 2026-09-14: "Alle Titel ist optisch völlig anders aufgebaut ... Bitte
+    // einheitlich, so wie die Listenansicht der Alben") — vorher eine
+    // Karten-artige Zeile (Titel+Künstler/Album gestapelt, keine Kopfzeile,
+    // keine Spaltenbreiten). Eigene Breiten-Keys, weil die Spaltenbedeutung
+    // eine andere ist (Titel/Künstler/Album statt Album/Künstler/Genre).
+    @AppStorage("musicAllTracksTitleWidth") private var atTitleWidth: Double = 220
+    @AppStorage("musicAllTracksArtistWidth") private var atArtistWidth: Double = 160
+    @AppStorage("musicAllTracksAlbumWidth") private var atAlbumWidth: Double = 200
+    @AppStorage("musicAllTracksLastPlayedWidth") private var atLastPlayedWidth: Double = 130
+    @AppStorage("musicAllTracksPlayCountWidth") private var atPlayCountWidth: Double = 90
+    @AppStorage("musicAllTracksAddedWidth") private var atAddedWidth: Double = 120
     #if os(macOS)
     @State private var musicColumnsRefresh = false
     private var visibleAlbumColumns: Set<MusicColumn> {
@@ -518,13 +531,15 @@ struct MusicLibraryView: View {
     /// gemischte, aber danach fixe) Reihenfolge zurückzufallen.
     private func shufflePlayLibrary() async {
         guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
-        // Hörbücher (.m4b) automatisch ausschließen (User-Wunsch 2026-09-11:
+        // Hörbücher automatisch ausschließen (User-Wunsch 2026-09-11:
         // "noch besser wäre, wenn shuffle Hörbücher automatisch nicht
-        // abspielt") — gleiche Konvention wie der Browser
-        // (`ItemFilter.ExcludeAudiobooks`, siehe Server-CLAUDE.md
+        // abspielt", erweitert 2026-09-14: "Bitte Hörbücher, Hörbuch,
+        // Audiobook ausschließen" — reiner .m4b-Container-Check übersah ein
+        // Hörbuch mit MP3-Kapiteln) — gleiche Konvention wie der Browser/
+        // Server (`ItemFilter.ExcludeAudiobooks`, siehe Server-CLAUDE.md
         // "Shuffle-Play"): ein Roman zufällig mitten in einer Hörbuch-Serie
         // zu starten ergibt beim Musik-Shuffle keinen Sinn.
-        let playable = items.filter { $0.container?.lowercased() != "m4b" }
+        let playable = items.filter { !$0.isLikelyAudiobook }
         guard !playable.isEmpty else { return }
         musicPlayer.isShuffling = true
         musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
@@ -635,9 +650,9 @@ struct MusicLibraryView: View {
                     }
                     .disabled(filteredTracks.isEmpty)
                     Button {
-                        // Hörbücher (.m4b) auch hier vom Shuffle ausschließen,
+                        // Hörbücher auch hier vom Shuffle ausschließen,
                         // siehe Kommentar in `shufflePlayLibrary()`.
-                        let playable = filteredTracks.filter { $0.container?.lowercased() != "m4b" }
+                        let playable = filteredTracks.filter { !$0.isLikelyAudiobook }
                         guard !playable.isEmpty else { return }
                         musicPlayer.isShuffling = true
                         musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
@@ -674,7 +689,33 @@ struct MusicLibraryView: View {
                 #if os(iOS)
                 .labelStyle(.iconOnly)
                 #endif
+                // macOS: dieselbe Spalten-Kopfzeile + feste Breiten wie die
+                // Album-Listenansicht (User-Wunsch 2026-09-14, siehe
+                // `atTitleWidth` oben) — vorher eine optisch andere,
+                // Karten-artige Zeile ohne Kopfzeile/Spaltenraster. iOS
+                // bleibt bei der bisherigen, kompakten Zeile (feste
+                // Spaltenbreiten ergeben auf iPhone-Breite keinen Sinn,
+                // gleiche Begründung wie bei `MusicAlbumRowCompact`).
+                #if os(macOS)
+                MusicTrackListHeader(
+                    titleWidth: $atTitleWidth, artistWidth: $atArtistWidth, albumWidth: $atAlbumWidth,
+                    lastPlayedWidth: $atLastPlayedWidth, playCountWidth: $atPlayCountWidth, addedWidth: $atAddedWidth,
+                    visibleColumns: visibleAllTracksColumns
+                )
+                #endif
                 ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
+                    #if os(macOS)
+                    MusicTrackListRow(
+                        track: track, titleWidth: atTitleWidth, artistWidth: atArtistWidth, albumWidth: atAlbumWidth,
+                        lastPlayedWidth: atLastPlayedWidth, playCountWidth: atPlayCountWidth, addedWidth: atAddedWidth,
+                        visibleColumns: visibleAllTracksColumns,
+                        isCurrent: musicPlayer.currentItem?.id == track.id, isPlaying: musicPlayer.isPlaying
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        musicPlayer.play(queue: filteredTracks, startIndex: idx, client: client)
+                    }
+                    #else
                     HStack {
                         VStack(alignment: .leading) {
                             Text(track.displayTitle)
@@ -687,23 +728,6 @@ struct MusicLibraryView: View {
                         if musicPlayer.currentItem?.id == track.id, musicPlayer.isPlaying {
                             Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
                         }
-                        #if os(macOS)
-                        if visibleAllTracksColumns.contains(.lastPlayed) {
-                            Text(musicDateLabel(track.lastPlayedAt))
-                                .font(.caption).foregroundStyle(.secondary)
-                                .frame(width: 90, alignment: .trailing)
-                        }
-                        if visibleAllTracksColumns.contains(.playCount) {
-                            Text(track.playCount.map { "\($0)" } ?? "—")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .frame(width: 50, alignment: .trailing)
-                        }
-                        if visibleAllTracksColumns.contains(.added) {
-                            Text(musicDateLabel(track.addedAt))
-                                .font(.caption).foregroundStyle(.secondary)
-                                .frame(width: 90, alignment: .trailing)
-                        }
-                        #endif
                         Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
                         MusicFavoriteButton(isFavorite: track.favorite) { newValue in
                             try? await client.setFavorite(itemId: track.id, favorite: newValue)
@@ -714,6 +738,7 @@ struct MusicLibraryView: View {
                     .onTapGesture {
                         musicPlayer.play(queue: filteredTracks, startIndex: idx, client: client)
                     }
+                    #endif
                 }
             }
             .listStyle(.plain)
@@ -978,6 +1003,139 @@ private struct MusicAlbumRow: View {
         }
     }
 }
+
+#if os(macOS)
+/// Kopfzeile für "Alle Titel" — identische Spacing-Struktur/Resize-Mechanik
+/// wie `MusicAlbumListHeader` (User-Wunsch 2026-09-14: "auf dem Mac ist die
+/// Seite Alle Titel optisch völlig anders aufgebaut, wie die Listenansicht
+/// der Alben ... Bitte einheitlich aufbauen, so wie die Listenansicht der
+/// Alben ist"). Vorher eine Karten-artige Zeile ohne jede Kopfzeile.
+private struct MusicTrackListHeader: View {
+    @Binding var titleWidth: Double
+    @Binding var artistWidth: Double
+    @Binding var albumWidth: Double
+    @Binding var lastPlayedWidth: Double
+    @Binding var playCountWidth: Double
+    @Binding var addedWidth: Double
+    var visibleColumns: Set<MusicColumn> = []
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("Titel")
+                .frame(width: titleWidth, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    MusicColumnResizeHandle(width: $titleWidth).offset(x: 14)
+                }
+            Text("Künstler")
+                .frame(width: artistWidth, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    MusicColumnResizeHandle(width: $artistWidth).offset(x: 14)
+                }
+            Text("Album")
+                .frame(width: albumWidth, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    MusicColumnResizeHandle(width: $albumWidth).offset(x: 14)
+                }
+            if visibleColumns.contains(.lastPlayed) {
+                Text("Zuletzt gehört")
+                    .frame(width: lastPlayedWidth, alignment: .leading)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $lastPlayedWidth).offset(x: 14)
+                    }
+            }
+            if visibleColumns.contains(.playCount) {
+                Text("Wiedergaben")
+                    .frame(width: playCountWidth, alignment: .trailing)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $playCountWidth).offset(x: 14)
+                    }
+            }
+            if visibleColumns.contains(.added) {
+                Text("Hinzugefügt")
+                    .frame(width: addedWidth, alignment: .leading)
+                    .overlay(alignment: .trailing) {
+                        MusicColumnResizeHandle(width: $addedWidth).offset(x: 14)
+                    }
+            }
+            Text("Dauer").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
+            Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
+            Color.clear.frame(width: 22, height: 1) // Download-Spalte
+            Spacer(minLength: 0)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+    }
+}
+
+/// Zeilen-Darstellung für "Alle Titel" — Pendant zu `MusicAlbumRow`, gleiche
+/// Spacing-Struktur, damit Kopf- und Datenzeile bündig fluchten.
+private struct MusicTrackListRow: View {
+    let track: Item
+    let titleWidth: Double
+    let artistWidth: Double
+    let albumWidth: Double
+    var lastPlayedWidth: Double = 130
+    var playCountWidth: Double = 90
+    var addedWidth: Double = 120
+    var visibleColumns: Set<MusicColumn> = []
+    let isCurrent: Bool
+    let isPlaying: Bool
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 6) {
+                Text(track.displayTitle)
+                    .lineLimit(1)
+                    .fontWeight(isCurrent ? .semibold : .regular)
+                if isCurrent && isPlaying {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .foregroundStyle(Color.accentColor)
+                        .font(.caption)
+                }
+            }
+            .frame(width: titleWidth, alignment: .leading)
+            Text(track.artist ?? "")
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .frame(width: artistWidth, alignment: .leading)
+            Text(track.album ?? "")
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .frame(width: albumWidth, alignment: .leading)
+            if visibleColumns.contains(.lastPlayed) {
+                Text(musicDateLabel(track.lastPlayedAt))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .frame(width: lastPlayedWidth, alignment: .leading)
+            }
+            if visibleColumns.contains(.playCount) {
+                Text(track.playCount.map { "\($0)" } ?? "—")
+                    .foregroundStyle(.secondary)
+                    .frame(width: playCountWidth, alignment: .trailing)
+            }
+            if visibleColumns.contains(.added) {
+                Text(musicDateLabel(track.addedAt))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .frame(width: addedWidth, alignment: .leading)
+            }
+            Text(track.durationLabel)
+                .foregroundStyle(.secondary)
+                .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
+            MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                try? await client.setFavorite(itemId: track.id, favorite: newValue)
+            }
+            .frame(width: 22)
+            MusicDownloadIcon(item: track)
+                .frame(width: 22)
+            Spacer(minLength: 0)
+        }
+    }
+}
+#endif
 
 private struct MusicAlbumCard: View {
     let album: MusicAlbum
