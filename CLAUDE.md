@@ -377,3 +377,85 @@ Datenpfad wirklich live vom Server bezieht, oder ob er (wie hier) bereits
 geladene Daten zusätzlich noch einmal lokal filtert — ein reiner
 Server-Fix erreicht einen solchen zweiten, client-eigenen Filterschritt
 nicht automatisch mit.
+
+### Startseite: Serien-/Kanalname klickbar → Serien-/Kanalübersicht (seit Mac 219, 2026-09-13)
+
+User-Wunsch: "wenn ich auf der Startseite auf den Seriennamen oder bei
+YouTube auf den Kanalnamen klicke, [will ich] zur Serien- bzw.
+Kanalübersicht kommen" — explizit nur für Mac (und Linux, eigenes Repo)
+angefragt, NICHT iOS/tvOS.
+
+- **Nur macOS geändert.** `ItemCard.titleSection` (`ItemGridView.swift`)
+  zeigt bei Episoden den Serien-Namen (`item.showName`) und bei
+  Privat-Style-Items den Kanal-/Top-Ordnernamen (`item.channelName`) — beide
+  liefen bisher als reiner, unklickbarer `Text` durch. Neuer
+  `folderLinkableText(_:folderName:)`-Helper: auf macOS, wenn
+  `homeFolderLibrary` (neuer, defaultmäßig `nil`er Parameter) gesetzt ist,
+  wird der Text stattdessen in einen `NavigationLink(value:
+  FolderDestination(library:, folder:))` gepackt — dieselbe Ziel-Struktur,
+  die `ItemGridView` beim normalen Bibliotheks-Browsing schon für
+  Ordner-Kacheln nutzt. Auf iOS/tvOS bleibt der Helper ein No-op (reiner
+  `Text`), unabhängig vom Parameter — dort wurde nichts angefragt und nichts
+  geändert.
+- **`homeFolderLibrary` wird ausschließlich von `HomeView` gesetzt**, jeder
+  andere Aufrufer (Bibliotheks-Browsing, Suche, Playlists, Downloads,
+  Personen-Filmografie) lässt den Parameter auf `nil` — Serien-/Kanalname
+  bleibt dort unverändert reiner Text, kein zweiter, potenziell
+  verwirrender Navigationspfad neben dem normalen Ordner-Browsing.
+- **🔴 Wichtiger Fallstrick, noch VOR dem ersten Build gefunden (kein Live-
+  Bug, beim Selbst-Review entdeckt):** `HomeRow`/`HomeHeadingRow` wickeln auf
+  iOS/macOS die komplette Kachel (Poster + Titeltext) bisher in EINEN
+  äußeren `NavigationLink(value: ItemNavTarget(...))`. Ein verschachtelter
+  zweiter `NavigationLink` (Serien-/Kanalname) INNERHALB des Labels dieses
+  äußeren Links liefert in SwiftUI/AppKit KEIN zweites, unabhängiges
+  Tap-Ziel — nur der äußere Link würde reagieren, der innere wäre tot. Fix:
+  auf macOS baut `ItemCard` den Link zum Item jetzt selbst, NUR ums Poster
+  (`homeFolderLibrary != nil` → `NavigationLink` intern nur um
+  `posterSection`, exakt das gleiche Muster, das für tvOS aus einem anderen
+  Grund schon existierte — dort wegen des nativen Fokus-Rahmens). `HomeRow`
+  umschließt die Karte auf macOS deshalb NICHT mehr extern (eigener
+  `#elseif os(macOS)`-Zweig neben dem bestehenden `#if os(tvOS)`/`#else`),
+  sonst wäre exakt dasselbe Verschachtelungsproblem eine Ebene höher wieder
+  aufgetreten. iOS bleibt beim alten externen Wrap (unverändert, dort wird
+  `homeFolderLibrary` nie gesetzt).
+- **`queue: [Item]`-Property auf `ItemCard`** war bisher `#if os(tvOS)`-
+  exklusiv (brauchte den internen Link nur dort) — jetzt plattformübergreifend
+  verfügbar (Default `[]`), da macOS densel­ben internen-Link-Mechanismus aus
+  demselben Grund jetzt auch braucht. Kein Verhaltensunterschied für
+  bestehende Aufrufer, die den Parameter nicht setzen.
+- **Bibliotheks-Zuordnung pro Item:** "Fortsetzen"/"Als nächstes" mischen
+  Items ALLER sichtbaren Bibliotheken flach (`sections.flatMap(...)`) — für
+  den Link muss trotzdem die RICHTIGE `Library` jedes einzelnen Items
+  bekannt sein. Neuer `HomeView.library(for: Item) -> Library?`
+  (Lookup über `sections.first { $0.library.id == item.libraryId }`), als
+  `libraryFor`-Closure an `HomeHeadingRow`/`HomeRow` durchgereicht. Für
+  "Zuletzt hinzugefügt" (pro Bibliotheks-Sektion, nicht geflacht) reicht der
+  triviale `{ _ in section.library }`.
+- **Ziel-Auflösung für Privat-Libraries braucht einen Live-Fetch:** anders
+  als beim normalen Browsen (wo `ItemGridView` die Geschwister-Ordner-Kacheln
+  der aktuellen Ebene schon geladen hat und darüber weiß, ob ein Ordner
+  `drilldown` ist — zeigt selbst wieder Unterordner-Kacheln — oder flach
+  ist) kennt `HomeView` diese Information nicht. Neue, macOS-exklusive
+  `HomeFolderDestinationView` (`HomeView.swift`, `#if os(macOS)`): bei
+  `library.isTV` direkt `ShowSeasonsView(library:, folder:)` (der Top-Ordner
+  IST hier immer die Serie, kein Fetch nötig — exakt wie
+  `ItemGridView.destinationView(for:)`s TV-Zweig). Sonst (Privat-Library)
+  einmaliger `client.fetchFolders(libraryId:, parent: nil)`-Root-Fetch,
+  Treffer per Name gematcht, `tile.drilldown` entscheidet zwischen
+  `ItemGridView(showsFolderTiles: true)` (verschachtelte Kanal-Unterordner)
+  und `showsFolderTiles: false` (flache Kanal-Videoliste) — spiegelt exakt
+  die Logik, die ein normaler Bibliotheks-Root-Klick auf denselben Ordner
+  ergäbe.
+- **`.navigationDestination(for: FolderDestination.self)`** neu auf
+  `HomeView`s eigenem `NavigationStack` registriert (`#if os(macOS)`) — war
+  dort vorher nicht nötig, weil Home bisher nur `ItemNavTarget`-Werte pushte.
+  `FolderDestination` ist dieselbe `Hashable`-Struct, die `ItemGridView`
+  für sein eigenes, GETRENNTES `NavigationStack` (innerhalb einer bereits
+  geöffneten Bibliothek) schon lange nutzt — beide Stacks brauchen ihre
+  eigene Registrierung, ein `navigationDestination`-Modifier auf einem Stack
+  greift nicht für einen anderen.
+- Build getestet (compile-only, kein UI-Live-Test mangels
+  Screenshot-Automatisierung für native SwiftUI-Views in dieser Session):
+  `GoldfishMac`, `GoldfishiOS` (Simulator-SDK) und `GoldfishTV`
+  (Simulator-SDK) bauen alle drei fehlerfrei — bestätigt, dass die
+  `#if os(macOS)`-Abgrenzung iOS/tvOS strukturell nicht berührt.

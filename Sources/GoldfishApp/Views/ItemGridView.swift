@@ -839,6 +839,11 @@ struct ItemCard: View {
     /// Aufrufer muss seine tatsächliche Kartenbreite hier mitgeben, nicht nur außen per
     /// `.frame(width:)` — beide müssen übereinstimmen.
     var width: CGFloat = 150
+    /// Home-Kontext (User-Wunsch 2026-09-13, macOS): Klick auf den Serien-/Kanalnamen
+    /// (nicht das ganze Poster) soll zur Serien-/Kanalübersicht springen statt zum
+    /// einzelnen Item — nur `HomeView` setzt das, jeder andere Aufrufer lässt den
+    /// Titeltext unverändert unklickbar (`nil`).
+    var homeFolderLibrary: Library? = nil
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
     @State private var watched: Bool
@@ -863,17 +868,23 @@ struct ItemCard: View {
     // fokussierbares Label direkt darunter) — dafür braucht `ItemCard` hier die
     // Navigations-Queue selbst, um den Link intern zu bauen statt sich vom
     // Aufrufer umschließen zu lassen (siehe `body` unten).
-    var queue: [Item] = []
     #endif
+    // Nicht mehr tvOS-exklusiv (User-Wunsch 2026-09-13): der Home-Kontext auf
+    // macOS braucht dasselbe "Link nur ums Poster"-Muster aus demselben Grund —
+    // ein verschachtelter NavigationLink (Serien-/Kanalname) INNERHALB eines
+    // äußeren NavigationLink (ganze Karte) liefert in SwiftUI/AppKit keine zwei
+    // unabhängigen Tap-Ziele, nur der äußere reagiert. Auf iOS/tvOS ohne
+    // `homeFolderLibrary` bleibt das Verhalten unverändert (leeres Array, Wert
+    // wird dort ignoriert bzw. wie gehabt genutzt).
+    var queue: [Item] = []
 
-    init(item: Item, width: CGFloat = 150, queue: [Item] = []) {
+    init(item: Item, width: CGFloat = 150, queue: [Item] = [], homeFolderLibrary: Library? = nil) {
         self.item = item
         self.width = width
+        self.queue = queue
+        self.homeFolderLibrary = homeFolderLibrary
         _watched = State(initialValue: item.watched)
         _favorite = State(initialValue: item.favorite)
-        #if os(tvOS)
-        self.queue = queue
-        #endif
     }
 
     var body: some View {
@@ -888,6 +899,25 @@ struct ItemCard: View {
             .focusEffectDisabled()
             .buttonBorderShape(.roundedRectangle(radius: 8))
 
+            titleSection
+        }
+        .contentShape(Rectangle())
+        #elseif os(macOS)
+        VStack(alignment: .leading, spacing: 4) {
+            if homeFolderLibrary != nil {
+                // Home-Kontext (siehe `homeFolderLibrary`-Kommentar oben): Link nur ums
+                // Poster, damit der Serien-/Kanalname weiter unten in `titleSection`
+                // (`folderLinkableText`) ein unabhängiges zweites Tap-Ziel bleiben kann.
+                NavigationLink(value: ItemNavTarget(item: item, queue: queue)) {
+                    posterSection
+                }
+                .buttonStyle(.plain)
+            } else {
+                // Jeder andere Aufrufer (Bibliotheks-Browsing, Suche, Playlists, …):
+                // unverändert wie bisher — der Aufrufer selbst umschließt die ganze
+                // Karte extern mit einem NavigationLink.
+                posterSection
+            }
             titleSection
         }
         .contentShape(Rectangle())
@@ -968,7 +998,7 @@ struct ItemCard: View {
     @ViewBuilder
     private var titleSection: some View {
             if item.isEpisode {
-                Text(item.showName ?? item.displayTitle)
+                folderLinkableText(item.showName ?? item.displayTitle, folderName: item.showName)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                     .foregroundStyle(.primary)
@@ -994,7 +1024,7 @@ struct ItemCard: View {
                     // Browser (CLAUDE.md: Top-Ordner NICHT auf der Kachel), bewusste
                     // App-spezifische Abweichung auf expliziten Nutzerwunsch.
                     if let channelName = item.channelName {
-                        Text(channelName)
+                        folderLinkableText(channelName, folderName: channelName)
                             .font(.caption)
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
@@ -1010,6 +1040,28 @@ struct ItemCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
+    }
+
+    /// Serien-/Kanalname klickbar → Serien-/Kanalübersicht (User-Wunsch 2026-09-13,
+    /// nur macOS/Linux-Client — hier der macOS-Teil). Nur aktiv, wenn `homeFolderLibrary`
+    /// gesetzt ist (nur `HomeView` setzt das) — jeder andere Aufrufer (Bibliotheks-
+    /// Browsing, Suche, Playlists) bekommt weiterhin reinen, unklickbaren Text, damit
+    /// dort kein zweiter, potenziell verwirrender Navigationspfad neben dem normalen
+    /// Ordner-Browsing entsteht.
+    @ViewBuilder
+    private func folderLinkableText(_ text: String, folderName: String?) -> some View {
+        #if os(macOS)
+        if let library = homeFolderLibrary, let folderName {
+            NavigationLink(value: FolderDestination(library: library, folder: folderName)) {
+                Text(text)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Text(text)
+        }
+        #else
+        Text(text)
+        #endif
     }
 
     private func toggleWatched() {

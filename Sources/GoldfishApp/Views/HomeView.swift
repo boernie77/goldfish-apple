@@ -50,8 +50,8 @@ struct HomeView: View {
                             // die Bibliotheks-Überschriften (z.B. "Filme") aussehen — vorher
                             // nutzten sie nur `HomeRow`s eigene kleine, graue Sub-Überschrift
                             // ohne die groß-fette Titelzeile, die jeder Library-Block hat.
-                            HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems))
-                            HomeHeadingRow(title: "📺 Als nächstes", items: sections.flatMap(\.nextUp))
+                            HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems), libraryFor: library(for:))
+                            HomeHeadingRow(title: "📺 Als nächstes", items: sections.flatMap(\.nextUp), libraryFor: library(for:))
 
                             ForEach(sections) { section in
                                 if !section.recent.isEmpty {
@@ -59,7 +59,7 @@ struct HomeView: View {
                                         Text(section.library.name)
                                             .font(.title3.bold())
                                             .padding(.horizontal)
-                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: section.recent)
+                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: section.recent, libraryFor: { _ in section.library })
                                     }
                                 }
                             }
@@ -99,6 +99,16 @@ struct HomeView: View {
             .navigationDestination(for: ItemNavTarget.self) { target in
                 ItemDetailView(item: target.item, queue: target.queue)
             }
+            #if os(macOS)
+            // User-Wunsch 2026-09-13 (macOS): Klick auf Serien-/Kanalname in einer
+            // Home-Kachel (siehe `ItemCard.folderLinkableText`) soll zur Serien-/
+            // Kanalübersicht springen. `FolderDestination` ist dieselbe Ziel-Struktur,
+            // die `ItemGridView` beim normalen Bibliotheks-Browsing schon nutzt. Nur
+            // macOS pusht diesen Wert (iOS/tvOS geben `homeFolderLibrary` nie mit).
+            .navigationDestination(for: FolderDestination.self) { dest in
+                HomeFolderDestinationView(destination: dest)
+            }
+            #endif
             .task { await load() }
             #if os(tvOS)
             // User-Wunsch 2026-09-08: "kommt man von Start, dann globale Suche" — sonst
@@ -115,6 +125,14 @@ struct HomeView: View {
                 if phase == .active, !isLoading { Task { await load() } }
             }
         }
+    }
+
+    /// "Fortsetzen"/"Als nächstes" mischen Items ALLER Bibliotheken flach
+    /// (`sections.flatMap(...)`) — für den Serien-/Kanalname-Link (siehe
+    /// `ItemCard.homeFolderLibrary`) braucht jedes Item seine eigene `Library` zurück,
+    /// nicht nur die eine Library der gerade betrachteten Sektion.
+    private func library(for item: Item) -> Library? {
+        sections.first { $0.library.id == item.libraryId }?.library
     }
 
     private func load() async {
@@ -145,6 +163,10 @@ struct HomeView: View {
 private struct HomeHeadingRow: View {
     let title: String
     let items: [Item]
+    /// Löst pro Item dessen Bibliothek auf (User-Wunsch 2026-09-13: Serien-/
+    /// Kanalname-Link braucht die richtige `Library`, "Fortsetzen"/"Als nächstes"
+    /// mischen aber Items mehrerer Bibliotheken flach) — siehe `HomeView.library(for:)`.
+    var libraryFor: (Item) -> Library? = { _ in nil }
 
     var body: some View {
         if !items.isEmpty {
@@ -152,7 +174,7 @@ private struct HomeHeadingRow: View {
                 Text(title)
                     .font(.title3.bold())
                     .padding(.horizontal)
-                HomeRow(title: nil, items: items)
+                HomeRow(title: nil, items: items, libraryFor: libraryFor)
             }
         }
     }
@@ -161,6 +183,7 @@ private struct HomeHeadingRow: View {
 private struct HomeRow: View {
     let title: String?
     let items: [Item]
+    var libraryFor: (Item) -> Library? = { _ in nil }
 
     var body: some View {
         if !items.isEmpty {
@@ -202,6 +225,15 @@ private struct HomeRow: View {
                             // die Karte selbst, kein zusätzlicher äußerer Link mehr.
                             ItemCard(item: item, width: tileWidth, queue: items)
                                 .frame(width: tileWidth)
+                            #elseif os(macOS)
+                            // User-Wunsch 2026-09-13: Serien-/Kanalname soll zur Serien-/
+                            // Kanalübersicht springen, das Poster weiterhin zum Item selbst
+                            // — zwei unabhängige Tap-Ziele. Dafür baut `ItemCard` (wie auf
+                            // tvOS) den Link INTERN nur ums Poster, statt hier extern die
+                            // ganze Karte zu umschließen (ein NavigationLink verschachtelt in
+                            // einem anderen liefert sonst kein zweites eigenes Tap-Ziel).
+                            ItemCard(item: item, width: tileWidth, queue: items, homeFolderLibrary: libraryFor(item))
+                                .frame(width: tileWidth)
                             #else
                             NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
                                 ItemCard(item: item, width: tileWidth)
@@ -226,3 +258,44 @@ private struct HomeRow: View {
         }
     }
 }
+
+#if os(macOS)
+/// Ziel des Serien-/Kanalname-Links auf der Startseite (User-Wunsch 2026-09-13).
+/// Anders als beim normalen Bibliotheks-Browsing (`ItemGridView.destinationView(for:)`)
+/// kennt HomeView nicht die Geschwister-Ordner-Kacheln der Zielbibliothek (die
+/// dort schon geladene `folders`-Liste sagt, ob ein Ordner "drilldown" ist, also
+/// selbst wieder Unterordner-Kacheln zeigt statt einer flachen Dateiliste) — hier
+/// wird das einmalig live nachgefragt, exakt derselbe `parent: nil`-Root-Fetch wie
+/// beim Öffnen einer Bibliothek von ihrer Wurzel aus.
+private struct HomeFolderDestinationView: View {
+    let destination: FolderDestination
+    @EnvironmentObject var client: GoldfishClient
+    @State private var showsFolderTiles = false
+    @State private var isResolved = false
+
+    var body: some View {
+        Group {
+            // TV-Bibliothek: der Top-Ordner IST die Serie — direkt zum Staffel-Browser,
+            // exakt wie `ItemGridView.destinationView(for:)` es beim normalen Browsing
+            // von der Library-Wurzel aus tut. Kein Root-Fetch nötig.
+            if destination.library.isTV, let folder = destination.folder {
+                ShowSeasonsView(library: destination.library, folder: folder)
+            } else if isResolved {
+                ItemGridView(library: destination.library, folder: destination.folder, showsFolderTiles: showsFolderTiles)
+            } else {
+                ProgressView()
+                    .task { await resolve() }
+            }
+        }
+    }
+
+    private func resolve() async {
+        if let folder = destination.folder,
+           let tiles = try? await client.fetchFolders(libraryId: destination.library.id, parent: nil),
+           let tile = tiles.first(where: { $0.name == folder }) {
+            showsFolderTiles = tile.drilldown
+        }
+        isResolved = true
+    }
+}
+#endif
