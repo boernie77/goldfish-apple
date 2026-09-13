@@ -535,3 +535,17 @@ angefragt, NICHT iOS/tvOS.
   `GoldfishMac`, `GoldfishiOS` (Simulator-SDK) und `GoldfishTV`
   (Simulator-SDK) bauen alle drei fehlerfrei — bestätigt, dass die
   `#if os(macOS)`-Abgrenzung iOS/tvOS strukturell nicht berührt.
+- **✅ Hover-Feedback ergänzt (Mac 221, 2026-09-14, User-Report: "wäre es
+  schön, dass wenn man mit der Maus drüber hovert, man ein optisches
+  Feedback bekommt, dass es klickbar ist"):** `folderLinkableText`
+  (`ItemGridView.swift`) zeigte den Serien-/Kanalnamen bis dahin optisch
+  identisch zu normalem, unklickbarem Text — kein Cursor-Wechsel, keine
+  Farb-/Unterstreichungs-Änderung. Neues `@State private var
+  isHoveringFolderLink` auf `ItemCard` (macOS-only) + `.onHover` auf dem
+  `NavigationLink`: Text unterstreicht sich und wechselt auf
+  `Color.accentColor`, gleichzeitig `NSCursor.pointingHand.push()`/`.pop()`
+  — dieselbe Cursor-Konvention wie `MusicColumnResizeHandle`
+  (`MusicLibraryView.swift`, `NSCursor.resizeLeftRight`). Datei brauchte
+  dafür einen macOS-gated `import AppKit` (vorher nur `SwiftUI`/
+  `GoldfishCore`). `GoldfishMac`/`GoldfishiOS`/`GoldfishTV` bauen weiterhin
+  alle drei fehlerfrei (Änderung komplett `#if os(macOS)`-gated).

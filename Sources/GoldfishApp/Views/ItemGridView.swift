@@ -1,5 +1,8 @@
 import SwiftUI
 import GoldfishCore
+#if os(macOS)
+import AppKit
+#endif
 
 /// A navigable destination inside a library: either a subfolder tile grid, a flat
 /// item grid, or (for TV shows) the season browser.
@@ -848,6 +851,13 @@ struct ItemCard: View {
     @EnvironmentObject var downloads: DownloadManager
     @State private var watched: Bool
     @State private var favorite: Bool
+    #if os(macOS)
+    /// Hover-Feedback für den klickbaren Serien-/Kanalnamen auf der
+    /// Startseite (User-Report 2026-09-14: "wäre es schön, dass wenn man mit
+    /// der Maus drüber hovert, man ein optisches Feedback bekommt, dass es
+    /// klickbar ist") — siehe `folderLinkableText`.
+    @State private var isHoveringFolderLink = false
+    #endif
     #if os(tvOS)
     // tvOS-Fix 2026-09-03, zweiter (korrekter) Anlauf: weder `.buttonStyle(.plain)`
     // (kein Fokus-Feedback) noch `.buttonStyle(.card)` (verzerrt/beschneidet das
@@ -1054,8 +1064,18 @@ struct ItemCard: View {
         if let library = homeFolderLibrary, let folderName {
             NavigationLink(value: FolderDestination(library: library, folder: folderName)) {
                 Text(text)
+                    .underline(isHoveringFolderLink)
+                    .foregroundStyle(isHoveringFolderLink ? Color.accentColor : Color.primary)
             }
             .buttonStyle(.plain)
+            .onHover { hovering in
+                isHoveringFolderLink = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
         } else {
             Text(text)
         }
