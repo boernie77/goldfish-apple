@@ -454,6 +454,82 @@ Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
   alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
   konsumieren die drei neuen Felder aber nirgends aktiv).
 
+### Klick-zum-Sortieren in den Musik-Spaltenköpfen + einheitliche Kopfzeile (seit 2026-09-13)
+
+User-Wunsch: "Der Kopfbereich schaut immer noch unterschiedlich aus ... bei
+der Listenansicht der Album und Songansicht" + "warum klappt die
+Sortierung der Spalten nicht so, wie in der Linux App, indem man auf den
+Kopf der Spalte klickt" — beides bezog sich auf die MAC-App (per
+Screenshot bestätigt), nicht Browser/Linux selbst. GoldfishLinux nutzt für
+dieselbe Ansicht ein natives `Gtk.ColumnView`, dessen Spalten von Haus aus
+per Klick sortieren (`widgets/column_list.py` dort). Die Mac-App hatte für
+ihre nachgebaute Spalten-Kopfzeile bisher nur Resize (Drag am Spaltenrand),
+keinerlei Klick-Sortierung — Album-Übersicht hatte stattdessen ein
+separates Sortier-Menü in der Toolbar (`AlbumSort`: nur artist/album/year),
+"Alle Titel" nur einen einzelnen ad-hoc "Zuletzt abgespielt zuerst"-Knopf
+(`recentlyPlayedFirst`) in der Aktionsreihe — GENAU DAS war auch die letzte
+sichtbare Asymmetrie zwischen den beiden `musicActionRow`-Aufrufen (Album-
+Übersicht hatte diesen Knopf nie, da "Alben haben keinen 'zuletzt gehört'-
+Sort" laut altem Kommentar), also der Rest des "Kopfbereich sieht
+unterschiedlich aus"-Problems.
+
+- **`AlbumSort` erweitert** (`MusicLibraryView.swift`) um `genre, count,
+  lastPlayed, playCount, added` (vorher nur `artist, album, year`) — dieselbe
+  `sortOption`/`sortAscending`-State treibt jetzt SOWOHL das bestehende
+  Toolbar-Sortier-Menü ALS AUCH einen Klick auf die Spaltenüberschrift in
+  `MusicAlbumListHeader`. Kein zweites, paralleles Sortiersystem.
+- **Neues `TrackSort`-Enum** (`title, artist, album, duration, lastPlayed,
+  playCount, added`) + eigene `@State private var trackSortOption`/
+  `trackSortAscending` für "Alle Titel" — ersetzt `recentlyPlayedFirst`
+  komplett (konnte nur "nach zuletzt gehört, ja/nein"). Eigene State-
+  Variablen statt Wiederverwendung von `sortOption`/`sortAscending`, damit
+  Album- und Track-Ansicht ihre zuletzt gewählte Sortierung unabhängig
+  behalten (kein überraschendes Mitwechseln beim Umschalten des Modus).
+- **`filteredAlbums`/`filteredTracks`** sortieren jetzt generisch nach der
+  aktiven Spalte. Neuer gemeinsamer Helfer am Dateiende: `enum
+  MusicSortValue { case text(String?); case number(Double?) }` +
+  `musicOptionalCompare(_:_:ascending:)` — ein fehlender Wert (nil ODER
+  leerer String, z. B. "nie gespielt") landet IMMER ans Ende, unabhängig von
+  der Richtung (kein sinnvoller "kleinster Wert" für "nie gehört"), analog
+  zum Browser (`music.js musicSortRows` schiebt fehlende Werte über
+  `String(va || "")` genauso ans Ende).
+- **`MusicSortableHeaderLabel`** (neue kleine `View`, direkt nach
+  `MusicAlbumListHeader`): ein `Button(.plain)` um `Text` + optionalem
+  ▲/▼-`chevron`-Icon (`SF Symbols "chevron.up"/"chevron.down"`), auf der
+  Seite platziert, zu der die jeweilige Spalte ausgerichtet ist
+  (rechtsbündige Spalten wie „Wiedergaben" bekommen den Pfeil links vom
+  Text). Ersetzt die reinen `Text(...)`-Labels in BEIDEN Kopfzeilen
+  (`MusicAlbumListHeader`/`MusicTrackListHeader`) — jede Spalte bis auf die
+  reinen Icon-Slots (Cover/Favorit/Download) ist jetzt klickbar. Ein Klick
+  auf die bereits aktive Spalte dreht die Richtung um (`toggle(_:)`-Helfer
+  in beiden Header-Structs, lokal, arbeitet direkt auf den `@Binding`s),
+  ein Klick auf eine andere Spalte setzt sie neu und beginnt aufsteigend —
+  exakt das Verhalten von `Gtk.ColumnView` in der Linux-App.
+- **`musicActionRow` verliert den `showRecentToggle`-Parameter + den
+  "Zuletzt abgespielt zuerst"-Knopf komplett** — er war der letzte
+  strukturelle Unterschied zwischen der Aktionsreihe der Album-Übersicht
+  und der von "Alle Titel". Beide rufen die Funktion jetzt mit identischer
+  Signatur auf (`disablePlayShuffle`, `columnsContext`, `onPlay`,
+  `onShuffle`), das Ergebnis ist pixelgleich: Play + Shuffle + (macOS) das
+  "☰ Spalten"-Menü. Sortieren nach "Zuletzt gehört" geht gleichwertig (und
+  in beiden Ansichten identisch bedienbar) per Klick auf die gleichnamige
+  Spaltenüberschrift.
+- **Kein `xcodegen generate` nötig** (reine Änderungen an bereits
+  existierenden Dateien, keine neue Datei). `xcodebuild ... -scheme
+  GoldfishMac` UND `-scheme GoldfishiOS` (Simulator) lokal grün geprüft —
+  `filteredAlbums`/`filteredTracks` samt der neuen `MusicSortValue`/
+  `musicOptionalCompare`-Helfer sind NICHT `#if os(macOS)`-gated (auch die
+  erweiterten `AlbumSort`/`TrackSort`-Fälle nicht), weil das bestehende
+  iOS-Sortier-Sheet (`Picker("Sortierung", selection: $sortOption) {
+  ForEach(AlbumSort.allCases...) }`) dieselben Cases mit iteriert — iOS
+  bekommt die neuen Album-Sortierfelder dadurch als Nebeneffekt im
+  bestehenden Sheet mit, OHNE eigenes UI dafür bauen zu müssen (die
+  klickbaren Spaltenköpfe selbst — `MusicSortableHeaderLabel` — bleiben wie
+  gehabt nur in den `#if os(macOS)`-Kopfzeilen verdrahtet). **Nicht live in
+  einer laufenden Session interaktiv am Klick verifizierbar** (kein UI-
+  Automatisierungswerkzeug für native macOS-Fenster verfügbar) — nur Build-
+  Erfolg + Code-Review, sollte vom User im echten Fenster gegengeprüft werden.
+
 ### Startseite: Serien-/Kanalname klickbar → Serien-/Kanalübersicht (seit Mac 219, 2026-09-13)
 
 User-Wunsch: "wenn ich auf der Startseite auf den Seriennamen oder bei

@@ -120,13 +120,52 @@ struct MusicLibraryView: View {
     }
     #endif
 
+    // "genre"/"count"/"lastPlayed"/"playCount"/"added" seit 2026-09-13 ergänzt
+    // (User-Wunsch: "warum klappt die Sortierung der Spalten nicht so, wie in
+    // der Linux App, indem man auf den Kopf der Spalte klickt" — GoldfishLinux
+    // nutzt dafür ein natives Gtk.ColumnView, dessen Spalten von Haus aus per
+    // Klick sortieren, siehe dortiges `widgets/column_list.py`). Dieselbe
+    // `AlbumSort`/`sortOption`/`sortAscending`-State treibt jetzt SOWOHL das
+    // bestehende Sortier-Menü in der Toolbar ALS AUCH einen Klick auf die
+    // Spaltenüberschrift in `MusicAlbumListHeader` — ein Klick dort setzt
+    // exakt dieselben @State-Variablen, keine zweite, parallele Sortierlogik.
     enum AlbumSort: String, CaseIterable {
-        case artist, album, year
+        case artist, album, genre, year, count, lastPlayed, playCount, added
         var label: String {
             switch self {
             case .artist: return "Künstler"
             case .album: return "Album"
+            case .genre: return "Genre"
             case .year: return "Jahr"
+            case .count: return "Titel"
+            case .lastPlayed: return "Zuletzt gehört"
+            case .playCount: return "Wiedergaben"
+            case .added: return "Hinzugefügt"
+            }
+        }
+    }
+
+    // Pendant zu `AlbumSort` für die "Alle Titel"-Ansicht — ersetzt seit
+    // 2026-09-13 den vorherigen ad-hoc `recentlyPlayedFirst`-Bool-Toggle
+    // (der nur "nach zuletzt gehört sortieren, ja/nein" konnte): Klick auf
+    // JEDE Spaltenüberschrift in `MusicTrackListHeader` sortiert jetzt danach,
+    // ein zweiter Klick auf dieselbe Spalte dreht die Richtung um — exakt das
+    // Verhalten, das der User von der Linux-App kannte. Eigene @State-
+    // Variablen statt Wiederverwendung von `sortOption`/`sortAscending`, da
+    // Album- und Track-Ansicht unabhängig ihre zuletzt gewählte Sortierung
+    // behalten sollen (Umschalten zwischen den Modi wechselt sonst überraschend
+    // die jeweils andere Ansicht mit).
+    enum TrackSort: String, CaseIterable {
+        case title, artist, album, duration, lastPlayed, playCount, added
+        var label: String {
+            switch self {
+            case .title: return "Titel"
+            case .artist: return "Künstler"
+            case .album: return "Album"
+            case .duration: return "Dauer"
+            case .lastPlayed: return "Zuletzt gehört"
+            case .playCount: return "Wiedergaben"
+            case .added: return "Hinzugefügt"
             }
         }
     }
@@ -186,31 +225,74 @@ struct MusicLibraryView: View {
             result.sort {
                 sortAscending ? ($0.year ?? 0) < ($1.year ?? 0) : ($0.year ?? 0) > ($1.year ?? 0)
             }
+        case .genre:
+            result.sort {
+                let order = ($0.genre ?? "").localizedStandardCompare($1.genre ?? "")
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
+            }
+        case .count:
+            result.sort {
+                sortAscending ? ($0.trackCount ?? 0) < ($1.trackCount ?? 0) : ($0.trackCount ?? 0) > ($1.trackCount ?? 0)
+            }
+        case .lastPlayed, .playCount, .added:
+            result.sort { musicOptionalCompare(sortKeyValue(for: sortOption, $0), sortKeyValue(for: sortOption, $1), ascending: sortAscending) }
         }
         return result
     }
 
-    /// "Zuletzt abgespielt zuerst" in der "Alle Titel"-Ansicht (User-Wunsch
-    /// 2026-09-11: "ich hätte gerne noch den Filter zuletzt abgespielt") —
-    /// bewusst NUR hier und nicht im Album-Sortierung-Menü, weil `MusicAlbum`
-    /// (server-seitiges Aggregat, siehe `music_albums`) keinen eigenen
-    /// Zuletzt-gespielt-Zeitstempel trägt, nur einzelne `Item`s (`items
-    /// .last_played_at`) — ein Album-weiter "zuletzt gehört"-Sort hätte
-    /// dafür einen eigenen Server-Endpoint gebraucht. Nie gespielte Titel
-    /// (`lastPlayedAt == nil`) landen ans Ende, unabhängig von der Richtung.
-    @State private var recentlyPlayedFirst = false
+    /// Rohwert für die drei "Aggregat"-Sortierfelder, die nicht einfach per
+    /// `<`/`localizedStandardCompare` vergleichbar sind (String? für Datum,
+    /// Int? für Wiedergaben) — ein gemeinsamer Helfer statt drei Fast-
+    /// identische `.sort {}`-Blöcke.
+    private func sortKeyValue(for option: AlbumSort, _ album: MusicAlbum) -> MusicSortValue {
+        switch option {
+        case .lastPlayed: return .text(album.lastPlayedAt)
+        case .playCount: return .number(album.playCount.map(Double.init))
+        case .added: return .text(album.addedAt)
+        default: return .text(nil)
+        }
+    }
+
+    private func sortKeyValue(for option: TrackSort, _ track: Item) -> MusicSortValue {
+        switch option {
+        case .lastPlayed: return .text(track.lastPlayedAt)
+        case .playCount: return .number(track.playCount.map(Double.init))
+        case .added: return .text(track.addedAt)
+        case .duration: return .number(track.durationSec)
+        default: return .text(nil)
+        }
+    }
+
+    /// Sortierung der "Alle Titel"-Ansicht per Klick auf eine Spaltenüberschrift
+    /// (`MusicTrackListHeader`, seit 2026-09-13) — ersetzt den vorherigen
+    /// ad-hoc `recentlyPlayedFirst`-Bool-Toggle (konnte nur "nach zuletzt
+    /// gehört, ja/nein"), User-Wunsch: "warum klappt die Sortierung der
+    /// Spalten nicht so, wie in der Linux App, indem man auf den Kopf der
+    /// Spalte klickt". Eigene @State-Variablen statt Wiederverwendung von
+    /// `sortOption`/`sortAscending` — siehe Kommentar bei `TrackSort` oben.
+    @State private var trackSortOption: TrackSort = .title
+    @State private var trackSortAscending = true
 
     private var filteredTracks: [Item] {
         var result = allTracks
-        if recentlyPlayedFirst {
+        switch trackSortOption {
+        case .title:
             result.sort {
-                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
-                case let (a?, b?): return a > b
-                case (nil, nil): return false
-                case (nil, _): return false
-                case (_, nil): return true
-                }
+                let order = $0.displayTitle.localizedStandardCompare($1.displayTitle)
+                return trackSortAscending ? order == .orderedAscending : order == .orderedDescending
             }
+        case .artist:
+            result.sort {
+                let order = ($0.artist ?? "").localizedStandardCompare($1.artist ?? "")
+                return trackSortAscending ? order == .orderedAscending : order == .orderedDescending
+            }
+        case .album:
+            result.sort {
+                let order = ($0.album ?? "").localizedStandardCompare($1.album ?? "")
+                return trackSortAscending ? order == .orderedAscending : order == .orderedDescending
+            }
+        case .duration, .lastPlayed, .playCount, .added:
+            result.sort { musicOptionalCompare(sortKeyValue(for: trackSortOption, $0), sortKeyValue(for: trackSortOption, $1), ascending: trackSortAscending) }
         }
         guard !search.isEmpty else { return result }
         return result.filter {
@@ -617,7 +699,6 @@ struct MusicLibraryView: View {
             VStack(spacing: 0) {
                 musicActionRow(
                     disablePlayShuffle: filteredAlbums.isEmpty,
-                    showRecentToggle: false,
                     columnsContext: "albums",
                     onPlay: { Task { await playLibraryInOrder() } },
                     onShuffle: { Task { await shufflePlayLibrary() } }
@@ -627,7 +708,8 @@ struct MusicLibraryView: View {
                 MusicAlbumListHeader(
                     albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth,
                     lastPlayedWidth: $lastPlayedColWidth, playCountWidth: $playCountColWidth, addedWidth: $addedColWidth,
-                    visibleColumns: visibleAlbumColumns
+                    visibleColumns: visibleAlbumColumns,
+                    sortOption: $sortOption, sortAscending: $sortAscending
                 )
                 List(filteredAlbums) { album in
                     MusicAlbumRow(
@@ -671,10 +753,16 @@ struct MusicLibraryView: View {
     /// den aktiven Wiedergabe-Modus (`musicPlayer.isShuffling`), braucht
     /// dafür `.buttonStyle(.plain)` (sonst überschreibt die automatische
     /// List-Blaufärbung die bedingte Farbe).
+    /// Der frühere separate "Zuletzt abgespielt zuerst"-Knopf (nur in "Alle
+    /// Titel") ist seit 2026-09-13 raus (User-Report: "Der Kopfbereich schaut
+    /// immer noch unterschiedlich aus ... bei der Listenansicht der Album und
+    /// Songansicht") — er war der letzte Unterschied zwischen den beiden
+    /// Aktionsreihen. Sortieren nach "Zuletzt gehört" geht jetzt gleichwertig
+    /// (und für BEIDE Ansichten identisch bedienbar) per Klick auf die
+    /// gleichnamige Spaltenüberschrift, siehe `TrackSort`/`AlbumSort` oben.
     @ViewBuilder
     private func musicActionRow(
         disablePlayShuffle: Bool,
-        showRecentToggle: Bool,
         columnsContext: String,
         onPlay: @escaping () -> Void,
         onShuffle: @escaping () -> Void
@@ -694,20 +782,6 @@ struct MusicLibraryView: View {
             .foregroundStyle(musicPlayer.isShuffling ? Color.accentColor : Color.primary)
             .contentShape(Rectangle())
             .disabled(disablePlayShuffle)
-            if showRecentToggle {
-                // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" — siehe
-                // Kommentar bei `recentlyPlayedFirst` oben. Nur in "Alle
-                // Titel" sinnvoll (Alben haben keinen "zuletzt gehört"-Sort).
-                Button {
-                    recentlyPlayedFirst.toggle()
-                } label: {
-                    Label("Zuletzt abgespielt zuerst", systemImage: recentlyPlayedFirst ? "clock.fill" : "clock")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
-                .contentShape(Rectangle())
-                .help("Nach zuletzt gehörten Titeln sortieren")
-            }
             #if os(macOS)
             Spacer()
             Menu {
@@ -737,7 +811,6 @@ struct MusicLibraryView: View {
             List {
                 musicActionRow(
                     disablePlayShuffle: filteredTracks.isEmpty,
-                    showRecentToggle: true,
                     columnsContext: "allTracks",
                     onPlay: { musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client) },
                     onShuffle: {
@@ -759,7 +832,8 @@ struct MusicLibraryView: View {
                 MusicTrackListHeader(
                     titleWidth: $atTitleWidth, artistWidth: $atArtistWidth, albumWidth: $atAlbumWidth,
                     lastPlayedWidth: $atLastPlayedWidth, playCountWidth: $atPlayCountWidth, addedWidth: $atAddedWidth,
-                    visibleColumns: visibleAllTracksColumns
+                    visibleColumns: visibleAllTracksColumns,
+                    sortOption: $trackSortOption, sortAscending: $trackSortAscending
                 )
                 #endif
                 ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
@@ -901,6 +975,16 @@ private struct MusicAlbumListHeader: View {
     @Binding var addedWidth: Double
     var visibleColumns: Set<MusicColumn> = []
     #endif
+    // Klick-zum-Sortieren (seit 2026-09-13, User-Wunsch: "warum klappt die
+    // Sortierung der Spalten nicht so, wie in der Linux App, indem man auf
+    // den Kopf der Spalte klickt") — dieselben @State-Variablen wie das
+    // bestehende Sortier-Menü in der Toolbar, siehe `MusicLibraryView.AlbumSort`.
+    @Binding var sortOption: MusicLibraryView.AlbumSort
+    @Binding var sortAscending: Bool
+
+    private func toggle(_ column: MusicLibraryView.AlbumSort) {
+        if sortOption == column { sortAscending.toggle() } else { sortOption = column; sortAscending = true }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -914,45 +998,46 @@ private struct MusicAlbumListHeader: View {
             // und Künstler ist nicht verschiebbar! Das war doch der Sinn des
             // ganzen!!" — die vorherige Version war nur eine statische
             // Linie, weil "Album" bis dahin die flexible Füllspalte war).
-            Text("Album")
+            MusicSortableHeaderLabel(title: "Album", isActive: sortOption == .album, ascending: sortAscending, alignment: .leading) { toggle(.album) }
                 .frame(width: albumWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $albumWidth).offset(x: 14)
                 }
-            Text("Künstler")
+            MusicSortableHeaderLabel(title: "Künstler", isActive: sortOption == .artist, ascending: sortAscending, alignment: .leading) { toggle(.artist) }
                 .frame(width: artistWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $artistWidth).offset(x: 14)
                 }
-            Text("Genre")
+            MusicSortableHeaderLabel(title: "Genre", isActive: sortOption == .genre, ascending: sortAscending, alignment: .leading) { toggle(.genre) }
                 .frame(width: genreWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $genreWidth).offset(x: 14)
                 }
             #if os(macOS)
             if visibleColumns.contains(.lastPlayed) {
-                Text("Zuletzt gehört")
+                MusicSortableHeaderLabel(title: "Zuletzt gehört", isActive: sortOption == .lastPlayed, ascending: sortAscending, alignment: .leading) { toggle(.lastPlayed) }
                     .frame(width: lastPlayedWidth, alignment: .leading)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $lastPlayedWidth).offset(x: 14)
                     }
             }
             if visibleColumns.contains(.playCount) {
-                Text("Wiedergaben")
+                MusicSortableHeaderLabel(title: "Wiedergaben", isActive: sortOption == .playCount, ascending: sortAscending, alignment: .trailing) { toggle(.playCount) }
                     .frame(width: playCountWidth, alignment: .trailing)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $playCountWidth).offset(x: 14)
                     }
             }
             if visibleColumns.contains(.added) {
-                Text("Hinzugefügt")
+                MusicSortableHeaderLabel(title: "Hinzugefügt", isActive: sortOption == .added, ascending: sortAscending, alignment: .leading) { toggle(.added) }
                     .frame(width: addedWidth, alignment: .leading)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $addedWidth).offset(x: 14)
                     }
             }
             #endif
-            Text("Titel").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
+            MusicSortableHeaderLabel(title: "Titel", isActive: sortOption == .count, ascending: sortAscending, alignment: .trailing) { toggle(.count) }
+                .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
             Spacer(minLength: 0) // füllt den Rest (Album ist nicht mehr die Füllspalte)
         }
@@ -960,6 +1045,36 @@ private struct MusicAlbumListHeader: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal)
         .padding(.vertical, 4)
+    }
+}
+
+/// Ein Spalten-Label in der Musik-Kopfzeile, klickbar zum Sortieren (seit
+/// 2026-09-13) — analog zum Klicksortieren auf `Gtk.ColumnView` in der
+/// Linux-App (`widgets/column_list.py` dort: "Ein Klick auf den Kopf
+/// sortiert, wenn die Spalte einen Sortierschlüssel mitbringt"). Zeigt bei
+/// aktiver Sortierung einen kleinen Pfeil neben dem Spaltentext, auf der
+/// Seite, zu der die Zellen selbst ausgerichtet sind (rechtsbündige Spalten
+/// wie „Wiedergaben" bekommen den Pfeil links vom Text, sonst rechts).
+private struct MusicSortableHeaderLabel: View {
+    let title: String
+    let isActive: Bool
+    let ascending: Bool
+    let alignment: Alignment
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                if alignment == .trailing, isActive {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.caption2)
+                }
+                Text(title)
+                if alignment != .trailing, isActive {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down").font(.caption2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1077,46 +1192,56 @@ private struct MusicTrackListHeader: View {
     @Binding var playCountWidth: Double
     @Binding var addedWidth: Double
     var visibleColumns: Set<MusicColumn> = []
+    // Klick-zum-Sortieren (seit 2026-09-13) — Pendant zu `MusicAlbumListHeader`,
+    // eigene @State-Variablen (`MusicLibraryView.TrackSort`), siehe Kommentar
+    // dort und bei `TrackSort` selbst.
+    @Binding var sortOption: MusicLibraryView.TrackSort
+    @Binding var sortAscending: Bool
+
+    private func toggle(_ column: MusicLibraryView.TrackSort) {
+        if sortOption == column { sortAscending.toggle() } else { sortOption = column; sortAscending = true }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("Titel")
+            MusicSortableHeaderLabel(title: "Titel", isActive: sortOption == .title, ascending: sortAscending, alignment: .leading) { toggle(.title) }
                 .frame(width: titleWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $titleWidth).offset(x: 14)
                 }
-            Text("Künstler")
+            MusicSortableHeaderLabel(title: "Künstler", isActive: sortOption == .artist, ascending: sortAscending, alignment: .leading) { toggle(.artist) }
                 .frame(width: artistWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $artistWidth).offset(x: 14)
                 }
-            Text("Album")
+            MusicSortableHeaderLabel(title: "Album", isActive: sortOption == .album, ascending: sortAscending, alignment: .leading) { toggle(.album) }
                 .frame(width: albumWidth, alignment: .leading)
                 .overlay(alignment: .trailing) {
                     MusicColumnResizeHandle(width: $albumWidth).offset(x: 14)
                 }
             if visibleColumns.contains(.lastPlayed) {
-                Text("Zuletzt gehört")
+                MusicSortableHeaderLabel(title: "Zuletzt gehört", isActive: sortOption == .lastPlayed, ascending: sortAscending, alignment: .leading) { toggle(.lastPlayed) }
                     .frame(width: lastPlayedWidth, alignment: .leading)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $lastPlayedWidth).offset(x: 14)
                     }
             }
             if visibleColumns.contains(.playCount) {
-                Text("Wiedergaben")
+                MusicSortableHeaderLabel(title: "Wiedergaben", isActive: sortOption == .playCount, ascending: sortAscending, alignment: .trailing) { toggle(.playCount) }
                     .frame(width: playCountWidth, alignment: .trailing)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $playCountWidth).offset(x: 14)
                     }
             }
             if visibleColumns.contains(.added) {
-                Text("Hinzugefügt")
+                MusicSortableHeaderLabel(title: "Hinzugefügt", isActive: sortOption == .added, ascending: sortAscending, alignment: .leading) { toggle(.added) }
                     .frame(width: addedWidth, alignment: .leading)
                     .overlay(alignment: .trailing) {
                         MusicColumnResizeHandle(width: $addedWidth).offset(x: 14)
                     }
             }
-            Text("Dauer").frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
+            MusicSortableHeaderLabel(title: "Dauer", isActive: sortOption == .duration, ascending: sortAscending, alignment: .trailing) { toggle(.duration) }
+                .frame(width: MusicAlbumColumn.countWidth, alignment: .trailing)
             Color.clear.frame(width: 22, height: 1) // Favoriten-Spalte
             Color.clear.frame(width: 22, height: 1) // Download-Spalte
             Spacer(minLength: 0)
@@ -1234,6 +1359,41 @@ private struct MusicAlbumCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
+    }
+}
+
+/// Gemeinsamer Vergleichs-Helfer für die "Aggregat"-Sortierspalten (Datum als
+/// ISO-`String?`, Zahl als `Double?`) in `filteredAlbums`/`filteredTracks` —
+/// erspart drei fast identische `.sort {}`-Blöcke pro Spalte. Ein fehlender
+/// Wert (nil ODER leerer String) landet IMMER ans Ende, unabhängig von der
+/// Sortierrichtung (kein sinnvoller "kleinster Wert" für "nie gespielt"/
+/// "nie hinzugefügt") — analog zum Browser, wo `musicSortRows`
+/// (`music.js`) fehlende Werte über `String(va || "")` genauso ans Ende
+/// eines aufsteigenden Textvergleichs schiebt.
+enum MusicSortValue {
+    case text(String?)
+    case number(Double?)
+}
+
+func musicOptionalCompare(_ a: MusicSortValue, _ b: MusicSortValue, ascending: Bool) -> Bool {
+    switch (a, b) {
+    case let (.text(rawA), .text(rawB)):
+        let x = (rawA?.isEmpty == false) ? rawA : nil
+        let y = (rawB?.isEmpty == false) ? rawB : nil
+        switch (x, y) {
+        case let (x?, y?): return ascending ? x < y : x > y
+        case (nil, nil): return false
+        case (.some, nil): return true
+        case (nil, .some): return false
+        }
+    case let (.number(x), .number(y)):
+        switch (x, y) {
+        case let (x?, y?): return ascending ? x < y : x > y
+        case (nil, nil): return false
+        case (.some, nil): return true
+        case (nil, .some): return false
+        }
+    default: return false
     }
 }
 #endif
