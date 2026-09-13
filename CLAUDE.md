@@ -649,6 +649,14 @@ mischen lokal, der servereigene Ausschluss konnte sie also nie erreichen.
   (`Item`-Erweiterung ist plattformübergreifend, aber `GoldfishTV` hat kein
   Musik-Modul, das sie konsumiert).
 
+**Nachtrag, noch am selben Tag (User-Report nach Live-Test: "der erste
+Titel bei Shuffle ist wieder ein Hörbuch"):** ein Hörbuch ohne `.m4b` und
+ohne "Hörbuch"/"Audiobook" in Titel/Album/Ordnerpfad trägt oft trotzdem ein
+entsprechendes Genre-Tag — bisher nicht geprüft. `isLikelyAudiobook`
+nimmt jetzt zusätzlich `genre` in den durchsuchten Text auf (analog zum
+gleichzeitig gefixten Server, siehe dortiges CLAUDE.md). Auf einem echten
+iPhone getestet (`xcrun devicectl device install app`).
+
 ### "Alle Titel" optisch an Album-Listenansicht angeglichen (Mac 222, 2026-09-14)
 
 User-Report: "auf dem Mac ist die Seite Alle Titel optisch völlig anders

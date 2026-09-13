@@ -184,17 +184,21 @@ public struct Item: Codable, Identifiable, Hashable {
 
     /// Ob dieses Item wahrscheinlich ein Hörbuch ist — Container `.m4b` ODER
     /// eine Namens-Erkennung ("Hörbuch"/"Hörbücher"/"Audiobook") in Titel/
-    /// Album/Ordnerpfad, case- UND akzent-insensitiv (`.folding` bildet "ö"
-    /// auf "o" ab, ein Muster trifft dadurch beide deutschen Formen).
-    /// Spiegelt den serverseitigen Zufalls-Ausschluss
+    /// Album/Ordnerpfad/**Genre-Tag**, case- UND akzent-insensitiv (`.folding`
+    /// bildet "ö" auf "o" ab, ein Muster trifft dadurch beide deutschen
+    /// Formen). Spiegelt den serverseitigen Zufalls-Ausschluss
     /// (`ItemFilter.ExcludeAudiobooks`, siehe Server-CLAUDE.md „Shuffle-Play")
     /// für die Client-Shuffle-Pfade, die den Server-Endpoint NICHT aufrufen
     /// (Musik-Bibliotheks-Shuffle, Offline-Shuffle) — dort muss die App
     /// selbst filtern, User-Wunsch 2026-09-14: "Bitte Hörbücher, Hörbuch,
-    /// Audiobook ausschließen".
+    /// Audiobook ausschließen". **Genre nachgezogen (2026-09-14, User-Report
+    /// "der erste Titel bei Shuffle ist wieder ein Hörbuch"):** ein Hörbuch,
+    /// dessen Datei weder `.m4b` ist noch "Hörbuch"/"Audiobook" im Titel/
+    /// Album/Ordnerpfad trägt, hat oft trotzdem ein entsprechendes Genre-Tag
+    /// ("Hörbuch"/"Audiobook") — bisher nicht mitgeprüft.
     public var isLikelyAudiobook: Bool {
         if (container ?? "").lowercased() == "m4b" { return true }
-        let haystack = [title, album, relPath].compactMap { $0 }.joined(separator: " ")
+        let haystack = [title, album, relPath, genre].compactMap { $0 }.joined(separator: " ")
         guard !haystack.isEmpty else { return false }
         let folded = haystack.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
         return folded.contains("horbuch") || folded.contains("audiobook")
