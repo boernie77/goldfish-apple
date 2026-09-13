@@ -1,5 +1,6 @@
 import SwiftUI
 import GoldfishCore
+import ImageIO
 
 /// Unifies server libraries and local (offline) libraries for the grid — mirrors the
 /// Android app's approach: local libraries are ordinary library tiles, not a separate section.
@@ -395,6 +396,22 @@ struct LibrariesView: View {
         Self.libraryPreviewCacheDir.appendingPathComponent("\(key.replacingOccurrences(of: ":", with: "_")).jpg")
     }
 
+    /// Vor dem Album-Cover-Fallback (Commit 47307de) landete für Musik-Bibliotheken
+    /// serverseitig ein SVG-Platzhalter ("kein Bild") als vermeintliches ".jpg" im
+    /// Cache — `AsyncImage`/`NSImage` können SVG nicht decodieren, die Kachel blieb
+    /// dadurch dauerhaft leer, obwohl der Cache-Existenz-Check `loadPreviews()` seither
+    /// nie erneut fetchen ließ (User-Report 2026-09-13: Fix half nicht, alte Datei blieb
+    /// liegen). Prüft per ImageIO, ob die Cache-Datei überhaupt ein echtes Rasterbild ist.
+    private func isValidCachedImage(at url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
+    }
+
+    private func isValidImageData(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
+    }
+
     /// Belegt `previewURLs` für alle aktuell bekannten Bibliotheken aus lokalen
     /// Quellen vor (Platten-Cache bei Server-Libs, Thumbnail-Datei bei lokalen
     /// Libs). Rein lokal, kein Netzwerk — funktioniert damit auch komplett offline.
@@ -406,7 +423,11 @@ struct LibrariesView: View {
             guard previewURLs[key] == nil else { continue }
             let file = cachedPreviewFile(key: key)
             if FileManager.default.fileExists(atPath: file.path) {
-                previewURLs[key] = file
+                if isValidCachedImage(at: file) {
+                    previewURLs[key] = file
+                } else {
+                    try? FileManager.default.removeItem(at: file)
+                }
             }
         }
         for lib in localLibrary.libraries {
@@ -431,8 +452,13 @@ struct LibrariesView: View {
             // gezeigten überein. Jetzt: einmal geholt = dauerhaft dieses Bild
             // (online wie offline), bis die Cache-Datei gelöscht wird.
             if FileManager.default.fileExists(atPath: cacheFile.path) {
-                if previewURLs[key] == nil { previewURLs[key] = cacheFile }
-                continue
+                if isValidCachedImage(at: cacheFile) {
+                    if previewURLs[key] == nil { previewURLs[key] = cacheFile }
+                    continue
+                }
+                // Alter, ungültiger Cache-Eintrag (z.B. SVG-Platzhalter von vor dem
+                // Album-Cover-Fallback) — löschen und unten neu holen lassen.
+                try? FileManager.default.removeItem(at: cacheFile)
             }
             // Noch kein Bild vorhanden: EINMALIG das Poster eines Zufalls-Items als
             // repräsentatives Cover holen und dauerhaft ablegen.
@@ -454,7 +480,8 @@ struct LibrariesView: View {
                 networkURL = client.thumbURL(itemId: item.id)
             }
             guard let networkURL,
-                  let (data, _) = try? await URLSession.shared.data(from: networkURL), !data.isEmpty else { continue }
+                  let (data, _) = try? await URLSession.shared.data(from: networkURL), !data.isEmpty,
+                  isValidImageData(data) else { continue }
             try? data.write(to: cacheFile)
             previewURLs[key] = cacheFile
         }

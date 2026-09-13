@@ -111,11 +111,22 @@ struct MusicLibraryView: View {
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 16, alignment: .top)] }
     #endif
 
+    // Rein client-seitige Filterung über bereits geladene Alben/Tracks (kein
+    // Server-Roundtrip) — `localizedCaseInsensitiveContains` ist case-, aber
+    // NICHT akzent-insensitiv. User-Wunsch 2026-09-13: "senorita" soll auch
+    // "Señorita" finden, server-seitig via UNACCENT() bereits gelöst — diese
+    // Ansicht hier ruft die Suche aber nie über den Server ab, filtert
+    // stattdessen selbst über die im Speicher gehaltene Liste, war also von
+    // dem Fix unberührt. `.diacriticInsensitive` gleicht das clientseitig an.
+    private func matchesSearch(_ text: String) -> Bool {
+        text.range(of: search, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
     private var filteredAlbums: [MusicAlbum] {
         var result = albums
         if !search.isEmpty {
             result = result.filter {
-                $0.album.localizedCaseInsensitiveContains(search) || $0.artist.localizedCaseInsensitiveContains(search)
+                matchesSearch($0.album) || matchesSearch($0.artist)
             }
         }
         // `localizedStandardCompare` statt des rohen `<`-Operators (User-Report
@@ -170,9 +181,9 @@ struct MusicLibraryView: View {
         }
         guard !search.isEmpty else { return result }
         return result.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(search)
-                || ($0.artist ?? "").localizedCaseInsensitiveContains(search)
-                || ($0.album ?? "").localizedCaseInsensitiveContains(search)
+            matchesSearch($0.displayTitle)
+                || matchesSearch($0.artist ?? "")
+                || matchesSearch($0.album ?? "")
         }
     }
 

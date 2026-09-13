@@ -327,3 +327,53 @@ neuer erster Fallback über `item.musicAlbumId` +
 `client.albumCoverURL(albumId:)` (Album-Cover, existiert bei Musik-Tracks
 so gut wie immer). Betrifft `LibrariesView.swift`, gemeinsame Datei für
 macOS + iOS.
+
+**🔴→✅ Nachtrag (Build Mac 217/iOS 200, 2026-09-13, User-Report: "auf dem
+Mac Vorschaubild trotzdem noch weg"):** der Fix oben half nur für NEU
+angelegte Cache-Einträge — `loadPreviews()`s Kurzschluss "Cache-Datei
+existiert bereits → nie neu holen" (siehe Kommentar dort, User-Vorgabe
+2026-08-28 "genau die aktuellen Bilder sollen gespeichert werden") vertraute
+blind jeder bereits vorhandenen `.jpg`-Datei. VOR diesem Fix hatte der
+Server für eine Musik-Bibliothek ohne Bild einen SVG-Platzhalter
+ausgeliefert ("kein Bild"-Grafik), der unter der `.jpg`-Endung im
+Anwendungs-Support-Cache landete — `AsyncImage`/`NSImage` können SVG nicht
+decodieren, die Kachel blieb leer, UND der Cache-Existenz-Check ließ nie
+erneut fetchen, selbst nach dem Album-Cover-Fix. Live auf dem Produktiv-Mac
+verifiziert: `~/Library/Containers/com.goldfish.mac/.../GoldfishLibraryPreviews/
+server_13.jpg` enthielt tatsächlich rohes SVG-Markup statt eines Rasterbilds.
+Fix: `LibrariesView` prüft jetzt per ImageIO
+(`CGImageSourceCreateWithURL`/`-WithData` + `CGImageSourceCreateImageAtIndex`),
+ob eine (Cache-)Datei überhaupt ein echtes Rasterbild ist, BEVOR sie
+vertraut/verwendet wird — sowohl beim Offline-Hydrieren
+(`hydratePreviewsFromCache`) als auch beim eigentlichen `loadPreviews()`-
+Cache-Check UND vor dem Schreiben frisch heruntergeladener Daten. Ein
+ungültiger Cache-Treffer wird gelöscht statt genutzt, der normale
+Fetch-Pfad läuft danach ganz normal weiter. Betroffene Bestands-Caches
+(wie der oben gefundene `server_13.jpg`) wurden einmalig manuell vom
+Produktiv-Mac gelöscht — künftige gleichartige Fälle heilen sich jetzt
+automatisch selbst (kein manueller Eingriff mehr nötig).
+
+**🔴→✅ Musik-Suche auf Mac/iOS fand "senorita" nicht für "Señorita" (Bug,
+gefixt Build Mac 217/iOS 200, 2026-09-13, User-Report direkt nach dem
+gleichnamigen Server-Fix — "senorita soll Señorita finden" — "gilt für ALLE
+Plattformen/Server"):** anders als Browser/Android, die für Suche
+ausschließlich `GET /api/items?search=` aufrufen (und damit automatisch von
+der neuen server-seitigen `UNACCENT()`-Funktion profitieren, siehe
+Server-CLAUDE.md "Akzent-/Diakritika-unempfindlich"), filtert
+`MusicLibraryView` (Mac+iOS gemeinsame Datei) Alben/Tracks rein
+CLIENT-SEITIG über die bereits geladene, im Speicher gehaltene Liste
+(`filteredAlbums`/`filteredTracks`) — nie ein eigener Server-Request pro
+Tastenanschlag. `String.localizedCaseInsensitiveContains` ist case-, aber
+NICHT akzent-insensitiv ("Señorita" enthält "senorita" laut dieser Methode
+nicht), der Server-Fix konnte diesen rein lokalen Filterpfad also gar nicht
+erreichen. Fix: neuer `matchesSearch(_:)`-Helper nutzt
+`.range(of:options:[.caseInsensitive, .diacriticInsensitive])` statt
+`localizedCaseInsensitiveContains`, ersetzt an beiden Filterstellen
+(Album-Suche + Track-Suche). Rein lokal in `MusicLibraryView.swift`
+gehalten (kein gemeinsamer String-Extension-Helper angelegt — kein zweiter
+Aufrufer bisher, YAGNI). **Lektion für künftige "gilt für alle
+Plattformen"-Server-Fixes:** IMMER prüfen, ob ein Client den betroffenen
+Datenpfad wirklich live vom Server bezieht, oder ob er (wie hier) bereits
+geladene Daten zusätzlich noch einmal lokal filtert — ein reiner
+Server-Fix erreicht einen solchen zweiten, client-eigenen Filterschritt
+nicht automatisch mit.
