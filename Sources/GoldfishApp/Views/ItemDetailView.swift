@@ -71,8 +71,17 @@ struct ItemDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // User-Wunsch 2026-09-13: Cover auf dem Mac kleiner, damit die
+                // Info-Seite auf einem 14"-MacBook ohne Scrollen passt — nur
+                // macOS eingeschränkt (iOS/tvOS unverändert bei 260, dort war
+                // kein Scroll-Problem gemeldet).
+                #if os(macOS)
+                let posterMaxWidth: CGFloat = 170
+                #else
+                let posterMaxWidth: CGFloat = 260
+                #endif
                 PosterImage(url: posterURL)
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: posterMaxWidth)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 Text(item.displayTitle)

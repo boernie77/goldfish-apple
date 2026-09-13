@@ -55,7 +55,7 @@ targets:
         # User-Vorgabe 2026-09-07: erste echte Mac App Store-Einreichung —
         # analog zum iOS-Sprung (0.9 → 1.0) auf 1.0 gehoben.
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "217"
+        CFBundleVersion: "218"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
