@@ -105,6 +105,24 @@ struct PlayerView: View {
     @State private var isTranscode = false
     @State private var transcodeURLTemplate: String?
     @State private var virtualOffset: Double = 0
+    /// Guards against `setUp()` running more than once concurrently for the same
+    /// item (User-Report 2026-09-13: Stream-Fehler -12938/-16847 "HTTP 404/500" —
+    /// server logs showed the SAME item requested with TWO different `start=`
+    /// values seconds apart, e.g. 0 then 631.8, over and over, each new request
+    /// interrupting the other before either playlist could finish). `.task(id:
+    /// item.id)` should only re-run `setUp()` when `item.id` actually changes, but
+    /// this app's Mac window handling is complex enough (see `MainWindowRef`/
+    /// fullscreen-transition history in CLAUDE.md) that a second, overlapping
+    /// `setUp()` call for the same item — from whatever exact trigger — cannot be
+    /// ruled out, and each call independently fetches the resume position and
+    /// builds its own URL, so two overlapping calls can race with DIFFERENT
+    /// `startAt` values. Rather than track down every possible trigger, this is a
+    /// blanket guard mirroring the browser's `state.loadSeq` pattern (CLAUDE.md
+    /// "Request-Sequencing"): each `setUp()` call captures the generation counter
+    /// at entry and bails out (without creating an `AVPlayer` or reporting a play
+    /// start) if a NEWER call has started by the time it's ready to act — only the
+    /// most recent call ever wins.
+    @State private var setupGeneration = 0
 
     /// Audio-track switcher (User-Anfrage 2026-08-27: "Tonspur wählen können", zuerst für den
     /// Mac-Download von Kill Bill geprüft — der Download hatte bis dahin nur die englische Spur,
@@ -944,6 +962,8 @@ struct PlayerView: View {
     }
 
     private func setUp() async {
+        setupGeneration += 1
+        let myGeneration = setupGeneration
         errorMessage = nil
         // Protokoll-Ergänzung 2026-09-11 ("nicht nur Wiedergabe gestartet,
         // sondern auch beendet") — siehe reportStop()/reportError() unten;
@@ -1000,6 +1020,10 @@ struct PlayerView: View {
         do {
             let resumeSec = startFromBeginning ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
             let playback = try await client.playback(itemId: item.id, profile: preferredProfile)
+            // A newer setUp() call may have started (and possibly already finished) while
+            // the two awaits above were in flight — bail out before touching any shared
+            // state or issuing a play-start report, see `setupGeneration` doc comment.
+            guard myGeneration == setupGeneration else { return }
             // Bug-Fix 2026-09-11: NUR hier (der tatsächliche Play-Pfad), nie in
             // ItemDetailView.loadStreams — siehe reportPlaybackStart-Kommentar.
             Task { try? await client.reportPlaybackStart(itemId: item.id) }
@@ -1023,6 +1047,9 @@ struct PlayerView: View {
             if let ps = preferredSubtitle {
                 await loadSubtitleCues(ps)
             }
+            // Second checkpoint — `loadSubtitleCues` awaits too, another chance for a
+            // newer setUp() call to have taken over in the meantime.
+            guard myGeneration == setupGeneration else { return }
 
             let startAt = resumeSec > 5 ? resumeSec : 0
             // Real bug hit 2026-08-19 (User: "hatten wir schon im Browser") — same root

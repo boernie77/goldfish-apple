@@ -454,6 +454,48 @@ Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
   alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
   konsumieren die drei neuen Felder aber nirgends aktiv).
 
+### `setUp()`-Doppelaufruf-Guard: Stream-Fehler -12938/-16847 "HTTP 404/500" (seit Mac 230, 2026-09-13)
+
+User-Report: Wiedergabe scheiterte "immer" mit `Stream-Fehler (-12938): HTTP
+404` bzw. `(-16847): HTTP 500`, während der Server selbst laut Live-Diagnose
+einwandfrei lief. Server-seitige Logs (siehe Server-CLAUDE.md „Playback"-
+Abschnitt) zeigten ein Ping-Pong: dasselbe Item wurde binnen Sekunden
+wiederholt mit ZWEI unterschiedlichen `start=`-Werten angefragt (z. B. `0`
+dann `631.8` dann wieder `0` …) — jede neue Anfrage unterbrach die vorherige,
+bevor je eine Playlist fertig werden konnte. Nachdem der Server-seitige
+Workaround dafür (siehe dortiger Eintrag) selbst zur Regression wurde und
+wieder zurückgenommen wurde, war klar: die eigentliche Ursache sitzt hier,
+im Client, der diese zwei widersprüchlichen Anfragen überhaupt erst schickt.
+
+`PlayerView.setUp()` ist ein einziger linearer `async`-Ablauf (Resume-
+Position holen → `/api/playback/{id}` holen → URL bauen → `AVPlayer`
+erzeugen) — bei EINEM einzelnen Durchlauf können nie zwei verschiedene
+`start=`-Werte entstehen. Der Trigger, der `setUp()` ein zweites Mal für
+dasselbe Item überlappend anstößt, wurde NICHT eindeutig gefunden (kein
+offensichtlicher zweiter Aufrufer, `.task(id: item.id)` sollte laut Doku nur
+bei echtem Item-Wechsel neu laufen) — angesichts der ausführlich in diesem
+Dokument belegten Komplexität der Mac-Fenster-Verwaltung (`MainWindowRef`,
+mehrere eigenständige Fenster, Vollbild-Übergangs-Historie) ist ein
+überlappender zweiter Aufruf aber plausibel, ohne dass die exakte Stelle
+aufgespürt werden musste.
+
+**Fix — ein Blanket-Guard statt Ursachenforschung um jeden Preis** (Pendant
+zum Browser-Muster `state.loadSeq`, siehe Server-CLAUDE.md „Request-
+Sequencing"): neue `@State private var setupGeneration = 0`. `setUp()`
+erhöht sie beim Eintritt und merkt sich den eigenen Stand lokal
+(`myGeneration`); nach JEDEM `await`, der Zeit für einen zweiten,
+überlappenden Aufruf lässt (nach `client.getResume`+`client.playback`, und
+nochmal nach `loadSubtitleCues`), bricht ein `guard myGeneration ==
+setupGeneration else { return }` sofort ab — VOR jeder weiteren
+Zustandsänderung, VOR dem `reportPlaybackStart`-Report, VOR dem
+`AVPlayer(url:)`-Aufruf. Nur der zuletzt gestartete `setUp()`-Lauf kommt
+je durch. Läuft `setUp()` nur einmal (Normalfall), ändert der Guard nichts
+am Verhalten. Build lokal für GoldfishMac UND GoldfishiOS grün geprüft —
+die exakte Doppelaufruf-Ursache bleibt ungeklärt, sollte sie sich erneut
+zeigen (z. B. weiterhin doppelte `reportPlaybackStart`-Logs trotz dieses
+Guards), lohnt sich ein gezielter Blick auf die Fenster-Öffnen-Reihenfolge
+in `MainWindowRef`/den Sheet-vs-Fenster-Präsentationspfad.
+
 ### Vereinheitlichte Suchtreffer-Ansicht: Alben oben klickbar, Titel darunter (seit Mac 228, 2026-09-13)
 
 User-Wunsch: "Es kommt immer die gleiche Darstellung, egal ob ich vom grid
