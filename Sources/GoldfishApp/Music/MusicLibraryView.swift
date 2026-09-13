@@ -696,22 +696,40 @@ struct MusicLibraryView: View {
                 }
             }
             #else
-            VStack(spacing: 0) {
+            // Kopfbereich MUSS strukturell identisch zu `allTracksContent` sein
+            // (User-Report 2026-09-13, mit Screenshot: "Über und unter den
+            // Spaltenüberschriften ist eine Linie!!" — nur in "Alle Titel" sichtbar,
+            // in der Album-Übersicht fehlte sie komplett). Ursache war KEIN Stil-
+            // Unterschied, sondern eine echte Strukturabweichung: `allTracksContent`
+            // legt `musicActionRow`/`MusicTrackListHeader` als Zeilen DIREKT in die
+            // `List` (List zeichnet automatisch Trennlinien über/unter jeder eigenen
+            // Zeile) — diese Ansicht hatte Aktionsreihe+Kopfzeile bisher AUSSERHALB
+            // der List in einem separaten `VStack` stehen, wo nie eine Trennlinie
+            // gezeichnet wird. Fix: exakt dieselbe Struktur — EINE `List`, die auch
+            // die Aktionsreihe und die Kopfzeile als eigene Zeilen enthält, kein
+            // äußerer VStack mehr, kein manuelles `.padding()` (die Track-Variante
+            // hat das auch nicht — für echte Pixelgleichheit keine zusätzlichen
+            // Modifier hier einführen, die dort fehlen).
+            List {
                 musicActionRow(
                     disablePlayShuffle: filteredAlbums.isEmpty,
                     columnsContext: "albums",
                     onPlay: { Task { await playLibraryInOrder() } },
                     onShuffle: { Task { await shufflePlayLibrary() } }
                 )
-                .padding(.horizontal)
-                .padding(.vertical, 6)
                 MusicAlbumListHeader(
                     albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth,
                     lastPlayedWidth: $lastPlayedColWidth, playCountWidth: $playCountColWidth, addedWidth: $addedColWidth,
                     visibleColumns: visibleAlbumColumns,
                     sortOption: $sortOption, sortAscending: $sortAscending
                 )
-                List(filteredAlbums) { album in
+                // Zusätzlicher Abstand unter der Trennlinie der Kopfzeile
+                // (User-Wunsch 2026-09-13) — eine eigene, unsichtbare Zeile OHNE
+                // eigene Trennlinie (`.listRowSeparator(.hidden)`), statt Padding
+                // auf der Kopfzeile selbst zu erhöhen (das würde den Abstand
+                // zwischen Spaltentext und Linie vergrößern, nicht darunter).
+                Color.clear.frame(height: 8).listRowSeparator(.hidden)
+                ForEach(filteredAlbums) { album in
                     MusicAlbumRow(
                         album: album, albumWidth: albumColWidth, artistWidth: artistColWidth, genreWidth: genreColWidth,
                         lastPlayedWidth: lastPlayedColWidth, playCountWidth: playCountColWidth, addedWidth: addedColWidth,
@@ -720,8 +738,8 @@ struct MusicLibraryView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { navigateToAlbum = album }
                 }
-                .listStyle(.plain)
             }
+            .listStyle(.plain)
             #endif
         } else {
             ScrollView {
@@ -835,6 +853,9 @@ struct MusicLibraryView: View {
                     visibleColumns: visibleAllTracksColumns,
                     sortOption: $trackSortOption, sortAscending: $trackSortAscending
                 )
+                // Gleicher zusätzlicher Abstand wie in der Album-Übersicht, siehe
+                // Kommentar dort.
+                Color.clear.frame(height: 8).listRowSeparator(.hidden)
                 #endif
                 ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
                     #if os(macOS)
