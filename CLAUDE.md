@@ -454,6 +454,41 @@ Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
   alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
   konsumieren die drei neuen Felder aber nirgends aktiv).
 
+### Vereinheitlichte Suchtreffer-Ansicht: Alben oben klickbar, Titel darunter (seit Mac 228, 2026-09-13)
+
+User-Wunsch: "Es kommt immer die gleiche Darstellung, egal ob ich vom grid
+aus Suche, von der Albumlistenansicht oder von Alle Titel. Auf Linux werden
+oben die Alben als Treffer und unten die Titel angezeigt. So kann man auch
+auf ein Album klicken. Bitte so umbauen, wie es in Linux ist." — vorher
+zeigte eine Suche (außerhalb von "Alle Titel") IMMER nur die reine
+Titelliste (`allTracksContent`), Alben selbst waren nie als eigene,
+klickbare Treffer sichtbar; in "Alle Titel" selbst gab es gar keine
+Sonderbehandlung für Suche.
+
+- **`isSearching`** (`!search.isEmpty`) ersetzt das alte, engere
+  `showingTrackSearchResults` (`!search.isEmpty && displayMode !=
+  .allTracks`) — eine Suche zeigt jetzt IMMER dieselbe Trefferansicht,
+  unabhängig vom vorher aktiven `displayMode`.
+- **`musicSearchResultsContent`** (neu, komplett `#if os(macOS)`) — Pendant
+  zu `_render_search` in GoldfishLinux (`windows/music_page.py`): EINE
+  `List` mit zwei `Section`s. "Alben · N": `filteredAlbums` (bereits
+  such-/genre-/favoriten-gefiltert) als `LazyVGrid(.adaptive(minimum: 220))`
+  aus `MusicSearchAlbumChip`s (Cover 38pt + Titel/Künstler, Pendant zu
+  Linux' `_album_chip`), Klick öffnet das Album (`navigateToAlbum`) — auf
+  die ersten 48 Treffer gedeckelt, identisch zu Linux' `albums[:48]`.
+  "Titel · N": exakt dieselbe `MusicTrackListHeader`/`MusicTrackListRow`-
+  Infrastruktur wie "Alle Titel" (Kontext "allTracks", klickbare
+  Spaltensortierung inklusive) — Linux nutzt für seine Suchtreffer-Tabelle
+  ebenfalls dieselbe "allTracks"-Spaltenkonfiguration, kein eigener dritter
+  Spaltensatz.
+- **iOS/tvOS unverändert** (`#if os(macOS)` gated) — behalten die
+  bisherige reine Titelliste als Suchergebnis, kein Album-Kachel-Umbau dort
+  angefragt.
+- Build lokal verifiziert (`xcodebuild -scheme GoldfishMac` UND
+  `-scheme GoldfishiOS`, beide grün) — Klick-Interaktion nicht live in der
+  Session testbar (kein UI-Automatisierungswerkzeug für native macOS-
+  Fenster), sollte vom User im echten Fenster gegengeprüft werden.
+
 ### Klick-zum-Sortieren in den Musik-Spaltenköpfen + einheitliche Kopfzeile (seit 2026-09-13)
 
 User-Wunsch: "Der Kopfbereich schaut immer noch unterschiedlich aus ... bei
