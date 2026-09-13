@@ -308,13 +308,21 @@ struct MusicLibraryView: View {
             // "Shuffleplay fehlt in der Übersicht ... aus der kompletten
             // Bibliothek shuffeln") — unabhängig vom ⇄-Shuffle-Toggle in der
             // Mini-Leiste, der nur die AKTUELL laufende Queue mischt.
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await shufflePlayLibrary() }
-                } label: {
-                    Label("Zufallswiedergabe", systemImage: "shuffle")
+            // NUR im Kachelmodus (User-Wunsch 2026-09-14: "der Shuffle Button
+            // ist jetzt ja doppelt. Der obere kann bei Musik dann entfernt
+            // werden. Zumindest in der Listenansicht") — Listen-/Alle-Titel-
+            // Modus haben seither ihre eigene, inline Shuffle-Aktion direkt
+            // über der Titelliste (siehe `musicActionRow`), der Toolbar-Knopf
+            // wäre dort ein reines Duplikat.
+            if displayMode == .grid {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await shufflePlayLibrary() }
+                    } label: {
+                        Label("Zufallswiedergabe", systemImage: "shuffle")
+                    }
+                    .help("Zufällige Wiedergabe der ganzen Bibliothek")
                 }
-                .help("Zufällige Wiedergabe der ganzen Bibliothek")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -524,6 +532,17 @@ struct MusicLibraryView: View {
         downloadAllMissing(items, client: client, downloads: downloads)
     }
 
+    /// "Alle abspielen" für die Album-Listenansicht (User-Wunsch 2026-09-14:
+    /// dieselbe Aktionsreihe wie "Alle Titel" — dort ist "Alle abspielen"
+    /// serverseitig sortiert). Bewusst ein frischer Fetch statt des `allTracks`-
+    /// Zwischenspeichers aus dem "Alle Titel"-Modus, analog zu
+    /// `shufflePlayLibrary()` direkt darunter — beide Aktionen dieser Zeile
+    /// sollen unabhängig vom aktuell gewählten Anzeige-Modus funktionieren.
+    private func playLibraryInOrder() async {
+        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        musicPlayer.play(queue: items, startIndex: 0, client: client)
+    }
+
     /// Lädt ALLE Titel der Bibliothek (nicht nur das gerade offene Album) und
     /// startet die Wiedergabe gemischt ab einem zufälligen Titel — schaltet
     /// dafür auch gleich den Shuffle-Modus der Engine ein, damit `next()`
@@ -596,6 +615,15 @@ struct MusicLibraryView: View {
             }
             #else
             VStack(spacing: 0) {
+                musicActionRow(
+                    disablePlayShuffle: filteredAlbums.isEmpty,
+                    showRecentToggle: false,
+                    columnsContext: "albums",
+                    onPlay: { Task { await playLibraryInOrder() } },
+                    onShuffle: { Task { await shufflePlayLibrary() } }
+                )
+                .padding(.horizontal)
+                .padding(.vertical, 6)
                 MusicAlbumListHeader(
                     albumWidth: $albumColWidth, artistWidth: $artistColWidth, genreWidth: $genreColWidth,
                     lastPlayedWidth: $lastPlayedColWidth, playCountWidth: $playCountColWidth, addedWidth: $addedColWidth,
@@ -631,6 +659,72 @@ struct MusicLibraryView: View {
         }
     }
 
+    /// Gemeinsame Aktionsreihe für "Alle Titel" UND die Album-Listenansicht
+    /// (User-Wunsch 2026-09-14: "Diese müssen dann aber auch genauso bei der
+    /// Listenansicht der Alben sein, wenn es optisch gleich sein soll" +
+    /// "die Beschriftung der Buttons Alle Abspielen etc kann weg. Das Icon
+    /// reicht") — nur EINE Stelle für Play/Shuffle/Spalten-Menü, statt zwei
+    /// unabhängig gepflegter, potenziell auseinanderlaufender Kopien.
+    /// `.contentShape(Rectangle())` auf allen Buttons: siehe "Alle Titel"-
+    /// Bugfix-Historie oben (mehrere `Button`s in derselben List-Zeile ohne
+    /// eigene Trefferfläche lösten sich sonst gegenseitig aus). Farbe zeigt
+    /// den aktiven Wiedergabe-Modus (`musicPlayer.isShuffling`), braucht
+    /// dafür `.buttonStyle(.plain)` (sonst überschreibt die automatische
+    /// List-Blaufärbung die bedingte Farbe).
+    @ViewBuilder
+    private func musicActionRow(
+        disablePlayShuffle: Bool,
+        showRecentToggle: Bool,
+        columnsContext: String,
+        onPlay: @escaping () -> Void,
+        onShuffle: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Button(action: onPlay) {
+                Label("Alle abspielen", systemImage: "play.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(musicPlayer.isShuffling ? Color.primary : Color.accentColor)
+            .contentShape(Rectangle())
+            .disabled(disablePlayShuffle)
+            Button(action: onShuffle) {
+                Label("Shuffle abspielen", systemImage: "shuffle")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(musicPlayer.isShuffling ? Color.accentColor : Color.primary)
+            .contentShape(Rectangle())
+            .disabled(disablePlayShuffle)
+            if showRecentToggle {
+                // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" — siehe
+                // Kommentar bei `recentlyPlayedFirst` oben. Nur in "Alle
+                // Titel" sinnvoll (Alben haben keinen "zuletzt gehört"-Sort).
+                Button {
+                    recentlyPlayedFirst.toggle()
+                } label: {
+                    Label("Zuletzt abgespielt zuerst", systemImage: recentlyPlayedFirst ? "clock.fill" : "clock")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
+                .contentShape(Rectangle())
+                .help("Nach zuletzt gehörten Titeln sortieren")
+            }
+            #if os(macOS)
+            Spacer()
+            Menu {
+                MusicColumnsMenuContent(
+                    context: columnsContext,
+                    available: [.lastPlayed, .playCount, .added],
+                    defaultVisible: [],
+                    refreshToken: $musicColumnsRefresh
+                )
+            } label: {
+                Label("Spalten", systemImage: "line.3.horizontal")
+            }
+            #endif
+        }
+        .labelStyle(.iconOnly)
+    }
+
     /// "Alle Titel"-Inhalt — inline statt Sheet (User-Wunsch 2026-09-11), teilt
     /// sich das Suchfeld der Bibliotheksansicht (filtert dann Titel statt Alben).
     @ViewBuilder
@@ -641,78 +735,19 @@ struct MusicLibraryView: View {
             ContentUnavailableMessage(text: "Keine Titel gefunden.")
         } else {
             List {
-                HStack {
-                    // `.contentShape(Rectangle())` ist auf ALLEN drei Buttons
-                    // nötig (User-Report 2026-09-14: "er reagiert auch auf
-                    // Klick von Play und shuffel" — die blaue Standardfarbe
-                    // selbst war laut User ausdrücklich "sogar gut", bleibt
-                    // also unangetastet). Ursache: ein bekannter SwiftUI/List-
-                    // Bug, bei dem mehrere `Button`s in derselben Zeile ohne
-                    // eigene, klar abgegrenzte Trefferfläche gemeinsam statt
-                    // einzeln auslösen — ein Klick auf "Play" toggelte dabei
-                    // sichtbar auch den dritten (Uhr-)Button mit aus. Fix:
-                    // `.contentShape(Rectangle())` grenzt die Trefferfläche
-                    // jedes Buttons exakt auf sein eigenes Label ein, statt
-                    // sie implizit von der List-Zeile erben zu lassen.
-                    // Farbe zeigt den AKTIVEN Wiedergabe-Modus (User-Wunsch
-                    // 2026-09-14: "jeder aktive Button soll blau werden. Also
-                    // auch Play und shuffel") — braucht `.buttonStyle(.plain)`,
-                    // sonst überschreibt die automatische List-Blaufärbung
-                    // (siehe Kommentar oben) die bedingte Farbe auch im
-                    // "inaktiv"-Zustand.
-                    Button {
-                        musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client)
-                    } label: {
-                        Label("Alle abspielen", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(musicPlayer.isShuffling ? Color.primary : Color.accentColor)
-                    .contentShape(Rectangle())
-                    .disabled(filteredTracks.isEmpty)
-                    Button {
+                musicActionRow(
+                    disablePlayShuffle: filteredTracks.isEmpty,
+                    showRecentToggle: true,
+                    columnsContext: "allTracks",
+                    onPlay: { musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client) },
+                    onShuffle: {
                         // Hörbücher auch hier vom Shuffle ausschließen,
                         // siehe Kommentar in `shufflePlayLibrary()`.
                         let playable = filteredTracks.filter { !$0.isLikelyAudiobook }
                         guard !playable.isEmpty else { return }
                         musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client, shuffle: true)
-                    } label: {
-                        Label("Shuffle abspielen", systemImage: "shuffle")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(musicPlayer.isShuffling ? Color.accentColor : Color.primary)
-                    .contentShape(Rectangle())
-                    .disabled(filteredTracks.isEmpty)
-                    // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" —
-                    // siehe Kommentar bei `recentlyPlayedFirst` oben.
-                    Button {
-                        recentlyPlayedFirst.toggle()
-                    } label: {
-                        Label("Zuletzt abgespielt zuerst", systemImage: recentlyPlayedFirst ? "clock.fill" : "clock")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(recentlyPlayedFirst ? Color.accentColor : Color.primary)
-                    .contentShape(Rectangle())
-                    .help("Nach zuletzt gehörten Titeln sortieren")
-                    #if os(macOS)
-                    Spacer()
-                    Menu {
-                        MusicColumnsMenuContent(
-                            context: "allTracks",
-                            available: [.lastPlayed, .playCount, .added],
-                            defaultVisible: [],
-                            refreshToken: $musicColumnsRefresh
-                        )
-                    } label: {
-                        Label("Spalten", systemImage: "line.3.horizontal")
-                    }
-                    #endif
-                }
-                // Siehe Kommentar in MusicAlbumDetailView.header — Text+Icon-
-                // Labels quetschen sich auf iPhone-Breite silbengetrennt
-                // vertikal um.
-                #if os(iOS)
-                .labelStyle(.iconOnly)
-                #endif
+                )
                 // macOS: dieselbe Spalten-Kopfzeile + feste Breiten wie die
                 // Album-Listenansicht (User-Wunsch 2026-09-14, siehe
                 // `atTitleWidth` oben) — vorher eine optisch andere,

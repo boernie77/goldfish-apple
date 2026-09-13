@@ -684,3 +684,41 @@ keinen Sinn, gleiche Begründung wie bei `MusicAlbumRowCompact`):
 - `GoldfishMac`/`GoldfishiOS` bauen beide fehlerfrei (die neuen Structs sind
   komplett `#if os(macOS)`-gated, referenzieren `MusicColumn` — ein
   macOS-only Typ).
+
+**Zweite Runde, noch am selben Tag — vollständige optische Angleichung
+(Mac/iOS 224, Screenshot-Feedback):** die erste Runde deckte nur Spalten/
+Header ab; die Aktionsreihe selbst (Play/Shuffle/Uhr-Toggle) blieb auf
+"Alle Titel" beschränkt und zeigte auf macOS weiterhin Text+Icon, während
+die Album-Listenansicht GAR KEINE Aktionsreihe hatte — beide Lücken waren
+im Screenshot klar sichtbar (unterschiedliche Kopfzeilen-Optik, weil der
+Album-Liste die Zeile darüber fehlte, die den optischen Rahmen erst
+herstellt).
+
+- **Neue gemeinsame Funktion `musicActionRow(disablePlayShuffle:
+  showRecentToggle:columnsContext:onPlay:onShuffle:)`** — EIN Bauplan für
+  Play/Shuffle/(optional Uhr-Toggle)/Spalten-Menü, von "Alle Titel" UND der
+  Album-Listenansicht gemeinsam genutzt, statt zwei unabhängiger Kopien, die
+  wieder hätten auseinanderlaufen können.
+- **`.labelStyle(.iconOnly)` jetzt IMMER** (vorher nur `#if os(iOS)`) — User-
+  Wunsch: "die Beschriftung der Buttons Alle Abspielen etc kann weg. Das
+  Icon reicht." Gilt jetzt auch für macOS.
+- **Album-Listenansicht bekommt dieselbe Aktionsreihe** (Play/Shuffle,
+  KEIN Uhr-Toggle — "zuletzt gehört" hat auf Album-Ebene keine sinnvolle
+  Entsprechung, `showRecentToggle: false`). Neue Funktion
+  `playLibraryInOrder()` (frischer `client.fetchItems`-Fetch, spielt ab
+  Index 0 in Server-Sortierung) als Play-Pendant zum bereits vorhandenen
+  `shufflePlayLibrary()` — beide unabhängig vom gerade gewählten
+  Anzeige-Modus, kein `allTracks`-Zwischenspeicher-Umweg nötig.
+- **Oberer Toolbar-"Zufallswiedergabe"-Knopf jetzt NUR im Kachelmodus**
+  (User: "der Shuffle Button ist jetzt ja doppelt. Der obere kann bei Musik
+  dann entfernt werden. Zumindest in der Listenansicht") — `ToolbarItem`
+  steht jetzt hinter `if displayMode == .grid`. Liste UND "Alle Titel" haben
+  beide ihre eigene, inline Shuffle-Aktion direkt über der Titel-/
+  Albenliste; der Kachelmodus (ohne solche Zeile) behält den Toolbar-Knopf.
+- Der optische "Rahmen um die Überschriften", den der User in der Album-
+  Listenansicht vermisste, war kein fehlendes Styling-Attribut, sondern
+  schlicht die fehlende Aktionsreihe DARÜBER — `MusicAlbumListHeader` nutzt
+  von Anfang an dieselben `MusicColumnResizeHandle`-Trennlinien wie
+  `MusicTrackListHeader`. Mit der jetzt ergänzten Aktionsreihe sitzen beide
+  Kopfzeilen im selben Kontext und wirken dadurch identisch.
+- Getestet per Live-Install auf dem echten iPhone.
