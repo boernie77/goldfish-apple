@@ -550,6 +550,19 @@ angefragt, NICHT iOS/tvOS.
   `GoldfishCore`). `GoldfishMac`/`GoldfishiOS`/`GoldfishTV` bauen weiterhin
   alle drei fehlerfrei (Änderung komplett `#if os(macOS)`-gated).
 
+### iOS-Testinstallation auf echtem Gerät (Build 201, 2026-09-14)
+
+User-Wunsch: "Bitte iOS auch auf mein Iphone pushen, damit ich es dort
+testen kann" — deckt die Hörbuch-Shuffle-Fixe unten ab (das Modell-Feld
+`Item.isLikelyAudiobook` ist plattformübergreifend). Build+Install per CLI
+(`xcodebuild -scheme GoldfishiOS -destination 'id=<UDID>'
+-allowProvisioningUpdates build`, danach `xcrun devicectl device install
+app` — siehe „Architektur-Kurzfassung" oben für die generelle Konvention).
+`xcrun devicectl device process launch` schlug fehl, weil das iPhone zum
+Zeitpunkt des Aufrufs gesperrt war (`FBSOpenApplicationErrorDomain error 7,
+"Locked"`) — kein Bug, App war bereits korrekt installiert, User musste sie
+nur von Hand entsperren+öffnen.
+
 ### Musik-Shuffle: Hörbuch-Erkennung auch per Namen (Mac/iOS 222, 2026-09-14)
 
 Nachtrag zum gleichnamigen Server-Fix (siehe Server-CLAUDE.md „Shuffle-Play"):
