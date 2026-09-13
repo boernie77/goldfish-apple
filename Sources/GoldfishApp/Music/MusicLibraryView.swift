@@ -724,11 +724,17 @@ struct MusicLibraryView: View {
                     sortOption: $sortOption, sortAscending: $sortAscending
                 )
                 // Zusätzlicher Abstand unter der Trennlinie der Kopfzeile
-                // (User-Wunsch 2026-09-13) — eine eigene, unsichtbare Zeile OHNE
-                // eigene Trennlinie (`.listRowSeparator(.hidden)`), statt Padding
-                // auf der Kopfzeile selbst zu erhöhen (das würde den Abstand
-                // zwischen Spaltentext und Linie vergrößern, nicht darunter).
-                Color.clear.frame(height: 8).listRowSeparator(.hidden)
+                // (User-Wunsch 2026-09-13) — eine eigene, unsichtbare Zeile
+                // zwischen Kopfzeile und erster Datenzeile. `edges: .bottom`
+                // (statt pauschal `.hidden`) ist hier wichtig: `.hidden` ohne
+                // `edges:` blendet BEIDE Trennlinien dieser Zeile aus — damit
+                // verschwand die eigentlich gewünschte Linie UNTER der
+                // Kopfzeile gleich mit (die "obere" Linie dieser Abstandszeile
+                // IST die untere Linie der Kopfzeile, dieselbe Trennlinie).
+                // Nur die EIGENE untere Trennlinie dieser Zeile (zur ersten
+                // Datenzeile hin) wird ausgeblendet, sonst gäbe es dort zwei
+                // Linien mit nur 8pt Abstand dazwischen.
+                Color.clear.frame(height: 8).listRowSeparator(.hidden, edges: .bottom)
                 ForEach(filteredAlbums) { album in
                     MusicAlbumRow(
                         album: album, albumWidth: albumColWidth, artistWidth: artistColWidth, genreWidth: genreColWidth,
@@ -855,7 +861,7 @@ struct MusicLibraryView: View {
                 )
                 // Gleicher zusätzlicher Abstand wie in der Album-Übersicht, siehe
                 // Kommentar dort.
-                Color.clear.frame(height: 8).listRowSeparator(.hidden)
+                Color.clear.frame(height: 8).listRowSeparator(.hidden, edges: .bottom)
                 #endif
                 ForEach(Array(filteredTracks.enumerated()), id: \.element.id) { idx, track in
                     #if os(macOS)
