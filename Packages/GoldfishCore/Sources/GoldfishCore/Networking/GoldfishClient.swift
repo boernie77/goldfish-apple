@@ -759,6 +759,22 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/playback/\(itemId)/start", method: "POST")
     }
 
+    /// Setzt `last_played_at` für dieses Item (Server: `TouchLastPlayed`,
+    /// treibt u. a. den "Zuletzt abgespielt"-Sortiermodus und die "Zuletzt
+    /// gehört"-Musikspalte). User-Report 2026-09-13: "in der App geht zuletzt
+    /// abgespielt immer noch nicht" — dieser Endpoint (`POST /items/{id}/
+    /// played`) wurde von der Mac-App nie aufgerufen, ganz unabhängig von den
+    /// gleichzeitig gefixten Playback-Session-Bugs. Der Browser ruft ihn bei
+    /// JEDEM Player-Öffnen (siehe Server-CLAUDE.md "Gerät + Wiedergabe-Ende/
+    /// -Fehler": "derselbe, längst universelle Mechanismus hinter 'Zuletzt
+    /// abgespielt'") — bewusst getrennt von `reportPlaybackStart` oben (das
+    /// ist reines Aktivitäts-Protokoll fürs Admin-Log, dieser hier ist die
+    /// tatsächliche Sortier-/Anzeige-Datengrundlage). Best-effort wie die
+    /// anderen `report*`-Aufrufe.
+    public func touchPlayed(itemId: Int64) async throws {
+        try await performVoid("/api/items/\(itemId)/played", method: "POST")
+    }
+
     /// Gegenstück zu `playback(itemId:...)` fürs Server-Protokoll (User-Wunsch
     /// 2026-09-11: "nicht nur Wiedergabe gestartet, sondern auch beendet").
     /// `reason`: "ended" (natürlich zu Ende gelaufen) oder "closed" (Player

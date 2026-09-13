@@ -454,6 +454,48 @@ Server-CLAUDE.md „Musik-Bibliotheken"), diese App-seitige Umsetzung ist
   alle drei sauber (Modelländerungen sind gemeinsame Datei, iOS/tvOS
   konsumieren die drei neuen Felder aber nirgends aktiv).
 
+### "Zuletzt abgespielt" fehlte komplett — `touchPlayed` nie aufgerufen (seit Mac 231, 2026-09-13)
+
+User-Report (nach dem `setUp()`-Doppelaufruf-Fix, siehe Eintrag direkt
+darunter): "in der App geht zuletzt abgespielt immer noch nicht!!" —
+Live-Check per SQL direkt gegen die Server-DB bestätigte: `last_played_at`
+wurde für keins der zuletzt getesteten Items gesetzt, obwohl `resume_pos_sec`
+(ein komplett anderer Mechanismus) korrekt aktualisiert wurde.
+
+**Root Cause, unabhängig von den gleichzeitig gefixten Session-Bugs:**
+`GoldfishClient` hatte **nie** eine Methode für `POST /api/items/{id}/played`
+— den Endpoint, der laut Server-CLAUDE.md ("Gerät + Wiedergabe-Ende/-Fehler")
+der "längst universelle Mechanismus hinter 'Zuletzt abgespielt'" ist, den
+"JEDER Client beim Öffnen des Players bereits ruft". Nur `reportPlaybackStart`
+(`POST /playback/{id}/start`, reines Admin-Aktivitätsprotokoll) existierte —
+mit `touchPlayed` verwechselbar ähnlich benannt/positioniert im Code, aber
+technisch komplett getrennt (unterschiedliche Endpoints, unterschiedliche
+DB-Felder).
+- **Vollständiger Endpunkt-Audit auf User-Wunsch** ("überprüfe gleich alle
+  Endpunkte, ob diese vorhanden sind und richtig verdrahtet"): alle in
+  `GoldfishClient.swift` verwendeten Pfade gegen die komplette Server-
+  Routenliste (`router.go`) abgeglichen — **keine falsch verdrahteten
+  Endpunkte gefunden** (jeder von der App verwendete Pfad+Methode existiert
+  exakt so serverseitig). Untertitel-/Trailer-/Transcode-URLs sind ohnehin
+  server-geliefert (`fetchText(serverPath:)` nimmt einen vom Server in der
+  Playback-Antwort gelieferten Pfad entgegen, kein hartcodierter Client-Pfad)
+  — dort kann strukturell kein Pfad-Mismatch entstehen.
+- **Weitere Lücke gefunden, bewusst NICHT behoben (Rückfrage an User
+  ausstehend):** `PUT /items/{id}/rating` (persönliche Sternebewertung,
+  nur `kind=private`) existiert im Browser, hat aber nie ein Pendant in der
+  Mac-App bekommen — kein Regressions-Bug, wirkt wie ein nie gebautes
+  Feature.
+- **Nebenbeobachtung, kein Bug:** Schauspielerfotos (`CastStripView.swift`,
+  `ShowSeasonsView.swift`) laden direkt von TMDB (`tmdbImageURL`) statt über
+  den eigenen `/api/person/{id}/profile`-Cache-Proxy — funktioniert, nutzt
+  nur den Server-Cache nicht mit.
+
+**Fix:** `GoldfishClient.touchPlayed(itemId:)` neu (`POST /items/{id}/
+played`), aufgerufen aus `PlayerView.setUp()` (Server-Streaming-Pfad UND
+Offline-Downloads-Pfad) sowie `MusicPlayerEngine`, jeweils direkt neben dem
+bestehenden `reportPlaybackStart`-Aufruf. Best-effort (`try?`), genau wie
+die anderen `report*`-Aufrufe.
+
 ### `setUp()`-Doppelaufruf-Guard: Stream-Fehler -12938/-16847 "HTTP 404/500" (seit Mac 230, 2026-09-13)
 
 User-Report: Wiedergabe scheiterte "immer" mit `Stream-Fehler (-12938): HTTP

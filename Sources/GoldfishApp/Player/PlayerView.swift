@@ -1014,6 +1014,10 @@ struct PlayerView: View {
             }
             p.play()
             startResumeTimer(for: p)
+            // Best-effort — offline abgespielte Downloads sollen, sobald wieder
+            // Netz da ist, ebenfalls in "Zuletzt abgespielt" auftauchen; ohne
+            // Netz schlägt das einfach lautlos fehl (siehe `touchPlayed`-Kommentar).
+            Task { try? await client.touchPlayed(itemId: item.id) }
             return
         }
 
@@ -1027,6 +1031,10 @@ struct PlayerView: View {
             // Bug-Fix 2026-09-11: NUR hier (der tatsächliche Play-Pfad), nie in
             // ItemDetailView.loadStreams — siehe reportPlaybackStart-Kommentar.
             Task { try? await client.reportPlaybackStart(itemId: item.id) }
+            // "Zuletzt abgespielt" (User-Report 2026-09-13: "geht immer noch
+            // nicht") — dieser Aufruf fehlte hier komplett, siehe Kommentar
+            // bei `touchPlayed` in GoldfishClient.
+            Task { try? await client.touchPlayed(itemId: item.id) }
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
             playbackQualityLabel = Self.qualityLabel(for: playback)
