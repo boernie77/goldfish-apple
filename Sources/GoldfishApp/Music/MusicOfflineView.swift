@@ -46,8 +46,7 @@ struct MusicOfflineView: View {
                             // `MusicLibraryView.shufflePlayLibrary()`.
                             let playable = offlineTracks.filter { !$0.isLikelyAudiobook }
                             guard !playable.isEmpty else { return }
-                            musicPlayer.isShuffling = true
-                            musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
+                            musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client, shuffle: true)
                         } label: {
                             Label("Shuffle", systemImage: "shuffle")
                         }

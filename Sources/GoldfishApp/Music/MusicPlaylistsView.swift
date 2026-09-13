@@ -217,8 +217,7 @@ struct MusicPlaylistDetailView: View {
                             Label("Alle abspielen", systemImage: "play.fill")
                         }
                         Button {
-                            musicPlayer.isShuffling = true
-                            musicPlayer.play(queue: tracks.shuffled(), startIndex: 0, client: client)
+                            musicPlayer.play(queue: tracks.shuffled(), startIndex: 0, client: client, shuffle: true)
                         } label: {
                             Label("Shuffle", systemImage: "shuffle")
                         }

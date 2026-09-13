@@ -80,9 +80,23 @@ final class MusicPlayerEngine: ObservableObject {
     /// Startet Wiedergabe einer neuen Queue ab `startIndex` — Klick auf einen Titel in
     /// `MusicAlbumDetailView`/`MusicLibraryView`. Ruft ausschließlich innerhalb dieser
     /// Bibliothek gehörende Tracks als Queue durch, analog zu `state.playQueue` im Browser.
-    func play(queue: [Item], startIndex: Int, client: GoldfishClient) {
+    ///
+    /// `shuffle` setzt `isShuffling` IMMER explizit (nie nur bei `true` — siehe
+    /// `next(client:)`, das bei `isShuffling` den nächsten Titel zufällig statt
+    /// sequentiell wählt). **Bug, gefixt 2026-09-14** (User-Report: "wenn ich
+    /// auf Play drücke, sollte ab dem ersten Titel alles was offen/sortiert/
+    /// gefiltert ist, gespielt werden. Das tut es nicht, sondern auch
+    /// zufällig"): jeder Aufrufer setzte `isShuffling` bisher NUR beim
+    /// Shuffle-Fall manuell auf `true`, ein normaler "Play"-Klick ließ ein
+    /// zuvor aktiviertes Shuffle unangetastet — der erste Titel spielte zwar
+    /// korrekt (per `startIndex` explizit gewählt), aber `next()` sprang
+    /// danach weiterhin zufällig, weil `isShuffling` nie zurückgesetzt wurde.
+    /// Jetzt EIN Parameter an EINER Stelle für ALLE Aufrufer, kein Call-Site-
+    /// spezifisches Vergessen mehr möglich.
+    func play(queue: [Item], startIndex: Int, client: GoldfishClient, shuffle: Bool = false) {
         self.queue = queue
         self.currentIndex = startIndex
+        self.isShuffling = shuffle
         Task { await loadAndPlayCurrent(client: client) }
     }
 

@@ -541,8 +541,7 @@ struct MusicLibraryView: View {
         // zu starten ergibt beim Musik-Shuffle keinen Sinn.
         let playable = items.filter { !$0.isLikelyAudiobook }
         guard !playable.isEmpty else { return }
-        musicPlayer.isShuffling = true
-        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
+        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client, shuffle: true)
     }
 
     private func loadAllTracks() async {
@@ -655,11 +654,19 @@ struct MusicLibraryView: View {
                     // `.contentShape(Rectangle())` grenzt die Trefferfläche
                     // jedes Buttons exakt auf sein eigenes Label ein, statt
                     // sie implizit von der List-Zeile erben zu lassen.
+                    // Farbe zeigt den AKTIVEN Wiedergabe-Modus (User-Wunsch
+                    // 2026-09-14: "jeder aktive Button soll blau werden. Also
+                    // auch Play und shuffel") — braucht `.buttonStyle(.plain)`,
+                    // sonst überschreibt die automatische List-Blaufärbung
+                    // (siehe Kommentar oben) die bedingte Farbe auch im
+                    // "inaktiv"-Zustand.
                     Button {
                         musicPlayer.play(queue: filteredTracks, startIndex: 0, client: client)
                     } label: {
                         Label("Alle abspielen", systemImage: "play.fill")
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(musicPlayer.isShuffling ? Color.primary : Color.accentColor)
                     .contentShape(Rectangle())
                     .disabled(filteredTracks.isEmpty)
                     Button {
@@ -667,11 +674,12 @@ struct MusicLibraryView: View {
                         // siehe Kommentar in `shufflePlayLibrary()`.
                         let playable = filteredTracks.filter { !$0.isLikelyAudiobook }
                         guard !playable.isEmpty else { return }
-                        musicPlayer.isShuffling = true
-                        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client)
+                        musicPlayer.play(queue: playable.shuffled(), startIndex: 0, client: client, shuffle: true)
                     } label: {
                         Label("Shuffle abspielen", systemImage: "shuffle")
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(musicPlayer.isShuffling ? Color.accentColor : Color.primary)
                     .contentShape(Rectangle())
                     .disabled(filteredTracks.isEmpty)
                     // User-Wunsch 2026-09-11: "Filter zuletzt abgespielt" —

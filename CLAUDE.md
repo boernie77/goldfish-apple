@@ -592,6 +592,32 @@ gerne blau sein". Zwei getrennte Fragen, ein gemeinsamer Fix-Ort:
 - Getestet per Live-Install auf dem echten iPhone (`xcrun devicectl device
   install app`, siehe „iOS-Testinstallation" oben) — kein Simulator-Only-Fix.
 
+**Nachtrag, noch am selben Tag (User-Präzisierung: "Also ich möchte, dass
+jeder aktive Button blau wird. Also auch Play und shuffel"):** "Alle
+abspielen"/"Shuffle abspielen" bekommen jetzt ebenfalls `.buttonStyle(.plain)`
++ eine bedingte Farbe — blau zeigt den gerade AKTIVEN Wiedergabe-Modus
+(`musicPlayer.isShuffling`), nicht mehr die reine Standard-List-Blaufärbung.
+Play ist blau, wenn NICHT geshuffelt wird; Shuffle ist blau, wenn geshuffelt
+wird — spiegelt exakt den tatsächlichen Player-Zustand.
+
+**Zweiter, eigentlicher Bug im selben Bericht** (User: "Wenn ich auf Play
+drücke, sollte doch ab dem Ersten Titel alles was offen/sortiert/gefiltert
+ist, gespielt werden. Das tut es nicht, sondern auch zufällig"):
+`MusicPlayerEngine.play(queue:startIndex:client:)` setzte `isShuffling`
+bisher NIRGENDS selbst — jeder Aufrufer musste es manuell VOR dem `play(...)`-
+Aufruf setzen, und nur die fünf tatsächlichen Shuffle-Buttons taten das
+(`isShuffling = true`). Ein normaler "Play"-Klick nach einem vorherigen
+Shuffle ließ `isShuffling` also `true` stehen — der erste Titel spielte zwar
+korrekt (per explizitem `startIndex`), aber `next(client:)` (siehe dort)
+wählte den NÄCHSTEN Titel weiterhin zufällig, weil es `isShuffling` prüft,
+nicht die Aufrufhistorie. Fix: `play(...)` bekam einen neuen Parameter
+`shuffle: Bool = false`, der IMMER (nicht nur bei `true`) `self.isShuffling`
+setzt — an EINER Stelle für alle 15 Aufrufer im gesamten Musik-Modul
+(Album-Übersicht, Album-Detail, "Alle Titel", Offline, Playlists) statt
+eines pro Aufrufer wiederholten, leicht vergessbaren manuellen Zurücksetzens.
+Die fünf echten Shuffle-Aufrufe übergeben jetzt `shuffle: true` direkt an
+`play(...)` statt vorher `musicPlayer.isShuffling = true` separat zu setzen.
+
 ### Musik-Shuffle: Hörbuch-Erkennung auch per Namen (Mac/iOS 222, 2026-09-14)
 
 Nachtrag zum gleichnamigen Server-Fix (siehe Server-CLAUDE.md „Shuffle-Play"):
