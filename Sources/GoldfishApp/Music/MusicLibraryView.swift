@@ -1023,6 +1023,14 @@ private struct MusicSearchAlbumChip: View {
                 }
             }
             Spacer(minLength: 0)
+            // Titelzahl (User-Wunsch 2026-09-13) — gleiche Formulierung wie
+            // das Titelzahl-Badge auf der normalen Album-Kachel
+            // (`MusicAlbumCard`: "\(count) Titel").
+            if let count = album.trackCount, count > 0 {
+                Text("\(count) Titel")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(8)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
