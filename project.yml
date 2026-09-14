@@ -195,7 +195,7 @@ targets:
         # unzuverlässig, gleiche Fehlerklasse wie das dokumentierte tvOS-
         # Menu-Problem), Musik pausierte beim Sperren (fehlender
         # `audio`-UIBackgroundMode). Alle vier gefixt.
-        CFBundleShortVersionString: "1.4"
+        CFBundleShortVersionString: "1.5"
         CFBundleVersion: "203"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
@@ -270,7 +270,7 @@ targets:
         # vorher technisch immer eine fast-eckige RoundedRectangle). Der
         # experimentelle Uebersicht-Button (Build 7) wieder entfernt --
         # funktionierte auf dem Geraet nicht zuverlaessig genug.
-        CFBundleShortVersionString: "1.1"
+        CFBundleShortVersionString: "1.2"
         CFBundleVersion: "9"
     settings:
       base:
