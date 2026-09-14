@@ -1,5 +1,6 @@
 import SwiftUI
 import GoldfishCore
+import AVFoundation
 
 struct ItemDetailView: View {
     let item: Item
@@ -47,6 +48,15 @@ struct ItemDetailView: View {
     /// zu begrenzen). `nil` = Automatisch (Server-Default `orig`, kein Downscale-Cap).
     @State private var availableProfiles: [PlaybackProfile] = []
     @State private var pickedProfile: String? = nil
+    /// User-Wunsch 2026-09-14: "wenn ein Video heruntergeladen worden ist, soll auf der
+    /// Infoseite stehen, wie die Auflösung des Downloads ist, und die Größe" — die
+    /// Server-Werte oben (`selectedItem.resolutionLabel`/`sizeLabel`) beschreiben die
+    /// ORIGINALDATEI auf dem Server, die kann aber von der tatsächlich heruntergeladenen
+    /// Datei abweichen ("Optimierte Downloads" skaliert bei Bedarf herunter, siehe
+    /// Server-CLAUDE.md "Download & Löschen"). Die Größe liefert `DownloadRecord
+    /// .bytesWritten` direkt, die Auflösung gibt es dort nicht — wird deshalb einmalig
+    /// per `AVAsset` aus der lokalen Datei gelesen, sobald ein Download existiert.
+    @State private var downloadResolutionLabel: String? = nil
     #if os(tvOS)
     // tvOS-Fix 2026-09-03 (User-Report: Fernbedienung reagiert im Detail-Dialog
     // nicht — Fokus blieb sichtbar auf der Tab-Leiste hängen): beim Öffnen einer
@@ -126,6 +136,20 @@ struct ItemDetailView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if downloads.isDownloaded(itemId: selectedItem.id) {
+                    HStack(spacing: 12) {
+                        Label("Download", systemImage: "arrow.down.circle.fill")
+                        if let downloadResolutionLabel, !downloadResolutionLabel.isEmpty {
+                            Text(downloadResolutionLabel)
+                        }
+                        if let downloadSizeLabel {
+                            Text(downloadSizeLabel)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
                 if let rating = item.metadata?.rating, rating > 0 {
                     Label(String(format: "%.1f", rating), systemImage: "star.fill")
@@ -347,9 +371,13 @@ struct ItemDetailView: View {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
             await loadStreams(for: selectedItem.id)
             await loadTrailer()
+            await loadDownloadResolution(for: selectedItem.id)
         }
         .onChange(of: selectedItem.id) { newID in
-            Task { await loadStreams(for: newID) }
+            Task {
+                await loadStreams(for: newID)
+                await loadDownloadResolution(for: newID)
+            }
         }
         #if os(macOS)
         .onChange(of: showPlayer) { newValue in
@@ -386,6 +414,36 @@ struct ItemDetailView: View {
     private var sizeLabel: String? {
         guard let bytes = selectedItem.sizeBytes, bytes > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private var downloadSizeLabel: String? {
+        guard let bytes = downloads.records[selectedItem.id]?.bytesWritten, bytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// Liest die tatsächliche Auflösung der heruntergeladenen Datei per `AVAsset` — die
+    /// Server-Metadaten (`item.resolutionLabel`) beschreiben nur die Originaldatei, ein
+    /// per "Optimierte Downloads" herunterskalierter Download kann davon abweichen.
+    /// Gleiche Bucket-Formel wie `Item.resolutionLabel`, damit beide Anzeigen konsistent
+    /// wirken (z.B. "1080p" statt einer rohen Pixelzahl).
+    private func loadDownloadResolution(for itemId: Int64) async {
+        downloadResolutionLabel = nil
+        guard let url = downloads.localFileURL(itemId: itemId) else { return }
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let size = try? await track.load(.naturalSize),
+              let transform = try? await track.load(.preferredTransform) else { return }
+        let transformed = size.applying(transform)
+        let width = abs(transformed.width)
+        let height = abs(transformed.height)
+        guard width > 0, height > 0 else { return }
+        let effective = max(height, width * 9.0 / 16.0)
+        switch effective {
+        case 2000...: downloadResolutionLabel = "4K"
+        case 1000..<2000: downloadResolutionLabel = "1080p"
+        case 700..<1000: downloadResolutionLabel = "720p"
+        default: downloadResolutionLabel = "\(Int(effective))p"
+        }
     }
 
     @ViewBuilder
