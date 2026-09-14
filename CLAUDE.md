@@ -213,6 +213,27 @@ Chronologisch, Build 0100 (2026-08-19) bis Build 206:
   zeigt noch keine FSK — der Server liefert dafür aktuell KEIN Age-Rating-
   Feld im `ShowOut`-Struct.
 
+## Download-Auflösung + -Größe im Detail-Dialog (Mac/iOS/tvOS, seit Build 234/203/9, 2026-09-14)
+
+- User-Wunsch: "wenn ein Video heruntergeladen worden ist, soll auf der
+  Infoseite des Filmes stehen, wie die Auflösung des Downloads ist, und die
+  Größe" — die vorhandene Auflösungs-/Größen-Anzeige (siehe oben) beschreibt
+  die ORIGINALDATEI auf dem Server, die seit "Optimierte Downloads" (Server-
+  CLAUDE.md „Download & Löschen") von der tatsächlich heruntergeladenen
+  Datei abweichen kann.
+- Größe kommt direkt aus `DownloadRecord.bytesWritten` (bereits vorhanden,
+  kein neues Feld nötig). Auflösung gibt es dort nicht — wird per `AVAsset`
+  (`loadTracks(withMediaType: .video)` + `naturalSize`/`preferredTransform`)
+  einmalig aus der lokalen Datei gelesen, sobald ein Download existiert
+  (`ItemDetailView.loadDownloadResolution(for:)`, läuft in `.task`/
+  `.onChange(of: selectedItem.id)`). Gleiche Bucket-Formel wie
+  `Item.resolutionLabel` (max(height, width·9/16) → "4K"/"1080p"/…), damit
+  beide Anzeigen konsistent wirken.
+- Neue Zeile `Label("Download", systemImage: "arrow.down.circle.fill")` +
+  Auflösung + Größe, sichtbar bei `downloads.isDownloaded(itemId:)` — sitzt
+  in der gemeinsamen `ItemDetailView`-Body-Struktur, also automatisch auf
+  allen drei Plattformen inkl. tvOS (das dort ebenfalls Downloads hat).
+
 ## Detail-Ansicht: Aktions-Reihe höher (macOS + iOS, seit Build 215/199, 2026-09-13)
 
 User-Wunsch: "Abspielen und Offline Speichern (inkl der Buttons für Favorit/
