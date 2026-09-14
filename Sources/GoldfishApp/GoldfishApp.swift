@@ -27,6 +27,10 @@ struct GoldfishApp: App {
             print("[audio] AVAudioSession-Konfiguration fehlgeschlagen: \(error)")
         }
     }
+    // Siehe AppDelegate+iOS.swift — reicht `handleEventsForBackgroundURLSession`
+    // an `DownloadManager` durch, Voraussetzung für Downloads, die einen
+    // Sperrbildschirm/App-Suspend überleben (User-Anfrage 2026-09-14).
+    @UIApplicationDelegateAdaptor(iOSAppDelegate.self) private var iosAppDelegate
     #endif
     @StateObject private var client = GoldfishClient.shared
     @StateObject private var downloads = DownloadManager.shared

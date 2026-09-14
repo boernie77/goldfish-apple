@@ -195,8 +195,11 @@ targets:
         # unzuverlässig, gleiche Fehlerklasse wie das dokumentierte tvOS-
         # Menu-Problem), Musik pausierte beim Sperren (fehlender
         # `audio`-UIBackgroundMode). Alle vier gefixt.
+        # Build 205 (2026-09-14): Downloads laufen jetzt auf einer echten
+        # Hintergrund-URLSession weiter, auch wenn das iPhone gesperrt wird
+        # (User-Anfrage) — siehe CLAUDE.md "Downloads im Hintergrund (iOS)".
         CFBundleShortVersionString: "1.5"
-        CFBundleVersion: "204"
+        CFBundleVersion: "205"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-

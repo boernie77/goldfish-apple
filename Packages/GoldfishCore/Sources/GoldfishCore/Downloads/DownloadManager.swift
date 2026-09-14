@@ -95,6 +95,27 @@ public final class DownloadManager: NSObject, ObservableObject {
 
     private static let bookmarkKey = "goldfish.downloadDirBookmark"
 
+    #if os(iOS)
+    /// User-Anfrage 2026-09-14: "Downloads sollen im Hintergrund weiterlaufen,
+    /// auch wenn das Handy in Standby geht" — derselbe Identifier MUSS bei
+    /// JEDEM App-Start unverändert bleiben, sonst verliert `URLSession` die
+    /// Verbindung zu einem bereits laufenden Hintergrund-Transfer (das ist der
+    /// gesamte Mechanismus, mit dem `URLSession(configuration:...)` nach
+    /// einem App-Neustart/-Kill wieder an einen vom System weiterlaufenden
+    /// Download andockt).
+    private static let backgroundSessionIdentifier = "com.goldfish.iosdev.downloads"
+
+    /// Siehe `AppDelegate+iOS.swift` — MUSS erst nach
+    /// `urlSessionDidFinishEvents(forBackgroundURLSession:)` aufgerufen
+    /// werden, nicht sofort beim Empfang.
+    private var backgroundCompletionHandler: (() -> Void)?
+
+    public func storeBackgroundCompletionHandler(_ handler: @escaping () -> Void, forIdentifier identifier: String) {
+        guard identifier == Self.backgroundSessionIdentifier else { return }
+        backgroundCompletionHandler = handler
+    }
+    #endif
+
     private override init() {
         if let resolved = Self.resolveBookmarkedDirectory() {
             self.downloadsDir = resolved.url
@@ -108,7 +129,24 @@ public final class DownloadManager: NSObject, ObservableObject {
 
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
+        #if os(iOS)
+        // User-Anfrage 2026-09-14: eine normale Vordergrund-Session (Mac/tvOS
+        // behalten sie, siehe #else) wird von iOS beim Suspendieren der App
+        // abgewürgt — der Download hängt dann, bis die App wieder aktiv ist.
+        // Eine Hintergrund-Session lagert den Transfer an `nsurlsessiond` aus,
+        // der unabhängig vom App-Prozess weiterläuft; siehe
+        // `backgroundCompletionHandler`/`AppDelegate+iOS.swift` für die
+        // Gegenstelle, die die App bei Bedarf reaktiviert. `isDiscretionary =
+        // false`, weil ein von der Person selbst gestarteter Download sofort
+        // losgehen soll, nicht erst wenn iOS einen "günstigen" Zeitpunkt
+        // (Ladegerät, WLAN) wählt — anders als z. B. ein automatisches
+        // Content-Prefetch.
+        let config = URLSessionConfiguration.background(withIdentifier: Self.backgroundSessionIdentifier)
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
+        #else
         let config = URLSessionConfiguration.default
+        #endif
         config.httpCookieStorage = .shared
         // `?compat=1`: der Server prüft die Datei und remuxt/transkodiert sie bei
         // Bedarf per ffmpeg, BEVOR das erste Byte fließt (siehe Server-Package
@@ -983,7 +1021,31 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
         }
     }
 
+    #if os(iOS)
+    /// Letzter Aufruf für alle Delegate-Callbacks, die während eines
+    /// Hintergrund-Laufs (App evtl. suspendiert/beendet) aufgelaufen sind.
+    /// Erst HIER den in `AppDelegate+iOS.swift` gespeicherten Completion-
+    /// Handler aufrufen — vorher hat `DownloadManager` seine Verarbeitung
+    /// (Datei verschieben, Record aktualisieren, `saveIndex()`) unter
+    /// Umständen noch nicht abgeschlossen, und iOS würde die App zu früh
+    /// wieder suspendieren dürfen.
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        handleTaskCompletion(task: task, error: error)
+    }
+
+    public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        Task { @MainActor in
+            self.backgroundCompletionHandler?()
+            self.backgroundCompletionHandler = nil
+        }
+    }
+    #else
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        handleTaskCompletion(task: task, error: error)
+    }
+    #endif
+
+    private func handleTaskCompletion(task: URLSessionTask, error: Error?) {
         guard let idStr = task.taskDescription, let itemId = Int64(idStr), let error else { return }
         Task { @MainActor in
             self.clearSpeedSample(itemId: itemId)
