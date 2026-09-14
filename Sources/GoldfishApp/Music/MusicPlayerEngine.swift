@@ -67,6 +67,10 @@ final class MusicPlayerEngine: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var albumArtCache: [Int64: PlatformImage] = [:]
     private var loadSeq = 0
+    /// True waehrend der aktuelle Titel ueber den Server gestreamt wird (nie bei
+    /// lokalen Offline-Downloads, die serverseitig keine Session haben) — siehe
+    /// `reportStopForCurrentTrack()`.
+    private var isServerPlayback = false
 
     var currentItem: Item? {
         guard let currentIndex, queue.indices.contains(currentIndex) else { return nil }
@@ -94,6 +98,7 @@ final class MusicPlayerEngine: ObservableObject {
     /// Jetzt EIN Parameter an EINER Stelle für ALLE Aufrufer, kein Call-Site-
     /// spezifisches Vergessen mehr möglich.
     func play(queue: [Item], startIndex: Int, client: GoldfishClient, shuffle: Bool = false) {
+        reportStopForCurrentTrack(client: client)
         self.queue = queue
         self.currentIndex = startIndex
         self.isShuffling = shuffle
@@ -127,15 +132,19 @@ final class MusicPlayerEngine: ObservableObject {
             while newIndex == currentIndex {
                 newIndex = Int.random(in: queue.indices)
             }
+            reportStopForCurrentTrack(client: client)
             self.currentIndex = newIndex
             Task { await loadAndPlayCurrent(client: client) }
             return
         }
         if currentIndex + 1 < queue.count {
+            reportStopForCurrentTrack(client: client)
             self.currentIndex = currentIndex + 1
         } else if repeatMode == .all {
+            reportStopForCurrentTrack(client: client)
             self.currentIndex = 0
         } else {
+            reportStopForCurrentTrack(client: client)
             return // Ende der Warteschlange, kein Repeat — Wiedergabe stoppt.
         }
         Task { await loadAndPlayCurrent(client: client) }
@@ -144,6 +153,7 @@ final class MusicPlayerEngine: ObservableObject {
     /// Direkter Sprung zu einem Titel in der Warteschlange (`MusicQueueView`-Tap).
     func jump(to index: Int, client: GoldfishClient) {
         guard queue.indices.contains(index) else { return }
+        reportStopForCurrentTrack(client: client)
         currentIndex = index
         Task { await loadAndPlayCurrent(client: client) }
     }
@@ -168,6 +178,7 @@ final class MusicPlayerEngine: ObservableObject {
             seek(to: 0)
             return
         }
+        reportStopForCurrentTrack(client: client)
         self.currentIndex = currentIndex - 1
         Task { await loadAndPlayCurrent(client: client) }
     }
@@ -179,10 +190,30 @@ final class MusicPlayerEngine: ObservableObject {
         updateNowPlayingElapsedTime()
     }
 
+    /// 🔴→✅ 2026-09-14: `next()`/`previous()`/`jump(to:)`/`stop()` wechselten
+    /// bzw. beendeten Titel bisher OHNE je einen Stop ans Server-Protokoll zu
+    /// melden (Pendant zu `PlayerView.reportStop()`, das hier komplett
+    /// fehlte). Für gestreamte Titel (v. a. FLAC/WAV, die per HLS
+    /// transcodiert werden, siehe "Musik-Bibliotheken"/"Playback" in der
+    /// Server-CLAUDE.md) blieb die zugehörige Transcode-Session dadurch bis
+    /// zu 30 Min. mit voller Encoder-Last aktiv — bei jedem einzelnen
+    /// Next/Prev-Klick beim Durchhören eines Albums, nicht nur als seltene
+    /// Race. Gefunden beim serverseitigen Untersuchen desselben Bug-Musters
+    /// auf einer anderen Plattform (GoldfishLinux/PlayerView.teardown()).
+    /// Best-effort, kein Blocker für den eigentlichen Titelwechsel.
+    private func reportStopForCurrentTrack(client: GoldfishClient?) {
+        guard isServerPlayback, let item = currentItem, let client else { return }
+        isServerPlayback = false
+        let position = currentTime
+        let dur = duration
+        Task { try? await client.reportPlaybackStop(itemId: item.id, reason: "closed", positionSec: position, durationSec: dur) }
+    }
+
     /// Schließt die Mini-Leiste (✕-Button) — stoppt die Wiedergabe komplett, anders als
     /// Pause (bewusst kein "weiterlaufen im Hintergrund ohne UI", der User soll die Leiste
     /// als echten "Player aus"-Schalter nutzen können).
     func stop() {
+        reportStopForCurrentTrack(client: lastClient)
         player?.pause()
         player = nil
         if let timeObserverToken { player?.removeTimeObserver(timeObserverToken) }
@@ -214,6 +245,7 @@ final class MusicPlayerEngine: ObservableObject {
         // `DownloadManager` ist wie `GoldfishClient` ein App-weites Singleton (`.shared`),
         // deshalb hier direkt referenziert statt durch jeden Aufrufer durchgereicht.
         if let localURL = DownloadManager.shared.localFileURL(itemId: item.id) {
+            isServerPlayback = false
             let p = AVPlayer(url: localURL)
             player = p
             duration = item.durationSec ?? 0
@@ -230,6 +262,7 @@ final class MusicPlayerEngine: ObservableObject {
             guard mySeq == loadSeq else { return } // User hat inzwischen weitergesprungen
             // Bug-Fix 2026-09-11: siehe reportPlaybackStart-Kommentar in GoldfishClient.
             Task { try? await client.reportPlaybackStart(itemId: item.id) }
+            isServerPlayback = true
             // "Zuletzt gehört"-Spalte + play_count (User-Report 2026-09-13:
             // "geht immer noch nicht") — fehlte hier ebenfalls komplett.
             Task { try? await client.touchPlayed(itemId: item.id) }

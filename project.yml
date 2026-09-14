@@ -55,7 +55,7 @@ targets:
         # User-Vorgabe 2026-09-07: erste echte Mac App Store-Einreichung —
         # analog zum iOS-Sprung (0.9 → 1.0) auf 1.0 gehoben.
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "232"
+        CFBundleVersion: "233"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -196,7 +196,7 @@ targets:
         # Menu-Problem), Musik pausierte beim Sperren (fehlender
         # `audio`-UIBackgroundMode). Alle vier gefixt.
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "202"
+        CFBundleVersion: "203"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -271,7 +271,7 @@ targets:
         # experimentelle Uebersicht-Button (Build 7) wieder entfernt --
         # funktionierte auf dem Geraet nicht zuverlaessig genug.
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "8"
+        CFBundleVersion: "9"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos

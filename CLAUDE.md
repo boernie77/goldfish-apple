@@ -295,6 +295,45 @@ auf iOS. Der `.safeAreaInset`+`TabView`-Fallstrick oben ist hier der
 wichtigste Merkposten für jede künftige "Leiste über der Tab-Leiste"-
 Anforderung.
 
+**🔴→✅ Kein Stop-Report bei Next/Prev/Shuffle/Player-Wechsel — server-seitige
+Transcode-Sessions liefen bis zu 30 Min. mit voller Last weiter (gefixt
+2026-09-14, Mac 233/iOS 203/TV 9):** beim serverseitigen Untersuchen genau
+dieses Bug-Musters auf einer anderen Plattform (GoldfishLinux —
+`player_window.py _switch_to`/`_go_next` hatten dasselbe Loch) fielen zwei
+strukturell identische Lücken in dieser Codebasis auf:
+- **`PlayerView.teardown()`** (Video, Mac/iOS/tvOS gemeinsam) meldete NIE
+  einen Stop — nur `closePlayer()` (der explizite Schließen-Button) rief
+  `reportStop()` direkt auf. `teardown()` läuft aber auch bei JEDEM
+  `jump(by:)`/`jumpRandom(by:)` (⏭/⏮/Shuffle-Next), das zum nächsten Item
+  wechselt, OHNE den Player zu schließen — für das alte Item fehlte der
+  Stop-Report komplett. Fix: `teardown()` meldet jetzt selbst den Stop
+  (guarded durch `playbackStopReported`, kein Doppel-Report, wenn
+  `closePlayer()` schon gemeldet hat, UND durch das neue `isServerPlayback`-
+  Flag, damit lokale Offline-Downloads — die nie eine Server-Session haben —
+  keinen Stop melden).
+- **`MusicPlayerEngine`** (Mac/iOS-Musik-Mini-Player) hatte GAR KEINEN
+  `reportPlaybackStop`-Aufruf irgendwo im Code — `next()`/`previous()`/
+  `jump(to:)`/`stop()`/`play(queue:...)` wechselten bzw. beendeten Titel
+  komplett ohne Server-Meldung. Für gestreamte Titel (v. a. FLAC/WAV, die
+  per HLS transcodiert werden) blieb die Transcode-Session dadurch bei
+  JEDEM einzelnen Next/Prev-Klick beim Durchhören eines Albums bis zu 30
+  Min. aktiv — kein seltener Sonderfall, sondern der Normalbetrieb. Fix:
+  neuer `isServerPlayback`-Flag (analog `PlayerView`) + `private func
+  reportStopForCurrentTrack(client:)`, aufgerufen vor jedem Track-Wechsel
+  in `next()`/`previous()`/`jump(to:)`/`play(queue:...)` sowie in `stop()`
+  (nutzt dafür das bereits vorhandene `lastClient`-Weak-Ref, das sonst nur
+  für die `MPRemoteCommandCenter`-Handler gedacht war).
+  **Server-seitiger Kontext:** siehe `StopAllForItem`/`stopSuppressWindow`
+  in der Server-CLAUDE.md („Playback" — 1.3.37/1.3.38) — der Server selbst
+  wurde parallel gehärtet (killt eine Session sofort bei gemeldetem Stop +
+  verweigert eine Race-bedingte Wiederbelebung für 3 s danach), aber ohne
+  den Stop-Report selbst hätte das serverseitige Härten hier gar nichts
+  bewirkt (kein Stop kam je an). **Lektion: bei jedem neuen Client/Player-
+  Pfad, der eine Wiedergabe beendet oder wechselt, explizit prüfen, ob ein
+  Stop-Report auf ALLEN Exit-Pfaden sitzt, nicht nur dem offensichtlichen
+  "Schließen"-Button** — Next/Prev/Shuffle/Queue-Wechsel sind ebenso echte
+  Session-Enden aus Server-Sicht.
+
 **🔴→✅ Suche fand keine Titel-Treffer (Bug, gefixt 2026-09-12, iOS 197/Mac
 213, User-Report: "wenn ich nach einem Titel gesucht habe, dann kam kein
 Treffer. Auch nicht das Album"):** `MusicLibraryView.filteredAlbums`

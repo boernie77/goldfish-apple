@@ -69,6 +69,11 @@ struct PlayerView: View {
     /// Siehe `reportStop()`-Kommentar — verhindert einen doppelten Stop-Report
     /// pro Wiedergabe-Session.
     @State private var playbackStopReported = false
+    /// True sobald `reportPlaybackStart` für diese Session gefeuert hat (nur
+    /// im Server-Streaming-Zweig, nie bei lokalen Offline-Downloads — siehe
+    /// `teardown()`-Kommentar). Verhindert, dass `teardown()` einen Stop für
+    /// eine Session meldet, für die serverseitig nie eine Session existierte.
+    @State private var isServerPlayback = false
     @State private var resumeTimer: Timer?
     @State private var timeObserverToken: Any?
     @State private var didEndObserverToken: NSObjectProtocol?
@@ -805,7 +810,28 @@ struct PlayerView: View {
         }
     }
 
+    /// 🔴→✅ 2026-09-14: `teardown()` gab bis dahin NIE einen Stop-Report ab —
+    /// nur `closePlayer()` (der explizite Schließen-Button) rief `reportStop`
+    /// direkt auf. `teardown()` selbst läuft aber auch bei JEDEM `jump(by:)`/
+    /// `jumpRandom(by:)` (⏭/⏮/Shuffle-Next), das zum NÄCHSTEN Item wechselt,
+    /// OHNE den Player wirklich zu schließen — für das ALTE Item wurde dabei
+    /// nie ein Stop gemeldet. Server-seitig blieb die zugehörige Transcode-
+    /// Session dadurch bis zu 30 Min. mit voller Encoder-Last aktiv (siehe
+    /// `StopAllForItem`/`stopSuppressWindow` im Server-Repo, `internal/
+    /// playback/ffmpeg.go` — der server-seitige Fix half nur bei bereits
+    /// GEMELDETEN Stops, hier fehlte der Report selbst komplett). Gefunden
+    /// beim serverseitigen Untersuchen genau dieses Bug-Musters auf einer
+    /// anderen Plattform (GoldfishLinux) — derselbe fehlende Stop-Report war
+    /// hier strukturell (nicht nur eine seltene Race) bei JEDEM Next/Shuffle-
+    /// Klick. Fix: `teardown()` meldet jetzt selbst den Stop, guarded durch
+    /// `playbackStopReported` (kein Doppel-Report, falls `closePlayer()`
+    /// bereits vorher gemeldet hat) UND `isServerPlayback` (lokale Offline-
+    /// Downloads haben nie eine Server-Session, dafür darf kein Stop
+    /// gemeldet werden).
     private func teardown() {
+        if isServerPlayback {
+            Task { await reportStop(reason: "closed") }
+        }
         resumeTimer?.invalidate()
         resumeTimer = nil
         if let token = timeObserverToken, let player { player.removeTimeObserver(token) }
@@ -970,6 +996,7 @@ struct PlayerView: View {
         // genau EIN Stop-Report pro Session, egal ob über didPlayToEndTime
         // oder manuelles Schließen ausgelöst.
         playbackStopReported = false
+        isServerPlayback = false
         isTranscode = false
         transcodeURLTemplate = nil
         virtualOffset = 0
@@ -1031,6 +1058,7 @@ struct PlayerView: View {
             // Bug-Fix 2026-09-11: NUR hier (der tatsächliche Play-Pfad), nie in
             // ItemDetailView.loadStreams — siehe reportPlaybackStart-Kommentar.
             Task { try? await client.reportPlaybackStart(itemId: item.id) }
+            isServerPlayback = true
             // "Zuletzt abgespielt" (User-Report 2026-09-13: "geht immer noch
             // nicht") — dieser Aufruf fehlte hier komplett, siehe Kommentar
             // bei `touchPlayed` in GoldfishClient.
