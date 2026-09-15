@@ -110,6 +110,22 @@ struct PlayerView: View {
     @State private var isTranscode = false
     @State private var transcodeURLTemplate: String?
     @State private var virtualOffset: Double = 0
+    /// Zeitpunkt, zu dem der aktuelle `AVPlayer` erzeugt wurde — Grundlage für den
+    /// Einmal-Stillretry unten (`handlePlaybackFailure`). Server-Report 2026-09-15
+    /// (Nutzer "Martin", Fehler -12938/HTTP 404 innerhalb 1s nach Session-Start):
+    /// Server-Logs zeigten `ffmpeg_laeuft=true, playlist=false, segmente=0` — die
+    /// Transcode-Session existierte und arbeitete, nur das allererste Segment war
+    /// bei AVPlayers erstem Zugriff noch nicht fertig. Serverseitig wartet
+    /// `transcodeSegment` seit demselben Tag bis zu 4s auf das Segment (siehe
+    /// Server-CLAUDE.md), aber ein Fehler, der TROTZDEM durchkommt (Timeout,
+    /// doppelter setUp()-Aufruf, o.ä.), soll den Player nicht sofort mit einer
+    /// Fehlermeldung aufgeben — ein einziger stiller Neuversuch (kompletter
+    /// `setUp()`-Rerun, holt Resume-Position + Stream-URL frisch) behebt genau
+    /// diese Klasse von Anlauf-Race, ohne einen echten, länger laufenden
+    /// Wiedergabeabbruch (z. B. WLAN-Verlust nach Stunden) zu verschlucken —
+    /// dafür sorgt die 5s-Zeitschranke in `handlePlaybackFailure`.
+    @State private var playerStartedAt: Date?
+    @State private var didRetryAfterEarlyFailure = false
     /// Guards against `setUp()` running more than once concurrently for the same
     /// item (User-Report 2026-09-13: Stream-Fehler -12938/-16847 "HTTP 404/500" —
     /// server logs showed the SAME item requested with TWO different `start=`
@@ -988,6 +1004,12 @@ struct PlayerView: View {
     }
 
     private func setUp() async {
+        // Verhindert, dass ein erneuter setUp()-Aufruf (Retry aus
+        // `handlePlaybackFailure`, oder eine bislang nicht restlos
+        // ausgeschlossene doppelte Ausführung, siehe `setupGeneration`-
+        // Kommentar) einen bereits laufenden/fehlerhaften Player weiter im
+        // Hintergrund senden lässt, während gleich ein zweiter erzeugt wird.
+        player?.pause()
         setupGeneration += 1
         let myGeneration = setupGeneration
         errorMessage = nil
@@ -1000,6 +1022,7 @@ struct PlayerView: View {
         isTranscode = false
         transcodeURLTemplate = nil
         virtualOffset = 0
+        didRetryAfterEarlyFailure = false
         currentTime = 0
         duration = item.durationSec ?? 0
         currentResolutionLabel = nil
@@ -1117,6 +1140,7 @@ struct PlayerView: View {
 
             let p = AVPlayer(url: streamURL)
             self.player = p
+            playerStartedAt = Date()
             attachObservers(to: p)
             // Nur bei Direct-Play sinnvoll — bei einer Transcode-Session entscheidet der
             // Server über die Audiospur (Browser-Pendant: das Audio-Dropdown dort), es gibt
@@ -1175,8 +1199,7 @@ struct PlayerView: View {
             // Schwarz. Reuse des ohnehin laufenden 0,5s-Timers statt eines eigenen KVO-
             // Observers.
             if player.currentItem?.status == .failed, errorMessage == nil {
-                errorMessage = player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen."
-                reportPlaybackErrorToServer(errorMessage ?? "")
+                handlePlaybackFailure(player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen.")
                 return
             }
             currentTime = virtualOffset + time.seconds
@@ -1246,8 +1269,7 @@ struct PlayerView: View {
                 || comment.localizedCaseInsensitiveContains("end of live playlist") {
                 return
             }
-            errorMessage = "Stream-Fehler (\(event.errorStatusCode)): \(comment)"
-            reportPlaybackErrorToServer(errorMessage ?? "")
+            handlePlaybackFailure("Stream-Fehler (\(event.errorStatusCode)): \(comment)")
         }
     }
 
@@ -1269,6 +1291,30 @@ struct PlayerView: View {
     /// `reportStop`.
     private func reportPlaybackErrorToServer(_ message: String) {
         Task { try? await client.reportPlaybackError(itemId: item.id, message: message) }
+    }
+
+    /// Zentraler Fehler-Eintrittspunkt für beide Beobachter in `attachObservers`
+    /// (AVPlayerItem-Status `.failed` und `.AVPlayerItemNewErrorLogEntry`).
+    /// Siehe `playerStartedAt`-Kommentar oben: ein Fehler innerhalb der ersten
+    /// 5s nach Player-Erzeugung wird EINMAL still per komplettem `setUp()`-
+    /// Rerun neu versucht (holt Resume-Position + Stream-URL frisch), statt
+    /// sofort eine Fehlermeldung zu zeigen — deckt die Anlauf-Race ab, bei der
+    /// der Server das allererste Segment/die Playlist noch nicht fertig hatte.
+    /// Ein Fehler NACH diesem Zeitfenster (oder ein zweiter Fehler trotz
+    /// Retry) zeigt wie bisher die Fehlermeldung — ein echter, länger
+    /// laufender Abbruch (z. B. WLAN-Verlust nach Stunden, siehe Server-
+    /// Report "Martin"/-1005) wird dadurch NICHT verschluckt.
+    private func handlePlaybackFailure(_ message: String) {
+        guard errorMessage == nil else { return }
+        if !didRetryAfterEarlyFailure,
+           let startedAt = playerStartedAt,
+           Date().timeIntervalSince(startedAt) < 5 {
+            didRetryAfterEarlyFailure = true
+            Task { await setUp() }
+            return
+        }
+        errorMessage = message
+        reportPlaybackErrorToServer(message)
     }
 
     /// Unconditional "gesehen"-Markierung beim echten Wiedergabe-Ende — Ergänzung zu
@@ -1717,6 +1763,19 @@ private struct PlayerControlsBar: View {
                                 .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
                         }
                     }
+                    // User-Anfrage 2026-09-14 ("sowas wie Airstream" — gemeint war
+                    // AirPlay, im Browser-Player schon lange live): der native Player
+                    // schaltet AVPlayerViewControllers eigene Steuerleiste bewusst
+                    // komplett ab (siehe NativePlayerView.swift), das nimmt auch deren
+                    // eingebauten AirPlay-Knopf mit weg. Derselbe `AirPlayButton`
+                    // (AVRoutePickerView-Wrapper), den der Musik-Player schon nutzt
+                    // (Music/AirPlayButton.swift), jetzt auch hier. tvOS ausgenommen
+                    // wie dort — ein Apple TV ist selbst schon das AirPlay-Ziel, kann
+                    // nicht an sich selbst senden.
+                    #if os(macOS) || os(iOS)
+                    AirPlayButton()
+                        .frame(width: 20, height: 20)
+                    #endif
                     if let onToggleFullScreen {
                         Button(action: onToggleFullScreen) {
                             Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
