@@ -698,6 +698,12 @@ private struct LocalPlayerControlsBar: View {
                             Image(systemName: "waveform")
                         }
                     }
+                    // User-Anfrage 2026-09-14 — gleicher AirPlay-Button wie in
+                    // PlayerView.swift/MusicPlayerBar.swift, siehe Kommentar dort.
+                    #if os(macOS) || os(iOS)
+                    AirPlayButton()
+                        .frame(width: 20, height: 20)
+                    #endif
                     if let onToggleFullScreen {
                         Button(action: onToggleFullScreen) {
                             Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
