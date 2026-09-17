@@ -489,8 +489,24 @@ public final class DownloadManager: NSObject, ObservableObject {
 
     public func localFileURL(itemId: Int64) -> URL? {
         guard let rec = records[itemId], rec.state == .done else { return nil }
+        let fm = FileManager.default
+        // 1. Der beim Download gespeicherte absolute Pfad — funktioniert solange der
+        //    App-Daten-Container (bei iOS die UUID im Pfad) derselbe geblieben ist.
         let url = URL(fileURLWithPath: rec.filePath)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        if fm.fileExists(atPath: url.path) { return url }
+        // 2. Fallback gegen das AKTUELLE Downloads-Verzeichnis. iOS kann beim App-Update
+        //    den App-Daten-Container neu vergeben, wodurch die Container-UUID im
+        //    gespeicherten `filePath` verwaist, obwohl die Datei physisch NICHT verloren
+        //    ist — sie liegt dann unter `downloadsDir` + `fileName` (real bug hit
+        //    2026-09-17, iOS 1.6: Download-DATEIEN vorhanden, aber `isDownloaded()`
+        //    erkannte sie nicht mehr als offline, weil der gespeicherte Pfad auf die
+        //    ALTE Container-UUID zeigte). Gleiches Muster wie der existierende Fallback
+        //    in `didFinishDownloadingTo` (Zweig "Access to the custom folder can
+        //    vanish"), hier für die Lese-/Erkennungsseite. Ohne diesen Fallback fällt
+        //    die App auf Server-Streaming zurück und bietet nur "Abspielen" statt
+        //    "Offline abspielen", obwohl der Download lokal liegt.
+        let fallback = downloadsDir.appendingPathComponent(rec.fileName)
+        return fm.fileExists(atPath: fallback.path) ? fallback : nil
     }
 
     public func isDownloaded(itemId: Int64) -> Bool {

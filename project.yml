@@ -198,8 +198,13 @@ targets:
         # Build 205 (2026-09-14): Downloads laufen jetzt auf einer echten
         # Hintergrund-URLSession weiter, auch wenn das iPhone gesperrt wird
         # (User-Anfrage) — siehe CLAUDE.md "Downloads im Hintergrund (iOS)".
-        CFBundleShortVersionString: "1.6"
-        CFBundleVersion: "206"
+        # Build 207 (2026-09-17): Bugfix — Downloads nach App-Update
+        # (gewechselter App-Daten-Container / verwaiste Container-UUID im
+        # gespeicherten filePath) wurden nicht mehr als "Offline abspielen"
+        # erkannt, obwohl die Dateien physisch vorhanden waren. localFileURL()
+        # löst jetzt zusätzlich gegen das aktuelle Downloads-Verzeichnis auf.
+        CFBundleShortVersionString: "1.7"
+        CFBundleVersion: "207"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
