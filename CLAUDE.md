@@ -116,7 +116,7 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
 
 ## Gelöste Bugs (Kurzfassung — volle Root-Cause-Analyse in DECISIONS.md „GoldfishApple" im Server-Repo)
 
-Chronologisch, Build 0100 (2026-08-19) bis Build 206:
+Chronologisch, Build 0100 (2026-08-19) bis Build 207:
 - **Fenster-Verschwinden-Bug**: verwaiste Coordinator-Referenzen +
   Hauptfenster rutschte in einen eigenen Fullscreen-Space. Fix:
   `PlayerLaunchCoordinator` korrekt zurückgesetzt + `window.collectionBehavior`
@@ -188,6 +188,19 @@ Chronologisch, Build 0100 (2026-08-19) bis Build 206:
   geladenen) Items werden client-seitig auf echte direkte Kinder gefiltert
   (`relPath` ohne weiteren `/` nach dem `folder`-Präfix), wenn Ordner-
   Kacheln gleichzeitig gezeigt werden.
+- **Downloads nach App-Update nicht mehr als offline erkannt** (iOS
+  1.7/207, 2026-09-17): `DownloadRecord.filePath` speichert einen
+  ABSOLUTEN Pfad inkl. der App-Container-UUID. iOS kann diese UUID bei
+  einem App-Update neu vergeben — die Datei liegt dann physisch
+  unverändert im (neuen) Downloads-Verzeichnis, der gespeicherte Pfad
+  zeigt aber ins Leere. `isDownloaded()` lieferte `false`, die App bot nur
+  „Abspielen" (Streaming) statt „Offline abspielen". Fix:
+  `DownloadManager.localFileURL(itemId:)` fällt auf
+  `downloadsDir + rec.fileName` zurück (gleiches Muster wie der bestehende
+  Fallback in `didFinishDownloadingTo`). **Regel: nie einen absoluten
+  Container-Pfad als einzige Wahrheit persistieren** — immer auch den
+  relativen Dateinamen speichern und gegen das aktuelle Verzeichnis
+  auflösen.
 
 ## Gesehen-Sync zwischen zwei Usern (seit 2026-08-19)
 
