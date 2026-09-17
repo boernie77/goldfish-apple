@@ -58,8 +58,10 @@ targets:
         # App-Daten-Container nicht mehr als "Offline abspielen" erkannt
         # (identisch zu iOS 1.7/207; geteiltes GoldfishCore, siehe DownloadManager
         # localFileURL-Fallback). SICHTBARE interne Version auf 1.1 erhöht.
+        # Build 237 (2026-09-17): App-Name "Goldfish" statt "GoldfishMac"
+        # (App Review Guideline 5.2.5), enthält alle Fixes aus 236.
         CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "236"
+        CFBundleVersion: "237"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
