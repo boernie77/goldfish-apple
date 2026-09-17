@@ -54,8 +54,12 @@ targets:
         # in Settings → Account → "Version".
         # User-Vorgabe 2026-09-07: erste echte Mac App Store-Einreichung —
         # analog zum iOS-Sprung (0.9 → 1.0) auf 1.0 gehoben.
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "235"
+        # Build 236 (2026-09-17): Bugfix — Offline-Downloads nach gewechseltem
+        # App-Daten-Container nicht mehr als "Offline abspielen" erkannt
+        # (identisch zu iOS 1.7/207; geteiltes GoldfishCore, siehe DownloadManager
+        # localFileURL-Fallback). SICHTBARE interne Version auf 1.1 erhöht.
+        CFBundleShortVersionString: "1.1"
+        CFBundleVersion: "236"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -278,8 +282,12 @@ targets:
         # vorher technisch immer eine fast-eckige RoundedRectangle). Der
         # experimentelle Uebersicht-Button (Build 7) wieder entfernt --
         # funktionierte auf dem Geraet nicht zuverlaessig genug.
-        CFBundleShortVersionString: "1.3"
-        CFBundleVersion: "11"
+        # Build 12 (2026-09-17): Bugfix — Offline-Downloads nach gewechseltem
+        # App-Daten-Container nicht mehr als "Offline abspielen" erkannt
+        # (identisch zu iOS 1.7/207; geteiltes GoldfishCore, localFileURL-
+        # Fallback). SICHTBARE interne Version auf 1.4 erhöht.
+        CFBundleShortVersionString: "1.4"
+        CFBundleVersion: "12"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
