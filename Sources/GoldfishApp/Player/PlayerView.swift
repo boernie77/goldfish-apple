@@ -158,6 +158,21 @@ struct PlayerView: View {
     /// Leer, wenn der Server keinen liefert; `nextEpisodeLabel` fällt dann auf
     /// `Item.displayTitle` bzw. den Dateinamen zurück.
     @State private var nextEpisodeTitle = ""
+    /// Die aktuelle Wiedergabe ist bis ans Ende durchgelaufen. Danach dürfen
+    /// Stream-Fehler NICHT mehr als Abbruch gemeldet werden: AVPlayer holt am
+    /// Ende einer EVENT-Playlist von sich aus die Playlist erneut nach, der
+    /// Server verweigert in dem Moment für 3 s eine neue Sitzung (Wiedergabe
+    /// wurde gerade beendet) — AVPlayer meldete das als „Stream-Fehler
+    /// (-16847) … HTTP 500" (User-Report 2026-09-18, genau am Folgen-Ende,
+    /// gleichzeitig mit dem „Nächste Folge"-Hinweis). Das Video ist zu diesem
+    /// Zeitpunkt längst fertig, es gibt nichts zu retten und nichts zu melden.
+    @State private var didFinishPlayback = false
+    /// Automatisch gestartete nächste Folge: IMMER von Anfang an, auch wenn für
+    /// sie noch ein Weiterschauen-Punkt gespeichert ist (User-Vorgabe
+    /// 2026-09-18, gilt in allen Apps). Die gespeicherte Position bleibt
+    /// unangetastet — sie wird für diesen Start nur ignoriert; ein manueller
+    /// Wechsel (⏮/⏭/Zufall) setzt das Flag wieder zurück.
+    @State private var startNextEpisodeFromBeginning = false
     @State private var nextEpisodeCountdown = 0
     @State private var nextEpisodeCountdownTask: Task<Void, Never>?
     /// Verhindert, dass zwei gleichzeitige Ermittlungen (z. B. ein doppeltes
@@ -926,6 +941,8 @@ struct PlayerView: View {
         }
         let newIndex = queueIndex + delta
         guard queue.indices.contains(newIndex) else { return }
+        // Manueller Wechsel (⏮/⏭) — Autoplay-Regel gilt hier nicht.
+        startNextEpisodeFromBeginning = false
         // Manueller Wechsel (⏮/⏭): ein evtl. beim automatischen Folgenwechsel
         // übernommenes Profil gilt hier nicht mehr — gewollt ist weiterhin die
         // Vorwahl aus dem Detail-Dialog (`preferredProfile`).
@@ -941,6 +958,9 @@ struct PlayerView: View {
         // Siehe `jump(by:)` — auch der Zufalls-/Shuffle-Wechsel ist ein manueller
         // Item-Wechsel, kein automatischer Folgenwechsel.
         carriedOverProfile = nil
+        // Manueller Wechsel (kein Autoplay): hier gilt wieder der normale
+        // Weiterschauen-Punkt der Ziel-Folge.
+        startNextEpisodeFromBeginning = false
         if delta < 0 {
             let newIndex = randomHistoryIndex - 1
             guard randomHistory.indices.contains(newIndex) else { return }
@@ -1074,6 +1094,7 @@ struct PlayerView: View {
         setupGeneration += 1
         let myGeneration = setupGeneration
         errorMessage = nil
+        didFinishPlayback = false
         // Protokoll-Ergänzung 2026-09-11 ("nicht nur Wiedergabe gestartet,
         // sondern auch beendet") — siehe reportStop()/reportError() unten;
         // genau EIN Stop-Report pro Session, egal ob über didPlayToEndTime
@@ -1120,7 +1141,8 @@ struct PlayerView: View {
             // User-Anfrage 2026-08-19: "bei offline Dateien merkt er sich nicht, wo man
             // zuletzt war" — dieser Zweig hat nie eine Resume-Position gelesen. Rein lokaler
             // Speicher (siehe DownloadManager.localResumeSeconds), unabhängig vom Server.
-            let resumeSec = startFromBeginning ? 0 : downloads.localResumeSeconds(itemId: item.id)
+            let resumeSec = (startFromBeginning || startNextEpisodeFromBeginning)
+                ? 0 : downloads.localResumeSeconds(itemId: item.id)
             if resumeSec > 5 {
                 await p.seek(to: CMTime(seconds: resumeSec, preferredTimescale: 600))
             }
@@ -1134,7 +1156,8 @@ struct PlayerView: View {
         }
 
         do {
-            let resumeSec = startFromBeginning ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
+            let resumeSec = (startFromBeginning || startNextEpisodeFromBeginning)
+                ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
             let playback = try await client.playback(itemId: item.id, profile: effectivePlaybackProfile)
             // A newer setUp() call may have started (and possibly already finished) while
             // the two awaits above were in flight — bail out before touching any shared
@@ -1340,6 +1363,9 @@ struct PlayerView: View {
         cancelNextEpisodeCountdown()
         nextEpisodeItem = nil
         carriedOverProfile = effectivePlaybackProfile
+        // Nächste Folge IMMER von Anfang (User-Vorgabe 2026-09-18) — der
+        // gespeicherte Weiterschauen-Punkt dieser Folge bleibt erhalten.
+        startNextEpisodeFromBeginning = true
         // Stop-Report und „gesehen"-Markierung für die beendete Folge sind bereits
         // durchgelaufen (`playbackStopReported`/`hasMarkedWatchedThisSession` sind
         // gesetzt) — `teardown()` meldet also nichts doppelt und überschreibt
@@ -1460,7 +1486,7 @@ struct PlayerView: View {
             // blieb nil, der `player`-Zweig (siehe body oben) zeigte einfach dauerhaft
             // Schwarz. Reuse des ohnehin laufenden 0,5s-Timers statt eines eigenen KVO-
             // Observers.
-            if player.currentItem?.status == .failed, errorMessage == nil {
+            if player.currentItem?.status == .failed, errorMessage == nil, !didFinishPlayback {
                 handlePlaybackFailure(player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen.")
                 return
             }
@@ -1494,6 +1520,10 @@ struct PlayerView: View {
             object: player.currentItem,
             queue: .main
         ) { _ in
+            // Ab hier ist die Wiedergabe inhaltlich vorbei: späte Stream-Fehler
+            // (AVPlayer lädt die EVENT-Playlist nach, der Server hat die
+            // Sitzung schon beendet) sind Folgen des Endes, keine Abbrüche.
+            didFinishPlayback = true
             Task {
                 await reportStop(reason: "ended")
                 await markWatchedNow()
@@ -1520,6 +1550,10 @@ struct PlayerView: View {
             object: player.currentItem,
             queue: .main
         ) { [weak player] _ in
+            // Nach dem Ende NICHTS mehr melden (siehe `didFinishPlayback`): die
+            // Anfrage, die hier scheitert, ist das Nachladen der bereits
+            // abgelaufenen Playlist — für den Nutzer ist die Folge fertig.
+            guard !didFinishPlayback else { return }
             guard errorMessage == nil,
                   let event = player?.currentItem?.errorLog()?.events.last else { return }
             let comment = event.errorComment ?? "unbekannter Netzwerkfehler"
