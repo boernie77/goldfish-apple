@@ -854,6 +854,13 @@ public struct SeasonOut: Decodable, Identifiable, Hashable {
     public var id: Int { seasonNumber }
 }
 
+/// `GET /api/playback/preferences` — Wiedergabe-Einstellungen des Kontos.
+/// `nil` = Server hat das Feld nicht mitgeschickt (dann gilt der lokale Wert).
+public struct PlaybackPreferences: Codable {
+    public var autoplayNext: Bool?
+}
+
+
 /// `GET /api/items/{id}/next-episode` — nächste Folge derselben Serie.
 /// Beide Felder kommen auch bei der letzten Folge (dann `next == nil`,
 /// `nextTitle == ""`), siehe `GoldfishClient.fetchNextEpisode`.

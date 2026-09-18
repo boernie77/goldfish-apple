@@ -1061,6 +1061,10 @@ struct PlayerView: View {
     }
 
     private func setUp() async {
+        // Wiedergabe-Option des KONTOS spiegeln: sie kann seit dem letzten
+        // Wiedergabe-Start in einer anderen App umgestellt worden sein. Fehler
+        // (offline) werden geschluckt — dann gilt die lokale Kopie.
+        await AutoPlayNextEpisodeSetting.refreshFromServer(using: client)
         // Verhindert, dass ein erneuter setUp()-Aufruf (Retry aus
         // `handlePlaybackFailure`, oder eine bislang nicht restlos
         // ausgeschlossene doppelte Ausführung, siehe `setupGeneration`-

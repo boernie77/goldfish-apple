@@ -10,11 +10,14 @@ import Foundation
 /// — mit demselben Auflösungs-/Transcode-Profil wie die vorige Folge. Ist die Option
 /// AUS, ändert sich das Verhalten nicht (kein Overlay, keine zusätzliche Anfrage).
 ///
-/// **Pro Konto** gespeichert: der Key enthält den Benutzernamen, deshalb reines
-/// `UserDefaults` mit benutzerabhängigem Key statt eines geräteweiten Keys wie
-/// `LocalPlaybackSettings.bufferSeconds` (siehe dortiger Kommentar — das ist eine
-/// reine Hardware-Tuning-Einstellung, hier ist es dagegen eine Nutzer-Vorliebe,
-/// dieselbe Begründung wie bei `ShuffleScope`s Per-Username-Key).
+/// **Pro Konto** — der maßgebliche Wert liegt aber auf dem SERVER
+/// (`GET/PUT /api/playback/preferences`, Server seit v1.4.13): nur so gilt die
+/// Einstellung auch in Browser, Android-, Fire-TV- und Linux-App. Die
+/// `UserDefaults` hier sind die lokale KOPIE davon, mit Per-Username-Key, damit
+/// mehrere Konten auf demselben Gerät getrennt bleiben. Gelesen wird sie (a) vom
+/// Ende-Handler des Players, der nicht auf einen Netz-Abruf warten darf, und
+/// (b) offline. Gespiegelt wird sie beim Öffnen der Einstellungen und beim
+/// Start einer Wiedergabe.
 ///
 /// Standard AUS — `UserDefaults.bool(forKey:)` liefert für einen nie gesetzten Key
 /// `false`, genau die gewünschte Vorgabe. Kein eigener Default-Wert nötig.
@@ -42,5 +45,18 @@ public enum AutoPlayNextEpisodeSetting {
     public static func setEnabled(_ enabled: Bool) {
         guard let user = currentUsername else { return }
         UserDefaults.standard.set(enabled, forKey: key(for: user))
+    }
+
+    /// Übernimmt den Serverwert in die lokale Kopie (Pro Konto).
+    ///
+    /// Aufrufer: `SettingsView` (beim Öffnen der Einstellungen und nach jedem
+    /// Umschalten) und `PlayerView` (beim Start einer Wiedergabe) — so wirkt
+    /// eine im Browser oder auf einem anderen Gerät getroffene Wahl auch hier.
+    @discardableResult
+    public static func refreshFromServer(using client: GoldfishClient) async -> Bool? {
+        guard let prefs = try? await client.fetchPlaybackPreferences() else { return nil }
+        guard let enabled = prefs.autoplayNext else { return nil }
+        setEnabled(enabled)
+        return enabled
     }
 }

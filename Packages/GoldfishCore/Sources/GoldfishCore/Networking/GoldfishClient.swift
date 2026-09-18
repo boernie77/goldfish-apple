@@ -524,6 +524,26 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/items/\(itemId)/variants")
     }
 
+    // MARK: - Wiedergabe-Einstellungen (pro Konto)
+
+    /// `GET /api/playback/preferences` (Server seit v1.4.13) →
+    /// `{"autoplayNext": bool}`.
+    ///
+    /// Die Einstellung hängt am KONTO, nicht am Gerät: sie gilt damit auch in
+    /// Browser, Android-, Fire-TV- und Linux-App. Lokal wird sie zusätzlich als
+    /// Kopie abgelegt (`AutoPlayNextEpisodeSetting`), damit das Folgen-Ende im
+    /// Player ohne Netz-Abruf entscheiden kann.
+    public func fetchPlaybackPreferences() async throws -> PlaybackPreferences {
+        try await perform("/api/playback/preferences")
+    }
+
+    /// `PUT /api/playback/preferences` — Teil-Update, derzeit nur
+    /// `autoplayNext`. Serverseitig pro Konto gespeichert.
+    public func setPlaybackPreferences(autoplayNext: Bool) async throws {
+        let body = try JSONEncoder().encode(["autoplayNext": autoplayNext])
+        try await performVoid("/api/playback/preferences", method: "PUT", jsonBody: body)
+    }
+
     /// `GET /api/items/{id}/next-episode` (Server seit v1.4.13) — die nächste
     /// Folge DERSELBEN Serie, wie der SERVER sie bestimmt: Ordnung
     /// (Staffel, Folge) über `metadata.parent_id`, Doppelfolgen

@@ -54,6 +54,9 @@ struct SettingsView: View {
     // `localBufferSeconds`/`appearanceRaw` oben): @State, geladen beim Erscheinen und
     // bei jedem Kontowechsel, jeder Toggle-Schlag schreibt zurück.
     @State private var autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
+    /// Fehler beim Schreiben der Wiedergabe-Einstellung (z. B. offline) — der
+    /// Serverwert ist dann nicht aktualisiert, der lokale gilt weiter.
+    @State private var playbackSettingsError: String?
     @EnvironmentObject var shuffleScope: ShuffleScope
     // Real gap hit 2026-08-19: der 🎯-Button für die Zufall-Bibliotheksauswahl saß bisher
     // nur im Toolbar der "Bibliotheken"-Übersicht — der User fand ihn dort nicht ("finde
@@ -227,7 +230,21 @@ struct SettingsView: View {
                 Section {
                     Toggle("Nächste Folge automatisch starten", isOn: $autoPlayNextEpisode)
                         .onChange(of: autoPlayNextEpisode) { newValue in
+                            // Lokal sofort merken (der Player liest die Kopie),
+                            // dann ans Konto schreiben — die Einstellung gilt
+                            // damit auch in Browser/Android/Fire TV/Linux.
                             AutoPlayNextEpisodeSetting.setEnabled(newValue)
+                            Task {
+                                do {
+                                    try await client.setPlaybackPreferences(autoplayNext: newValue)
+                                } catch {
+                                    // Nicht zurückdrehen: der Player folgt dem
+                                    // lokalen Wert. Nur sagen, dass es am Konto
+                                    // (noch) nicht steht — der nächste Aufruf
+                                    // von refreshFromServer zieht nach.
+                                    playbackSettingsError = "Einstellung nur lokal gespeichert: \(error.localizedDescription)"
+                                }
+                            }
                         }
                         // Kontowechsel bei laufender Einstellungsseite: Wert des
                         // NEUEN Kontos laden statt den des alten Kontos stehen zu lassen.
@@ -235,12 +252,31 @@ struct SettingsView: View {
                             autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
                         }
                         .task {
-                            autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
+                            // Erst der Serverwert des Kontos (maßgeblich, gilt
+                            // geräteübergreifend), dann — falls der Abruf
+                            // scheitert (offline) — die lokale Kopie.
+                            if let fromServer = await AutoPlayNextEpisodeSetting.refreshFromServer(using: client) {
+                                autoPlayNextEpisode = fromServer
+                            } else {
+                                autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
+                            }
                         }
                 } header: {
                     Text("Wiedergabe")
                 } footer: {
                     Text("Am Ende einer Serienfolge erscheint ein Hinweis mit 10-Sekunden-Countdown. Läuft er ab oder wird „Jetzt abspielen“ gedrückt, startet die nächste Folge derselben Serie im selben Player — mit derselben Auflösung/demselben Transcode-Profil wie die vorige Folge. „Abbrechen“ lässt den Player am Ende stehen. Bei der letzten Folge einer Serie passiert nichts. Gilt pro Benutzerkonto.")
+                }
+
+                // Schreibfehler der Wiedergabe-Einstellung sichtbar machen (z. B.
+                // offline): der lokale Wert gilt, das Konto hat ihn aber nicht —
+                // sonst würde der Nutzer annehmen, die Wahl sei überall gesetzt.
+                .alert("Wiedergabe", isPresented: Binding(
+                    get: { playbackSettingsError != nil },
+                    set: { if !$0 { playbackSettingsError = nil } }
+                )) {
+                    Button("OK", role: .cancel) { playbackSettingsError = nil }
+                } message: {
+                    Text(playbackSettingsError ?? "")
                 }
 
                 Section("Downloads") {
