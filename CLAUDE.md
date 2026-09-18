@@ -324,6 +324,28 @@ entfernt (kein Restvorkommen mehr für macOS/iOS weiter unten). tvOS behält
 sein eigenes, seit 2026-09-03 bewährtes Muster unverändert (Action-Buttons
 oben, Download unten, kein Bundling der beiden).
 
+## „Nächste Folge automatisch starten" (2026-09-18, Mac 1.2/238 · iOS 1.8/208 · tvOS 1.5/13)
+
+- Option in den Einstellungen (Sektion „Wiedergabe"), **Standard AUS**, pro Konto.
+  Maßgeblich ist der **Server** (`GET/PUT /api/playback/preferences`); die
+  `UserDefaults`-Kopie (`AutoPlayNextEpisodeSetting`) ist nur der Offline-Rückfall
+  und wird beim Öffnen der Einstellungen und beim Start jeder Wiedergabe
+  gespiegelt.
+- Am Ende einer Serienfolge zeigt `PlayerView` ein Hinweis-Overlay mit
+  10-Sekunden-Countdown und „Jetzt abspielen"/„Abbrechen"; danach läuft der
+  Wechsel über `teardown()` + `item = next` (derselbe Weg wie ⏭), das
+  Auflösungsprofil der Vorfolge wird übernommen.
+- **Die nächste Folge bestimmt der SERVER** (`GET /api/items/{id}/next-episode`).
+  Eine erste Fassung leitete sie clientseitig aus `fetchSeasons` ab und war
+  **falsch**: der Seasons-Endpoint expandiert Doppelfolgen in einen Eintrag je
+  abgedeckter Folge, beide mit derselben `itemId` — „der nächste Eintrag" traf
+  die zweite Hälfte der eigenen Datei, der Autoplay hätte die beendete
+  Doppelfolge erneut gestartet. **Regel: Serien-Nachbarschaft nie aus der
+  Seasons-Liste herleiten.**
+- Anzeigename ist `nextTitle` (TMDB-Folgentitel, Server seit v1.4.15) →
+  `metadata.title` → `title`; `Item.title` ist der **Dateiname** (User-Report
+  direkt nach dem ersten Test).
+
 ## Was die App NICHT hat
 
 - Kein Windows/Linux-Target (nur macOS + iOS + tvOS).
