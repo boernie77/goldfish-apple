@@ -145,6 +145,30 @@ struct PlayerView: View {
     /// most recent call ever wins.
     @State private var setupGeneration = 0
 
+    // MARK: - „Nächste Folge automatisch starten" (User-Wunsch 2026-09-18)
+
+    /// Die nächste Folge DERSELBEN Serie, sobald sie am Ende der aktuellen Folge
+    /// ermittelt wurde — `nil` = kein Overlay (Option aus, Nicht-Serien-Item,
+    /// letzte Folge der Serie oder Ermittlung fehlgeschlagen; alle drei Fälle
+    /// bewusst ohne Fehlermeldung, siehe `presentNextEpisodePromptIfAvailable`).
+    @State private var nextEpisodeItem: Item?
+    @State private var nextEpisodeCountdown = 0
+    @State private var nextEpisodeCountdownTask: Task<Void, Never>?
+    /// Verhindert, dass zwei gleichzeitige Ermittlungen (z. B. ein doppeltes
+    /// `ended`-Event) zwei Overlays samt zwei Server-Anfragen erzeugen.
+    @State private var isResolvingNextEpisode = false
+    /// Effektiv genutztes Qualitäts-/Transcode-Profil der AKTUELLEN Wiedergabe
+    /// (aus `PlaybackResponse.profile`, nur im Transcode-Modus) — Grundlage für
+    /// die Übernahme beim automatischen Folgenwechsel.
+    @State private var playbackProfileUsed: String?
+    /// Wird AUSSCHLIESSLICH beim automatischen Folgenwechsel gesetzt (siehe
+    /// `playNextEpisodeNow`): die nächste Folge startet mit demselben Auflösungs-/
+    /// Transcode-Profil wie die vorige Folge. Eine ausdrückliche Wahl im
+    /// Detail-Dialog gewinnt weiterhin (`preferredProfile`) — die hat der Nutzer
+    /// bewusst getroffen. Normale Wiedergaben (⏮/⏭, neues Item aus dem Detail-
+    /// Dialog) bleiben unverändert, weil dieser Wert dann durchgehend `nil` ist.
+    @State private var carriedOverProfile: String?
+
     /// Audio-track switcher (User-Anfrage 2026-08-27: "Tonspur wählen können", zuerst für den
     /// Mac-Download von Kill Bill geprüft — der Download hatte bis dahin nur die englische Spur,
     /// weil `LocalTranscodeService`s Konvertierung nur den ERSTEN Audiostream behielt, siehe den
@@ -551,6 +575,16 @@ struct PlayerView: View {
             // Fokus geht dann auf die Vollbild-Fläche (siehe `Color.clear.focusable(...)`).
             .disabled(!controlsVisible)
             #endif
+
+            // „Nächste Folge automatisch starten" (User-Wunsch 2026-09-18):
+            // bewusst als LETZTES Kind der ZStack — liegt damit über Video,
+            // Untertiteln UND Steuerleiste. Am Serienfolgen-Ende ist die
+            // Wiedergabe ohnehin beendet (ein Verdecken der Leiste stört also
+            // nicht), und auf tvOS ist nur so garantiert, dass die beiden Knöpfe
+            // nicht mit den Steuerfeld-Buttons um den Fokus konkurrieren.
+            if let nextEpisodeItem {
+                nextEpisodeBanner(for: nextEpisodeItem)
+            }
         }
         #if os(tvOS)
         // tvOS-Fix 2026-09-04: physische Play/Pause-Taste der Fernbedienung. Vorher über
@@ -845,6 +879,15 @@ struct PlayerView: View {
     /// Downloads haben nie eine Server-Session, dafür darf kein Stop
     /// gemeldet werden).
     private func teardown() {
+        // Ein noch laufender „Nächste Folge"-Countdown gehört zu DIESER
+        // Wiedergabe-Session: schließt der Nutzer den Player, springt er manuell
+        // weiter (⏮/⏭/Shuffle) oder scheitert die Wiedergabe, darf der Countdown
+        // die nächste Folge nicht nachträglich starten. (Der reguläre
+        // automatische Folgenwechsel ruft `teardown()` erst NACH
+        // `nextEpisodeItem = nil`, siehe `playNextEpisodeNow` — dort ist das hier
+        // also nur noch ein No-op.)
+        cancelNextEpisodeCountdown()
+        nextEpisodeItem = nil
         if isServerPlayback {
             Task { await reportStop(reason: "closed") }
         }
@@ -876,6 +919,10 @@ struct PlayerView: View {
         }
         let newIndex = queueIndex + delta
         guard queue.indices.contains(newIndex) else { return }
+        // Manueller Wechsel (⏮/⏭): ein evtl. beim automatischen Folgenwechsel
+        // übernommenes Profil gilt hier nicht mehr — gewollt ist weiterhin die
+        // Vorwahl aus dem Detail-Dialog (`preferredProfile`).
+        carriedOverProfile = nil
         teardown()
         queueIndex = newIndex
         item = queue[newIndex]
@@ -884,6 +931,9 @@ struct PlayerView: View {
 
     private func jumpRandom(by delta: Int, context: RandomContext) async {
         guard !isLoadingRandomNext else { return }
+        // Siehe `jump(by:)` — auch der Zufalls-/Shuffle-Wechsel ist ein manueller
+        // Item-Wechsel, kein automatischer Folgenwechsel.
+        carriedOverProfile = nil
         if delta < 0 {
             let newIndex = randomHistoryIndex - 1
             guard randomHistory.indices.contains(newIndex) else { return }
@@ -1027,6 +1077,7 @@ struct PlayerView: View {
         duration = item.durationSec ?? 0
         currentResolutionLabel = nil
         playbackQualityLabel = nil
+        playbackProfileUsed = nil
         isFavorite = item.favorite
         hasMarkedWatchedThisSession = false
         trickplayCues = []
@@ -1073,7 +1124,7 @@ struct PlayerView: View {
 
         do {
             let resumeSec = startFromBeginning ? 0 : ((try? await client.getResume(itemId: item.id)) ?? 0)
-            let playback = try await client.playback(itemId: item.id, profile: preferredProfile)
+            let playback = try await client.playback(itemId: item.id, profile: effectivePlaybackProfile)
             // A newer setUp() call may have started (and possibly already finished) while
             // the two awaits above were in flight — bail out before touching any shared
             // state or issuing a play-start report, see `setupGeneration` doc comment.
@@ -1089,6 +1140,11 @@ struct PlayerView: View {
             isTranscode = playback.mode == "transcode"
             transcodeURLTemplate = isTranscode ? playback.url : nil
             playbackQualityLabel = Self.qualityLabel(for: playback)
+            // Grundlage für die Auflösungs-Übernahme beim automatischen
+            // Folgenwechsel (siehe `carriedOverProfile`): das Profil, mit dem
+            // DIESE Folge tatsächlich läuft. Bei Direct Play gibt es keins
+            // (nil = Automatisch/Original).
+            playbackProfileUsed = isTranscode ? playback.profile : nil
 
             // Tonspur-Auswahl (nur Transcode): alle Quell-Audiospuren vom Server
             // übernehmen; Startwahl = Vorwahl aus dem Detail-Dialog, sonst die
@@ -1180,6 +1236,198 @@ struct PlayerView: View {
         return url
     }
 
+    // MARK: - „Nächste Folge automatisch starten" (User-Wunsch 2026-09-18)
+
+    /// Qualitäts-/Transcode-Profil für die aktuelle Wiedergabe: die Vorwahl aus dem
+    /// Detail-Dialog, sonst das bei einer automatisch weitergestarteten Folge
+    /// übernommene Profil der vorigen Folge (siehe `carriedOverProfile`).
+    private var effectivePlaybackProfile: String? { preferredProfile ?? carriedOverProfile }
+
+    /// Wird aus dem `ended`-Beobachter aufgerufen (siehe `attachObservers`).
+    /// Liefert `true`, wenn das Folgen-Ende durch das Hinweis-Overlay behandelt
+    /// wurde — der Aufrufer bricht dann ab und startet insbesondere NICHT das
+    /// nächste Zufallsvideo. `false` in allen anderen Fällen (Option aus,
+    /// Nicht-Serien-Item, letzte oder nicht ermittelbare Folge) — bewusst ohne
+    /// Fehlermeldung.
+    private func presentNextEpisodePromptIfAvailable() async -> Bool {
+        // Option AUS → exakt das heutige Verhalten: kein Overlay und vor allem
+        // KEINE zusätzliche Server-Anfrage (die Ermittlung unten entfällt ganz).
+        guard AutoPlayNextEpisodeSetting.isEnabled else { return false }
+        guard item.isEpisode, nextEpisodeItem == nil, !isResolvingNextEpisode else { return false }
+        isResolvingNextEpisode = true
+        defer { isResolvingNextEpisode = false }
+        guard let next = await nextEpisodeAfterCurrent() else { return false }
+        nextEpisodeItem = next
+        startNextEpisodeCountdown()
+        return true
+    }
+
+    /// Nächste Folge DERSELBEN Serie — dieselbe Quelle wie `SeasonEpisodesView`
+    /// (`fetchSeasons`) und dieselbe Ordner-Konvention wie `Item.showName` bzw.
+    /// `PersonItemsView.topFolder`: der Serienordner ist das erste Pfadsegment von
+    /// `relPath`, also genau der Wert, den auch `ShowSeasonsView` als `folder` an
+    /// den Seasons-Endpoint gibt.
+    private func nextEpisodeAfterCurrent() async -> Item? {
+        guard let relPath = item.relPath, !relPath.isEmpty else { return nil }
+        let folder = relPath.components(separatedBy: "/").first ?? ""
+        guard !folder.isEmpty else { return nil }
+        guard let response = try? await client.fetchSeasons(libraryId: item.libraryId, folder: folder) else { return nil }
+        // Abspielreihenfolge: Staffel, dann Folge — explizit sortiert, damit das
+        // Ergebnis nicht von der Server-Reihenfolge abhängt.
+        let orderedEpisodes = response.seasons
+            .sorted { $0.seasonNumber < $1.seasonNumber }
+            .flatMap { $0.episodes.sorted { $0.episode < $1.episode } }
+        guard let currentIndex = orderedEpisodes.firstIndex(where: { $0.itemId == item.id }) ?? seasonEpisodeIndex(in: orderedEpisodes) else { return nil }
+        // Nur tatsächlich vorhandene Folgen (`owned`, mit `itemId`) — Lücken (noch
+        // nicht vorhandene oder noch nicht TMDB-zugeordnete Folgen) werden
+        // übersprungen statt dort hängenzubleiben. Findet sich die aktuelle Folge
+        // selbst nicht in der Liste, bricht es oben ab: kein Overlay, kein Fehler.
+        guard let nextEpisode = orderedEpisodes[(currentIndex + 1)...].first(where: { $0.owned && $0.itemId != nil }),
+              let nextItemId = nextEpisode.itemId else { return nil }
+        return try? await client.fetchItem(id: nextItemId)
+    }
+
+    /// Ersatz-Lookup der aktuellen Folge, falls sie nicht über ihre Item-ID in der
+    /// Serien-Liste steht — passiert bei Duplikat-Varianten desselben Videos (siehe
+    /// `ItemDetailView`/`variantCount`): die Staffelansicht listet nur die
+    /// repräsentative Datei, gespielt wird ggf. eine andere mit eigener Item-ID.
+    private func seasonEpisodeIndex(in episodes: [EpisodeOut]) -> Int? {
+        guard let season = item.metadata?.season, let episode = item.metadata?.episode else { return nil }
+        return episodes.firstIndex { $0.season == season && $0.episode == episode }
+    }
+
+    /// 10-Sekunden-Countdown des Hinweis-Overlays. Läuft er ab, startet die
+    /// nächste Folge automatisch — genau derselbe Pfad wie „Jetzt abspielen".
+    private func startNextEpisodeCountdown() {
+        nextEpisodeCountdownTask?.cancel()
+        nextEpisodeCountdown = 10
+        #if os(tvOS)
+        // Ohne explizites Fokus-Ziel bleibt der Fokus auf tvOS dort hängen, wo er
+        // vor dem Overlay war (dieselbe Klasse von Problem wie in `resetAutoHide`)
+        // — die beiden neuen Knöpfe wären per Fernbedienung dann nicht erreichbar.
+        // Ein Runloop-Tick, weil die Knöpfe im selben Render-Durchlauf noch nicht
+        // existieren (gleiche Race wie beim Wieder-Einblenden der Steuerleiste).
+        Task { @MainActor in
+            await Task.yield()
+            tvFocusTarget = .nextEpisodePlay
+        }
+        #endif
+        nextEpisodeCountdownTask = Task { @MainActor in
+            while nextEpisodeCountdown > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                nextEpisodeCountdown -= 1
+            }
+            guard !Task.isCancelled else { return }
+            playNextEpisodeNow()
+        }
+    }
+
+    /// „Jetzt abspielen" UND abgelaufener Countdown: nächste Folge im SELBEN
+    /// Player starten. `teardown()` + `item = next` ist derselbe Mechanismus wie
+    /// ⏭ (`jump(by:)`) — `.task(id: item.id)` ruft danach automatisch `setUp()`
+    /// für die neue Folge auf, mit demselben Auflösungs-/Transcode-Profil wie
+    /// die vorige (`preferredProfile` bleibt als `let` erhalten,
+    /// `carriedOverProfile` übernimmt das tatsächlich genutzte Profil).
+    private func playNextEpisodeNow() {
+        guard let next = nextEpisodeItem else { return }
+        cancelNextEpisodeCountdown()
+        nextEpisodeItem = nil
+        carriedOverProfile = effectivePlaybackProfile
+        // Stop-Report und „gesehen"-Markierung für die beendete Folge sind bereits
+        // durchgelaufen (`playbackStopReported`/`hasMarkedWatchedThisSession` sind
+        // gesetzt) — `teardown()` meldet also nichts doppelt und überschreibt
+        // keine auf 0 zurückgesetzte Resume-Position mit dem Videoende.
+        teardown()
+        item = next
+    }
+
+    /// „Abbrechen": der Player bleibt am Ende stehen, es passiert nichts weiter.
+    private func cancelNextEpisode() {
+        cancelNextEpisodeCountdown()
+        nextEpisodeItem = nil
+        #if os(tvOS)
+        tvFocusTarget = controlsVisible ? .playPause : .videoSurface
+        #endif
+    }
+
+    private func cancelNextEpisodeCountdown() {
+        nextEpisodeCountdownTask?.cancel()
+        nextEpisodeCountdownTask = nil
+        nextEpisodeCountdown = 0
+    }
+
+    /// Hinweis-Overlay am Serienfolgen-Ende: Countdown + „Jetzt abspielen" /
+    /// „Abbrechen". Auf tvOS sind die beiden Knöpfe explizite
+    /// `FocusState`-Ziele (siehe `startNextEpisodeCountdown`), damit sie per
+    /// D-Pad erreichbar sind.
+    @ViewBuilder
+    private func nextEpisodeBanner(for next: Item) -> some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Nächste Folge startet in \(nextEpisodeCountdown) s")
+                    #if os(tvOS)
+                    .font(.system(size: 32, weight: .semibold))
+                    #else
+                    .font(.headline)
+                    #endif
+                    .monospacedDigit()
+                VStack(alignment: .leading, spacing: 4) {
+                    if let show = item.showName {
+                        Text(show)
+                            #if os(tvOS)
+                            .font(.system(size: 22))
+                            #else
+                            .font(.caption)
+                            #endif
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    Text(nextEpisodeLabel(next))
+                        #if os(tvOS)
+                        .font(.system(size: 28, weight: .bold))
+                        #else
+                        .font(.subheadline.bold())
+                        #endif
+                        .lineLimit(2)
+                }
+                HStack(spacing: 16) {
+                    Button {
+                        playNextEpisodeNow()
+                    } label: {
+                        Text("Jetzt abspielen")
+                    }
+                    #if os(tvOS)
+                    .focused($tvFocusTarget, equals: .nextEpisodePlay)
+                    #else
+                    .buttonStyle(.borderedProminent)
+                    #endif
+                    Button {
+                        cancelNextEpisode()
+                    } label: {
+                        Text("Abbrechen")
+                    }
+                    #if os(tvOS)
+                    .focused($tvFocusTarget, equals: .nextEpisodeCancel)
+                    #endif
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(24)
+            .frame(maxWidth: 520, alignment: .leading)
+            .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.6), radius: 12)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 120)
+        }
+        .transition(.opacity)
+    }
+
+    private func nextEpisodeLabel(_ next: Item) -> String {
+        if let code = next.episodeCode { return "\(code) · \(next.displayTitle)" }
+        return next.displayTitle
+    }
+
     private func attachObservers(to player: AVPlayer) {
         isPlaying = true
         player.volume = volume
@@ -1235,6 +1483,14 @@ struct PlayerView: View {
             Task {
                 await reportStop(reason: "ended")
                 await markWatchedNow()
+                // User-Wunsch 2026-09-18 („Nächste Folge automatisch starten"):
+                // endet eine Serienfolge und ist die Option aktiv, zunächst die
+                // nächste Folge DERSELBEN Serie ermitteln und den Hinweis mit
+                // 10-Sekunden-Countdown zeigen. Nur wenn das NICHT greift
+                // (Option aus, Nicht-Serien-Item, letzte Folge der Serie oder
+                // keine Folge ermittelbar), läuft das bisherige Verhalten
+                // unverändert weiter.
+                if await presentNextEpisodePromptIfAvailable() { return }
                 // User-Wunsch 2026-08-28: im Zufallsmodus am Videoende automatisch
                 // das nächste Zufallsvideo starten (wie der Browser-Shuffle,
                 // player.js `vjs.on("ended", …)` → nächstes Item). jumpRandom(by:1)
@@ -1492,6 +1748,11 @@ private enum PlayerFocusTarget: Hashable {
     /// Steuerleiste ausgeblendet ist (siehe `PlayerView.body`, Color.clear-Overlay,
     /// nur unter tvOS vorhanden).
     case videoSurface
+    /// Die beiden Knöpfe des „Nächste Folge"-Hinweis-Overlays (User-Wunsch
+    /// 2026-09-18) — auf tvOS explizit gesetzt, damit sie per D-Pad erreichbar
+    /// sind, ohne mit der Steuerleiste um den Fokus zu konkurrieren.
+    case nextEpisodePlay
+    case nextEpisodeCancel
 }
 
 private struct PlayerControlsBar: View {

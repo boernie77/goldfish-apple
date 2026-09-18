@@ -47,6 +47,13 @@ struct SettingsView: View {
     // account-gescoped Settings-Objekts, analog `localBufferSeconds` oben — gilt geräteweit
     // über alle Accounts, genau wie das Erscheinungsbild jeder anderen iOS/macOS-App.
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
+    // User-Wunsch 2026-09-18: „Nächste Folge automatisch starten" + Übernahme der
+    // zuletzt gewählten Auflösung. PRO KONTO gespeichert
+    // (`AutoPlayNextEpisodeSetting`, Key enthält den Benutzernamen), Standard AUS —
+    // deshalb bewusst KEIN `@AppStorage` (das wäre geräteweit über alle Konten, wie
+    // `localBufferSeconds`/`appearanceRaw` oben): @State, geladen beim Erscheinen und
+    // bei jedem Kontowechsel, jeder Toggle-Schlag schreibt zurück.
+    @State private var autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
     @EnvironmentObject var shuffleScope: ShuffleScope
     // Real gap hit 2026-08-19: der 🎯-Button für die Zufall-Bibliotheksauswahl saß bisher
     // nur im Toolbar der "Bibliotheken"-Übersicht — der User fand ihn dort nicht ("finde
@@ -208,6 +215,32 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+
+                // User-Wunsch 2026-09-18: „Nächste Folge automatisch starten" samt
+                // Übernahme der zuletzt gewählten Auflösung. Wirkt in `PlayerView`
+                // am Ende jeder Serienfolge (10-Sekunden-Countdown mit „Jetzt
+                // abspielen"/„Abbrechen"); die Auflösungs-Übernahme besteht darin,
+                // dass die automatisch gestartete Folge mit demselben Auflösungs-/
+                // Transcode-Profil wie die vorige läuft. Pro Konto, Standard AUS —
+                // ist die Option aus, verhält sich alles exakt wie bisher.
+                Section {
+                    Toggle("Nächste Folge automatisch starten", isOn: $autoPlayNextEpisode)
+                        .onChange(of: autoPlayNextEpisode) { newValue in
+                            AutoPlayNextEpisodeSetting.setEnabled(newValue)
+                        }
+                        // Kontowechsel bei laufender Einstellungsseite: Wert des
+                        // NEUEN Kontos laden statt den des alten Kontos stehen zu lassen.
+                        .onChange(of: client.currentUsername) { _ in
+                            autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
+                        }
+                        .task {
+                            autoPlayNextEpisode = AutoPlayNextEpisodeSetting.isEnabled
+                        }
+                } header: {
+                    Text("Wiedergabe")
+                } footer: {
+                    Text("Am Ende einer Serienfolge erscheint ein Hinweis mit 10-Sekunden-Countdown. Läuft er ab oder wird „Jetzt abspielen“ gedrückt, startet die nächste Folge derselben Serie im selben Player — mit derselben Auflösung/demselben Transcode-Profil wie die vorige Folge. „Abbrechen“ lässt den Player am Ende stehen. Bei der letzten Folge einer Serie passiert nichts. Gilt pro Benutzerkonto.")
                 }
 
                 Section("Downloads") {

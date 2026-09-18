@@ -60,8 +60,14 @@ targets:
         # localFileURL-Fallback). SICHTBARE interne Version auf 1.1 erhöht.
         # Build 237 (2026-09-17): App-Name "Goldfish" statt "GoldfishMac"
         # (App Review Guideline 5.2.5), enthält alle Fixes aus 236.
-        CFBundleShortVersionString: "1.1"
-        CFBundleVersion: "237"
+        # Build 238 (2026-09-18): neues Feature "Nächste Folge automatisch
+        # starten" (Serienfolgen-Ende: 10-Sekunden-Countdown, nächste Folge
+        # derselben Serie im selben Player mit übernommener Auflösung/demselben
+        # Transcode-Profil; neue Einstellung pro Konto, Standard aus) — identisch
+        # auf allen drei Plattformen (geteiltes GoldfishCore + PlayerView).
+        # SICHTBARE interne Version auf 1.2 erhöht.
+        CFBundleShortVersionString: "1.2"
+        CFBundleVersion: "238"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -215,8 +221,8 @@ targets:
         # gespeicherten filePath) wurden nicht mehr als "Offline abspielen"
         # erkannt, obwohl die Dateien physisch vorhanden waren. localFileURL()
         # löst jetzt zusätzlich gegen das aktuelle Downloads-Verzeichnis auf.
-        CFBundleShortVersionString: "1.7"
-        CFBundleVersion: "207"
+        CFBundleShortVersionString: "1.8"
+        CFBundleVersion: "208"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -294,8 +300,12 @@ targets:
         # App-Daten-Container nicht mehr als "Offline abspielen" erkannt
         # (identisch zu iOS 1.7/207; geteiltes GoldfishCore, localFileURL-
         # Fallback). SICHTBARE interne Version auf 1.4 erhöht.
-        CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "12"
+        # Build 13 (2026-09-18): neues Feature "Nächste Folge automatisch starten"
+        # (siehe GoldfishMac-Target, Build 238) — auf tvOS mit explizitem
+        # Fokus-Ziel für die beiden Knöpfe des Overlays, per D-Pad erreichbar.
+        # SICHTBARE interne Version auf 1.5 erhöht.
+        CFBundleShortVersionString: "1.5"
+        CFBundleVersion: "13"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
