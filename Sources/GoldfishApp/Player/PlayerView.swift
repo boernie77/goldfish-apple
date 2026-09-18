@@ -1553,10 +1553,25 @@ struct PlayerView: View {
             // Nach dem Ende NICHTS mehr melden (siehe `didFinishPlayback`): die
             // Anfrage, die hier scheitert, ist das Nachladen der bereits
             // abgelaufenen Playlist — für den Nutzer ist die Folge fertig.
-            guard !didFinishPlayback else { return }
+            guard !didFinishPlayback, nextEpisodeItem == nil else { return }
             guard errorMessage == nil,
                   let event = player?.currentItem?.errorLog()?.events.last else { return }
             let comment = event.errorComment ?? "unbekannter Netzwerkfehler"
+            // 503 „Service Unavailable" ist die Antwort des Servers für einen
+            // TEMPORÄREN Zustand (z. B. direkt nach einem gemeldeten
+            // Wiedergabe-Ende wird 3 s lang keine neue Umwandlung desselben
+            // Items gestartet). Am Rand unserer wachsenden EVENT-Playlist lädt
+            // AVPlayer die Playlist von sich aus nach — trifft es dieses
+            // Fenster, war die Folge ein modaler Abspielfehler („Stream-Fehler
+            // (-16849) … HTTP 503", User-Report macOS 2026-09-18, zweimal).
+            // AVPlayer versucht es danach von selbst erneut (im Server-Log
+            // sichtbar: der nächste Abruf gelingt) — der Nutzer soll davon
+            // nichts sehen. Echte Ausfälle bleiben sichtbar: 500 und alles
+            // ohne diesen Hinweis werden weiter gemeldet.
+            if comment.localizedCaseInsensitiveContains("503")
+                || comment.localizedCaseInsensitiveContains("service unavailable") {
+                return
+            }
             // tvOS-Fix 2026-09-04 (User-Report auf echtem Gerät: "Stream-Fehler (-16832)"
             // erschien zweimal, im jeweils NÄCHSTEN Versuch spielte das Video dann aber
             // trotzdem): dieser Observer wurde als generischer Auffang für stille 401-
