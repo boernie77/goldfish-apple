@@ -854,6 +854,16 @@ public struct SeasonOut: Decodable, Identifiable, Hashable {
     public var id: Int { seasonNumber }
 }
 
+/// `GET /api/items/{id}/next-episode` — nächste Folge derselben Serie.
+/// Beide Felder kommen auch bei der letzten Folge (dann `next == nil`,
+/// `nextTitle == ""`), siehe `GoldfishClient.fetchNextEpisode`.
+public struct NextEpisodeResponse: Decodable {
+    public let next: Item?
+    /// TMDB-Folgentitel (Anzeigename). `next.title` wäre der Dateiname.
+    public let nextTitle: String?
+}
+
+
 public struct SeasonsResponse: Decodable {
     public let showTmdbId: Int64
     public let show: ShowOut?

@@ -524,6 +524,23 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/items/\(itemId)/variants")
     }
 
+    /// `GET /api/items/{id}/next-episode` (Server seit v1.4.13) — die nächste
+    /// Folge DERSELBEN Serie, wie der SERVER sie bestimmt: Ordnung
+    /// (Staffel, Folge) über `metadata.parent_id`, Doppelfolgen
+    /// (`items.episode_end`) als Block, Auflösungsvarianten zusammengefasst,
+    /// Bibliotheks-ACL und Altersfreigabe des angemeldeten Kontos bereits
+    /// angewandt.
+    ///
+    /// `next == nil` ist ein NORMALFALL (letzte Folge der Serie bzw. kein
+    /// Serien-Item) — der Server antwortet dann 200 mit `next: null`, nicht mit
+    /// 404, damit kein Client das Serienende als Fehler behandeln muss.
+    ///
+    /// `nextTitle` ist der TMDB-Folgentitel als Anzeigename; `next.title` ist
+    /// der Dateiname bzw. der daraus geparste Name.
+    public func fetchNextEpisode(itemId: Int64) async throws -> NextEpisodeResponse {
+        try await perform("/api/items/\(itemId)/next-episode")
+    }
+
     public func fetchSeasons(libraryId: Int64, folder: String) async throws -> SeasonsResponse {
         try await perform("/api/libraries/\(libraryId)/seasons", query: [URLQueryItem(name: "folder", value: folder)])
     }

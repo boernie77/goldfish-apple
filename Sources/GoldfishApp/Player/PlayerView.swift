@@ -152,6 +152,12 @@ struct PlayerView: View {
     /// letzte Folge der Serie oder Ermittlung fehlgeschlagen; alle drei Fälle
     /// bewusst ohne Fehlermeldung, siehe `presentNextEpisodePromptIfAvailable`).
     @State private var nextEpisodeItem: Item?
+    /// Anzeigename der nächsten Folge — `nextTitle` aus
+    /// `/api/items/{id}/next-episode`, also der TMDB-Folgentitel (User-Wunsch
+    /// 2026-09-18: der Hinweis soll den TMDB-Namen nennen, nicht den der Datei).
+    /// Leer, wenn der Server keinen liefert; `nextEpisodeLabel` fällt dann auf
+    /// `Item.displayTitle` bzw. den Dateinamen zurück.
+    @State private var nextEpisodeTitle = ""
     @State private var nextEpisodeCountdown = 0
     @State private var nextEpisodeCountdownTask: Task<Void, Never>?
     /// Verhindert, dass zwei gleichzeitige Ermittlungen (z. B. ein doppeltes
@@ -888,6 +894,7 @@ struct PlayerView: View {
         // also nur noch ein No-op.)
         cancelNextEpisodeCountdown()
         nextEpisodeItem = nil
+        nextEpisodeTitle = ""
         if isServerPlayback {
             Task { await reportStop(reason: "closed") }
         }
@@ -1262,39 +1269,34 @@ struct PlayerView: View {
         return true
     }
 
-    /// Nächste Folge DERSELBEN Serie — dieselbe Quelle wie `SeasonEpisodesView`
-    /// (`fetchSeasons`) und dieselbe Ordner-Konvention wie `Item.showName` bzw.
-    /// `PersonItemsView.topFolder`: der Serienordner ist das erste Pfadsegment von
-    /// `relPath`, also genau der Wert, den auch `ShowSeasonsView` als `folder` an
-    /// den Seasons-Endpoint gibt.
+    /// Nächste Folge DERSELBEN Serie — serverseitig bestimmt:
+    /// `GET /api/items/{id}/next-episode` (seit Server v1.4.13).
+    ///
+    /// ⚠ Bewusst NICHT mehr selbst aus `fetchSeasons` hergeleitet (erste Fassung
+    /// tat das und hatte einen echten Fehler): der Seasons-Endpoint expandiert
+    /// Doppelfolgen in EINEN Slot je abgedeckter Folge, beide mit DERSELBEN
+    /// `itemId`. „Der nächste Eintrag mit itemId" traf dadurch die zweite Hälfte
+    /// der eigenen Datei — nach einer Doppelfolge hätte der Autoplay-Modus
+    /// dieselbe Datei erneut gestartet. Der Server behandelt Doppelfolgen
+    /// (`items.episode_end`) als Block, ordnet über `metadata.parent_id` (deckt
+    /// auch über mehrere Ordner zusammengelegte Serien ab) und fasst
+    /// Auflösungsvarianten zusammen; außerdem prüft er Bibliotheks-ACL und
+    /// Altersfreigabe des angemeldeten Kontos. Genau EINE Stelle für diese Logik,
+    /// identisch in allen Goldfish-Clients.
     private func nextEpisodeAfterCurrent() async -> Item? {
-        guard let relPath = item.relPath, !relPath.isEmpty else { return nil }
-        let folder = relPath.components(separatedBy: "/").first ?? ""
-        guard !folder.isEmpty else { return nil }
-        guard let response = try? await client.fetchSeasons(libraryId: item.libraryId, folder: folder) else { return nil }
-        // Abspielreihenfolge: Staffel, dann Folge — explizit sortiert, damit das
-        // Ergebnis nicht von der Server-Reihenfolge abhängt.
-        let orderedEpisodes = response.seasons
-            .sorted { $0.seasonNumber < $1.seasonNumber }
-            .flatMap { $0.episodes.sorted { $0.episode < $1.episode } }
-        guard let currentIndex = orderedEpisodes.firstIndex(where: { $0.itemId == item.id }) ?? seasonEpisodeIndex(in: orderedEpisodes) else { return nil }
-        // Nur tatsächlich vorhandene Folgen (`owned`, mit `itemId`) — Lücken (noch
-        // nicht vorhandene oder noch nicht TMDB-zugeordnete Folgen) werden
-        // übersprungen statt dort hängenzubleiben. Findet sich die aktuelle Folge
-        // selbst nicht in der Liste, bricht es oben ab: kein Overlay, kein Fehler.
-        guard let nextEpisode = orderedEpisodes[(currentIndex + 1)...].first(where: { $0.owned && $0.itemId != nil }),
-              let nextItemId = nextEpisode.itemId else { return nil }
-        return try? await client.fetchItem(id: nextItemId)
+        // Nur Serien-Items: ein Film hat keine Folge, die auf ihn folgt. Für
+        // Nicht-Episoden spart das den Server-Aufruf.
+        guard item.isEpisode else { return nil }
+        guard let response = try? await client.fetchNextEpisode(itemId: item.id) else { return nil }
+        guard let next = response.next else { return nil }
+        // TMDB-Folgentitel aus der Antwort merken: `Item.title` ist der
+        // Dateiname, `displayTitle` (metadata.title) ist der Folgentitel. Der
+        // Server löst das zentral auf (User-Wunsch 2026-09-18: der Hinweis soll
+        // den TMDB-Namen nennen, nicht den der Datei).
+        nextEpisodeTitle = response.nextTitle ?? ""
+        return next
     }
 
-    /// Ersatz-Lookup der aktuellen Folge, falls sie nicht über ihre Item-ID in der
-    /// Serien-Liste steht — passiert bei Duplikat-Varianten desselben Videos (siehe
-    /// `ItemDetailView`/`variantCount`): die Staffelansicht listet nur die
-    /// repräsentative Datei, gespielt wird ggf. eine andere mit eigener Item-ID.
-    private func seasonEpisodeIndex(in episodes: [EpisodeOut]) -> Int? {
-        guard let season = item.metadata?.season, let episode = item.metadata?.episode else { return nil }
-        return episodes.firstIndex { $0.season == season && $0.episode == episode }
-    }
 
     /// 10-Sekunden-Countdown des Hinweis-Overlays. Läuft er ab, startet die
     /// nächste Folge automatisch — genau derselbe Pfad wie „Jetzt abspielen".
@@ -1423,9 +1425,17 @@ struct PlayerView: View {
         .transition(.opacity)
     }
 
+    /// Anzeigename der nächsten Folge: „S01E02 · Folgentitel (TMDB)".
+    /// Titel-Kette: `nextTitle` des Servers → `Item.displayTitle`
+    /// (metadata.title) → Dateiname. Der Serverwert steht zuerst, weil er die
+    /// Auflösung schon getroffen hat; die beiden Fallbacks decken alte
+    /// Server-Versionen und nicht angereicherte Folgen ab.
     private func nextEpisodeLabel(_ next: Item) -> String {
-        if let code = next.episodeCode { return "\(code) · \(next.displayTitle)" }
-        return next.displayTitle
+        let title = !nextEpisodeTitle.isEmpty
+            ? nextEpisodeTitle
+            : (!next.displayTitle.isEmpty ? next.displayTitle : next.title)
+        if let code = next.episodeCode { return "\(code) · \(title)" }
+        return title
     }
 
     private func attachObservers(to player: AVPlayer) {
