@@ -146,3 +146,16 @@ xcodebuild -project GoldfishApple.xcodeproj -scheme GoldfishTV \
 4. Bei bereits **live** stehenden Versionen ist die Beschreibung selbst
    NICHT mehr direkt editierbar — nur der Werbetext. Eine geänderte
    Beschreibung braucht immer eine neue Versionseinreichung.
+
+## Lizenz
+
+MIT — siehe [LICENSE](LICENSE), gleicher Wortlaut wie im Server-Repo
+[goldfish](https://github.com/boernie77/goldfish).
+
+**Mitgelieferte Fremdsoftware:** unter `Sources/GoldfishApp/Resources/ffmpeg-bin/`
+liegen vorgebaute `ffmpeg`- und `ffprobe`-Binaries (nur für das Mac-Target, für
+die lokale Formatanpassung von Downloads). Sie stehen NICHT unter der MIT-Lizenz,
+sondern unter der **LGPL-2.1-or-later**: der Build läuft bewusst mit
+`--disable-gpl --disable-nonfree`, damit keine GPL-Komponenten enthalten sind
+(nachprüfbar über `ffmpeg -version`, Zeile `configuration:`). Quelltext und
+Lizenztext: <https://ffmpeg.org/download.html> bzw. <https://ffmpeg.org/legal.html>.

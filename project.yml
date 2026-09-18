@@ -166,7 +166,7 @@ targets:
         # signingStyle: automatic} -allowProvisioningUpdates` signiert die
         # Release-Distribution DOCH vollständig per CLI (verifiziert per
         # `pkgutil --check-signature` — "3rd Party Mac Developer Installer:
-        # Christian Bernauer (SYQL3PUXA9)"). Die alte Annahme "nur über Xcode-
+        # <Team-Inhaber> (SYQL3PUXA9)"). Die alte Annahme "nur über Xcode-
         # GUI möglich" galt nur für einen früheren, nicht mehr reproduzierten
         # Versuch — nicht wieder blind auf Xcode-GUI zurückfallen, CLI zuerst
         # probieren.
