@@ -661,16 +661,7 @@ struct ItemGridView: View {
             // Flache Sort-Modi (Zuletzt abgespielt/Hinzugefügt/Laufzeit) gehören in
             // dieselbe Kategorie wie Suche/Favoriten — siehe `ItemSort.isFlatSortMode`.
             let isFlat = sort.isFlatSortMode
-            let effectiveFolder: String?
-            if !search.isEmpty || favoritesOnly || isFlat {
-                // Root spans the whole library, recursively; a subfolder stays scoped to
-                // that folder (also recursive) — matches grid.js's search-vs-flatView branch.
-                effectiveFolder = folder
-            } else if library.isMovies {
-                effectiveFolder = nil
-            } else {
-                effectiveFolder = folder ?? "/"
-            }
+            let effectiveFolder = effectiveFolder(isFlat: isFlat)
             async let itemsTask = client.fetchItems(
                 libraryId: library.id,
                 folder: effectiveFolder,
@@ -734,20 +725,30 @@ struct ItemGridView: View {
     /// signalisiert hat, dass es mehr gibt. Dedupliziert per Item-ID gegen die bereits
     /// angezeigten Treffer und hängt nur wirklich NEUE Treffer an — der Fuzzy-Fetch liefert
     /// serverseitig die volle (strikte + zusätzliche) Ergebnismenge, nicht nur das Delta.
+    /// Gemeinsame Ordner-Scope-Regel für `load()` und `loadFuzzyExtra()` — beide
+    /// müssen exakt dieselbe Ableitung nutzen, sonst könnte der Fuzzy-Nachtrag
+    /// Treffer aus einem anderen Scope als die ursprüngliche Suche liefern.
+    /// (Vorher zwei wortgleiche Kopien, aus dem QM-Review FTS5-Fuzzy-Suche
+    /// 2026-09-19 zusammengezogen.)
+    private func effectiveFolder(isFlat: Bool) -> String? {
+        if !search.isEmpty || favoritesOnly || isFlat {
+            // Root spans the whole library, recursively; a subfolder stays scoped to
+            // that folder (also recursive) — matches grid.js's search-vs-flatView branch.
+            return folder
+        } else if library.isMovies {
+            return nil
+        } else {
+            return folder ?? "/"
+        }
+    }
+
     private func loadFuzzyExtra() async {
         guard !search.isEmpty, !isLoadingFuzzyExtra else { return }
         isLoadingFuzzyExtra = true
         defer { isLoadingFuzzyExtra = false }
         do {
             let isFlat = sort.isFlatSortMode
-            let effectiveFolder: String?
-            if !search.isEmpty || favoritesOnly || isFlat {
-                effectiveFolder = folder
-            } else if library.isMovies {
-                effectiveFolder = nil
-            } else {
-                effectiveFolder = folder ?? "/"
-            }
+            let effectiveFolder = effectiveFolder(isFlat: isFlat)
             let fuzzyResult = try await client.fetchItems(
                 libraryId: library.id,
                 folder: effectiveFolder,
