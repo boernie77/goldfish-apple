@@ -628,7 +628,7 @@ struct MusicLibraryView: View {
 
     private func syncLibraryIfNeeded() async {
         guard librarySyncEnabled else { return }
-        guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id).items else { return }
         downloadAllMissing(items, client: client, downloads: downloads)
     }
 
@@ -639,7 +639,7 @@ struct MusicLibraryView: View {
     /// `shufflePlayLibrary()` direkt darunter — beide Aktionen dieser Zeile
     /// sollen unabhängig vom aktuell gewählten Anzeige-Modus funktionieren.
     private func playLibraryInOrder() async {
-        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id).items, !items.isEmpty else { return }
         musicPlayer.play(queue: items, startIndex: 0, client: client)
     }
 
@@ -649,7 +649,7 @@ struct MusicLibraryView: View {
     /// (Titel-Ende, ⏭) ebenfalls weiter zufällig bleibt statt in die (bereits
     /// gemischte, aber danach fixe) Reihenfolge zurückzufallen.
     private func shufflePlayLibrary() async {
-        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id).items, !items.isEmpty else { return }
         // Hörbücher automatisch ausschließen (User-Wunsch 2026-09-11:
         // "noch besser wäre, wenn shuffle Hörbücher automatisch nicht
         // abspielt", erweitert 2026-09-14: "Bitte Hörbücher, Hörbuch,
@@ -664,7 +664,7 @@ struct MusicLibraryView: View {
     }
 
     private func loadAllTracks() async {
-        guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id).items else { return }
         allTracks = items.sorted {
             if $0.artist != $1.artist { return ($0.artist ?? "") < ($1.artist ?? "") }
             if $0.album != $1.album { return ($0.album ?? "") < ($1.album ?? "") }

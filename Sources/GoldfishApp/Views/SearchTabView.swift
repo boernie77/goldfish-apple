@@ -24,6 +24,13 @@ struct SearchTabView: View {
     @State private var isSearching = false
     @FocusState private var searchFieldFocused: Bool
     @FocusState private var focusedSearchResultID: Item.ID?
+    // FTS5-Umstellung des Servers (Herbst 2026): eine normale Suche matcht nur noch ganze
+    // Wörter — der Server meldet über `X-Fuzzy-Extra-Count` zusätzliche, nur per
+    // `searchMode=fuzzy` (Präfix-Matching) auffindbare Treffer. Gleiches Muster wie
+    // `ItemGridView` (Mac/iOS), hier eigenständig umgesetzt, da dieser Tab ein komplett
+    // separater Code-Pfad ist (kein `.searchable`, eigenes TextField + eigene Ergebnisliste).
+    @State private var fuzzyExtraCount = 0
+    @State private var isLoadingFuzzyExtra = false
     // User-Wunsch 2026-09-08: "wenn ich in Filme gesucht habe und wechsle nach Serien …
     // muss das Suchfeld wieder leer sein" — merkt sich, für welche Bibliothek der
     // aktuelle `search`-Text galt. Ändert sich `lastLibraryContext.libraryId` (User hat
@@ -99,6 +106,23 @@ struct SearchTabView: View {
                             .padding(.horizontal)
                             .padding(.top, 8)
                             .focusSection()
+
+                            // Bewusst ein normaler, fokussierbarer Button — kein `Menu`, das
+                            // öffnet auf tvOS zuverlässig nichts (siehe CLAUDE.md).
+                            if fuzzyExtraCount > 0 {
+                                Button {
+                                    Task { await loadFuzzyExtra() }
+                                } label: {
+                                    if isLoadingFuzzyExtra {
+                                        ProgressView()
+                                    } else {
+                                        Text("🔍 \(fuzzyExtraCount) weitere Treffer")
+                                    }
+                                }
+                                .disabled(isLoadingFuzzyExtra)
+                                .padding(.horizontal)
+                                .focusSection()
+                            }
                         }
                     }
                 }
@@ -116,6 +140,7 @@ struct SearchTabView: View {
                 guard newValue != searchedLibraryId else { return }
                 search = ""
                 searchResults = []
+                fuzzyExtraCount = 0
                 searchedLibraryId = newValue
             }
             // Direkt beim Öffnen des Tabs die Tastatur-Fokussierung anbieten — spart den
@@ -132,20 +157,23 @@ struct SearchTabView: View {
         let mySeq = searchRequestSeq
         guard !search.isEmpty else {
             searchResults = []
+            fuzzyExtraCount = 0
             return
         }
         isSearching = true
+        fuzzyExtraCount = 0
         defer { if mySeq == searchRequestSeq { isSearching = false } }
         do {
             // Gescopt auf die zuletzt besuchte Bibliothek, falls bekannt — sonst (z. B.
             // direkt nach App-Start ohne vorherigen Bibliotheks-Besuch) global über alle
             // ACL-zugänglichen Bibliotheken, wie bisher.
-            let results = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search)
+            let result = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search)
             // Nur übernehmen, wenn währenddessen keine neuere Anfrage gestartet wurde —
             // verhindert, dass eine langsame, veraltete Antwort die aktuellen Treffer
             // überschreibt (siehe Kommentar bei `searchRequestSeq`).
             guard mySeq == searchRequestSeq else { return }
-            searchResults = results
+            searchResults = result.items
+            fuzzyExtraCount = result.fuzzyExtraCount
         } catch {
             if GoldfishClient.isAuthError(error) {
                 client.markSessionInvalid()
@@ -153,6 +181,29 @@ struct SearchTabView: View {
             }
             guard mySeq == searchRequestSeq else { return }
             searchResults = []
+            fuzzyExtraCount = 0
+        }
+    }
+
+    /// Lädt die zusätzlichen, nur per `searchMode=fuzzy` (Präfix-Matching) auffindbaren
+    /// Treffer nach — angestoßen durch den "N weitere Treffer"-Button. Dedupliziert per
+    /// Item-ID gegen die bereits angezeigten Treffer, siehe `ItemGridView.loadFuzzyExtra()`
+    /// für dieselbe Logik auf Mac/iOS.
+    private func loadFuzzyExtra() async {
+        guard !search.isEmpty, !isLoadingFuzzyExtra else { return }
+        isLoadingFuzzyExtra = true
+        defer { isLoadingFuzzyExtra = false }
+        do {
+            let result = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search, searchMode: "fuzzy")
+            let existingIds = Set(searchResults.map(\.id))
+            let newItems = result.items.filter { !existingIds.contains($0.id) }
+            searchResults.append(contentsOf: newItems)
+            fuzzyExtraCount = 0
+        } catch {
+            if GoldfishClient.isAuthError(error) {
+                client.markSessionInvalid()
+            }
+            // Sonst best-effort — Button bleibt sichtbar, ein erneuter Tap versucht es wieder.
         }
     }
 }

@@ -196,7 +196,7 @@ struct MusicAlbumDetailView: View {
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled {
                 Task {
-                    guard let items = try? await client.fetchItems(libraryId: library.id) else { return }
+                    guard let items = try? await client.fetchItems(libraryId: library.id).items else { return }
                     downloadAllMissing(items, client: client, downloads: downloads)
                 }
             }
@@ -311,7 +311,7 @@ struct MusicAlbumDetailView: View {
     }
 
     private func shufflePlayLibrary() async {
-        guard let items = try? await client.fetchItems(libraryId: library.id), !items.isEmpty else { return }
+        guard let items = try? await client.fetchItems(libraryId: library.id).items, !items.isEmpty else { return }
         // Hörbücher ausschließen — siehe Kommentar bei `MusicLibraryView
         // .shufflePlayLibrary()`. Fehlte hier bisher komplett (nicht mal ein
         // .m4b-Check), nachgezogen 2026-09-14 für Konsistenz mit der
