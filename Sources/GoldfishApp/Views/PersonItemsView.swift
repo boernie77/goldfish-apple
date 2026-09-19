@@ -228,7 +228,7 @@ struct PersonItemsView: View {
     private func load() async {
         isLoading = true
         do {
-            items = try await client.fetchItems(personId: personTmdbId)
+            items = try await client.fetchItems(personId: personTmdbId).items
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

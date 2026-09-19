@@ -150,6 +150,13 @@ public final class GoldfishClient: ObservableObject {
     // MARK: - Generic request helpers
 
     private func perform<T: Decodable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], jsonBody: Data? = nil, timeout: TimeInterval? = nil) async throws -> T {
+        try await performWithResponse(path, method: method, query: query, jsonBody: jsonBody, timeout: timeout).0
+    }
+
+    /// Wie `perform(_:...)`, gibt aber zusätzlich die rohe `HTTPURLResponse` zurück — für
+    /// Endpoints, die neben dem JSON-Body noch Informationen in Response-Headern liefern
+    /// (z.B. `X-Fuzzy-Extra-Count` bei `/api/items`, siehe `fetchItems(searchMode:)`).
+    private func performWithResponse<T: Decodable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], jsonBody: Data? = nil, timeout: TimeInterval? = nil) async throws -> (T, HTTPURLResponse) {
         var req = URLRequest(url: try makeURL(path, query: query))
         req.httpMethod = method
         if let timeout { req.timeoutInterval = timeout }
@@ -168,11 +175,11 @@ public final class GoldfishClient: ObservableObject {
         if data.isEmpty {
             // Endpoints like 204 No Content decode into Void-ish callers; avoid crashing here.
             if T.self == EmptyResponse.self {
-                return EmptyResponse() as! T
+                return (EmptyResponse() as! T, http)
             }
         }
         do {
-            return try decoder.decode(T.self, from: data)
+            return (try decoder.decode(T.self, from: data), http)
         } catch {
             throw GoldfishError.decoding(error)
         }
@@ -465,6 +472,15 @@ public final class GoldfishClient: ObservableObject {
 
     // MARK: - Items
 
+    /// `searchMode: "fuzzy"` (Server seit FTS5-Umstellung, `?searchMode=fuzzy`) erweitert eine
+    /// Suche um Präfix-Treffer (Wortanfang-Fragmente), die die neue FTS5-Volltextsuche sonst
+    /// NICHT mehr findet (nur noch ganze Wörter, anders als das alte LIKE-basierte Verhalten,
+    /// das auch Teilwort-Treffer wie "haus" → "Bauhaus" lieferte). Der Server liefert bei einer
+    /// Suchanfrage zusätzlich den Response-Header `X-Fuzzy-Extra-Count` — die Anzahl weiterer,
+    /// nur per Fuzzy-Modus auffindbarer Treffer über das bereits gelieferte Ergebnis hinaus.
+    /// Rückgabe deshalb als Tupel statt reinem `[Item]`, damit `SearchTabView` einen "N weitere
+    /// Treffer"-Button anzeigen kann, ohne den Fuzzy-Modus ungefragt sofort mit auszuliefern.
+    @discardableResult
     public func fetchItems(
         libraryId: Int64? = nil,
         folder: String? = nil,
@@ -474,8 +490,9 @@ public final class GoldfishClient: ObservableObject {
         watched: WatchedFilter? = nil,
         favoritesOnly: Bool = false,
         buckets: [String] = [],
-        personId: Int64? = nil
-    ) async throws -> [Item] {
+        personId: Int64? = nil,
+        searchMode: String? = nil
+    ) async throws -> (items: [Item], fuzzyExtraCount: Int) {
         var query: [URLQueryItem] = []
         if let libraryId { query.append(URLQueryItem(name: "libraryId", value: String(libraryId))) }
         if let folder { query.append(URLQueryItem(name: "folder", value: folder)) }
@@ -489,7 +506,10 @@ public final class GoldfishClient: ObservableObject {
         if favoritesOnly { query.append(URLQueryItem(name: "favorite", value: "yes")) }
         for bucket in buckets { query.append(URLQueryItem(name: "bucket", value: bucket)) }
         if let personId { query.append(URLQueryItem(name: "personId", value: String(personId))) }
-        return try await perform("/api/items", query: query)
+        if let searchMode { query.append(URLQueryItem(name: "searchMode", value: searchMode)) }
+        let (items, http): ([Item], HTTPURLResponse) = try await performWithResponse("/api/items", query: query)
+        let fuzzyExtraCount = http.value(forHTTPHeaderField: "X-Fuzzy-Extra-Count").flatMap(Int.init) ?? 0
+        return (items, fuzzyExtraCount)
     }
 
     /// `folderSelections` scopes shuffle to one or more libraries/subfolders at once

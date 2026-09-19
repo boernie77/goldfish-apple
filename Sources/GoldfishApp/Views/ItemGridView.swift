@@ -30,6 +30,14 @@ struct ItemGridView: View {
     @State private var search = ""
     @State private var errorMessage: String?
     @State private var isLoading = true
+    // FTS5-Umstellung des Servers (Herbst 2026): eine normale Suche matcht jetzt nur noch
+    // ganze Wörter (z.B. "haus" findet "Bauhaus" nicht mehr wie beim alten LIKE-Verhalten).
+    // Der Server liefert bei jeder `/api/items`-Suchanfrage zusätzlich den Header
+    // `X-Fuzzy-Extra-Count` — die Anzahl weiterer, nur mit `searchMode=fuzzy` (Präfix-
+    // Matching) auffindbarer Treffer. Zeigt bei einem Treffer > 0 einen "N weitere Treffer"-
+    // Button unter dem Grid, der bei Antippen genau diese zusätzlichen Treffer nachlädt.
+    @State private var fuzzyExtraCount = 0
+    @State private var isLoadingFuzzyExtra = false
 
     @State private var sort: ItemSort
     @State private var ascending: Bool
@@ -292,6 +300,30 @@ struct ItemGridView: View {
                             #if os(tvOS)
                             .padding(.top, 24)
                             #endif
+
+                        // FTS5-Umstellung des Servers: eine normale Suche matcht nur noch
+                        // ganze Wörter. Dieser Button erscheint nur, wenn der Server per
+                        // `X-Fuzzy-Extra-Count`-Header gemeldet hat, dass ein erweiterter
+                        // Präfix-Suchlauf (`searchMode=fuzzy`) noch zusätzliche Treffer
+                        // findet — bewusst ein normaler Button (kein `Menu`, das öffnet auf
+                        // tvOS zuverlässig nichts, siehe CLAUDE.md).
+                        if !search.isEmpty, fuzzyExtraCount > 0 {
+                            Button {
+                                Task { await loadFuzzyExtra() }
+                            } label: {
+                                if isLoadingFuzzyExtra {
+                                    ProgressView()
+                                } else {
+                                    Text("🔍 \(fuzzyExtraCount) weitere Treffer")
+                                }
+                            }
+                            .disabled(isLoadingFuzzyExtra)
+                            .padding(.horizontal)
+                            #if os(tvOS)
+                            .buttonStyle(.bordered)
+                            .focusSection()
+                            #endif
+                        }
                     }
                     .padding(.vertical)
                 }
@@ -493,6 +525,7 @@ struct ItemGridView: View {
         .onAppear { lastLibraryContext.update(libraryId: library.id, libraryName: library.name) }
         #endif
         .onChange(of: search) { _ in
+            fuzzyExtraCount = 0
             Task {
                 await load()
                 #if os(tvOS)
@@ -608,6 +641,9 @@ struct ItemGridView: View {
                 }
                 items = []
                 errorMessage = nil
+                // Dieser Zweig sucht client-seitig über Show-Ordnernamen, nicht über
+                // `/api/items` — kein Fuzzy-Header verfügbar, Button ausblenden.
+                fuzzyExtraCount = 0
                 return
             }
             // Server semantics (internal/store/sqlite.go ListItems): folder="" means
@@ -648,7 +684,8 @@ struct ItemGridView: View {
             async let foldersTask: [FolderTile] = effectivelyShowsFolderTiles && search.isEmpty && !favoritesOnly && !isFlat
                 ? client.fetchFolders(libraryId: library.id, parent: folder)
                 : []
-            var fetchedItems = try await itemsTask
+            let itemsResult = try await itemsTask
+            var fetchedItems = itemsResult.items
             // 🔴 Bug (user report 2026-09-06, screenshots: opening a show tile showed
             // ALL folders AND all episodes at once; going into a folder showed that
             // same folder plus the episode again): the server has no "direct children
@@ -682,8 +719,64 @@ struct ItemGridView: View {
             items = groupVariants(fetchedItems)
             folders = sortFolderTiles(try await foldersTask)
             errorMessage = nil
+            // Button "N weitere Treffer" macht nur bei einer aktiven Textsuche Sinn — bei
+            // reinem Ordner-Browsing/Filtern ignorieren wir den Header (wäre ohnehin 0, der
+            // Server berechnet ihn nur sinnvoll relativ zu einem `search`-Begriff).
+            fuzzyExtraCount = search.isEmpty ? 0 : itemsResult.fuzzyExtraCount
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Lädt die zusätzlichen, nur per `searchMode=fuzzy` (Präfix-Matching) auffindbaren
+    /// Treffer nach — angestoßen durch den "N weitere Treffer"-Button, der nach einer
+    /// normalen (strikten) Suche erscheint, wenn der Server per `X-Fuzzy-Extra-Count`-Header
+    /// signalisiert hat, dass es mehr gibt. Dedupliziert per Item-ID gegen die bereits
+    /// angezeigten Treffer und hängt nur wirklich NEUE Treffer an — der Fuzzy-Fetch liefert
+    /// serverseitig die volle (strikte + zusätzliche) Ergebnismenge, nicht nur das Delta.
+    private func loadFuzzyExtra() async {
+        guard !search.isEmpty, !isLoadingFuzzyExtra else { return }
+        isLoadingFuzzyExtra = true
+        defer { isLoadingFuzzyExtra = false }
+        do {
+            let isFlat = sort.isFlatSortMode
+            let effectiveFolder: String?
+            if !search.isEmpty || favoritesOnly || isFlat {
+                effectiveFolder = folder
+            } else if library.isMovies {
+                effectiveFolder = nil
+            } else {
+                effectiveFolder = folder ?? "/"
+            }
+            let fuzzyResult = try await client.fetchItems(
+                libraryId: library.id,
+                folder: effectiveFolder,
+                search: search,
+                sort: sort,
+                ascending: ascending,
+                watched: watchedFilter,
+                favoritesOnly: favoritesOnly,
+                buckets: selectedBuckets.map(\.rawValue),
+                searchMode: "fuzzy"
+            )
+            var fetchedItems = fuzzyResult.items
+            if effectivelyShowsFolderTiles, !isFlat, let folder, !folder.isEmpty {
+                let prefix = folder + "/"
+                fetchedItems = fetchedItems.filter { item in
+                    guard let relPath = item.relPath, relPath.hasPrefix(prefix) else { return false }
+                    let remainder = relPath.dropFirst(prefix.count)
+                    return !remainder.contains("/")
+                }
+            }
+            let grouped = groupVariants(fetchedItems)
+            let existingIds = Set(items.map(\.id))
+            let newItems = grouped.filter { !existingIds.contains($0.id) }
+            items.append(contentsOf: newItems)
+            fuzzyExtraCount = 0
+        } catch {
+            // Best-effort — der Button bleibt bei einem Fehler einfach sichtbar, ein
+            // erneuter Tap versucht es wieder. Kein eigener Fehlerdialog nötig für diesen
+            // rein additiven "mehr laden"-Pfad.
         }
     }
 
