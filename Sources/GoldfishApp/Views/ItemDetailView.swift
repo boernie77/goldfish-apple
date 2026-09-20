@@ -1,6 +1,9 @@
 import SwiftUI
 import GoldfishCore
 import AVFoundation
+#if os(macOS)
+import AppKit
+#endif
 
 struct ItemDetailView: View {
     let item: Item
@@ -57,6 +60,13 @@ struct ItemDetailView: View {
     /// .bytesWritten` direkt, die Auflösung gibt es dort nicht — wird deshalb einmalig
     /// per `AVAsset` aus der lokalen Datei gelesen, sobald ein Download existiert.
     @State private var downloadResolutionLabel: String? = nil
+    /// Ziel für den klickbaren Serien-Link bei Episoden (User-Wunsch 2026-09-20):
+    /// wiederverwendet denselben Navigationsweg wie ein normaler Serien-Ordner-Klick
+    /// (`ShowSeasonsView`), löst dafür einmalig die `Library` des Items auf (die
+    /// Detail-Ansicht kennt bisher nur `libraryId`, kein `Library`-Objekt).
+    @State private var showNavTarget: ShowNavTarget? = nil
+    @State private var showNavPushed = false
+    @State private var isResolvingShowLink = false
     #if os(tvOS)
     // tvOS-Fix 2026-09-03 (User-Report: Fernbedienung reagiert im Detail-Dialog
     // nicht — Fokus blieb sichtbar auf der Tab-Leiste hängen): beim Öffnen einer
@@ -94,12 +104,47 @@ struct ItemDetailView: View {
                     .frame(maxWidth: posterMaxWidth)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
+                // User-Wunsch 2026-09-20: bei einer Episode soll der Serienname VOR dem
+                // Episodentitel als eigener, klickbarer Text erscheinen und zur
+                // Staffelübersicht der Serie führen — wiederverwendet denselben
+                // Navigationsweg wie ein normaler Serien-Ordner-Klick (`ShowSeasonsView`),
+                // kein neu gebauter Pfad. Nur für Episoden sichtbar (`item.isEpisode`).
+                if item.isEpisode, let showName = item.showName {
+                    Button {
+                        Task { await navigateToShow(showName: showName) }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(showName)
+                                .font(.subheadline.weight(.semibold))
+                                .underline()
+                                .foregroundStyle(Color.accentColor)
+                            if isResolvingShowLink {
+                                ProgressView().scaleEffect(0.6)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isResolvingShowLink)
+                    #if os(macOS)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                    #endif
+                }
+
+
                 Text(item.displayTitle)
                     .font(.title2.bold())
 
                 HStack(spacing: 12) {
                     if let year = item.metadata?.year {
                         Text(String(year))
+                    }
+                    // User-Wunsch 2026-09-20: "Auf der Serien Infokarte muss Staffel und
+                    // Folge stehen" — bei Episoden zusätzlich zum klickbaren Serienname oben
+                    // (siehe dort) der reine "S01E02"-Code, analog zum Browser/Linux-Client.
+                    if let episodeCode = item.episodeCode {
+                        Text(episodeCode)
                     }
                     if !item.resolutionLabel.isEmpty {
                         Text(item.resolutionLabel)
@@ -367,6 +412,14 @@ struct ItemDetailView: View {
         .navigationDestination(for: PersonRef.self) { ref in
             PersonItemsView(personTmdbId: ref.tmdbId, personName: ref.name)
         }
+        // User-Wunsch 2026-09-20: klickbarer Serienname bei Episoden → Staffelübersicht
+        // der Serie. `isPresented:` statt `navigationDestination(item:)` — letzteres
+        // braucht macOS 14/iOS 17, das Deployment-Target hier ist macOS 13/iOS 16.
+        .navigationDestination(isPresented: $showNavPushed) {
+            if let target = showNavTarget {
+                ShowSeasonsView(library: target.library, folder: target.folder)
+            }
+        }
         .task {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
             await loadStreams(for: selectedItem.id)
@@ -414,6 +467,20 @@ struct ItemDetailView: View {
     private var sizeLabel: String? {
         guard let bytes = selectedItem.sizeBytes, bytes > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// Löst die Ziel-`Library` für den Serien-Link auf (Episode kennt nur `libraryId`,
+    /// nicht das ganze `Library`-Objekt) und stößt den Push zu `ShowSeasonsView` an —
+    /// derselbe Navigationsweg, den auch ein normaler Serien-Ordner-Klick beim
+    /// Bibliotheks-Browsing nimmt (`ItemGridView.destinationView(for:)`, TV-Zweig).
+    private func navigateToShow(showName: String) async {
+        guard !isResolvingShowLink else { return }
+        isResolvingShowLink = true
+        defer { isResolvingShowLink = false }
+        guard let libraries = try? await client.fetchLibraries(),
+              let library = libraries.first(where: { $0.id == item.libraryId }) else { return }
+        showNavTarget = ShowNavTarget(library: library, folder: showName)
+        showNavPushed = true
     }
 
     private var downloadSizeLabel: String? {
@@ -772,4 +839,11 @@ private struct AVPickerValueLabel: View {
                 .foregroundStyle(.secondary)
         }
     }
+}
+
+/// Ziel des klickbaren Serienname-Links bei Episoden (User-Wunsch 2026-09-20) —
+/// identisch aufgebaut zu `FolderDestination` (`ItemGridView.swift`).
+private struct ShowNavTarget {
+    let library: Library
+    let folder: String
 }

@@ -84,9 +84,19 @@ struct PersonItemsView: View {
         return ascending ? sorted : sorted.reversed()
     }
 
+    /// Gruppierungsschlüssel pro Folge: primär die TMDB-Show-ID (`metadata.parentId`),
+    /// analog zum Browser (`grid.js renderPersonFilterBranch`: `showTid || libraryId|folder`).
+    /// Fallback auf `libraryId:relPath-erstes-Segment`, falls keine TMDB-Zuordnung vorliegt
+    /// (z. B. nicht-TMDB-erkannte lokale Serien) — sonst würde jede solche Folge einzeln
+    /// als eigene „Serie" mit nur 1 Folge erscheinen statt zusammengefasst zu werden.
+    private func showGroupKey(_ item: Item) -> String {
+        if let pid = item.metadata?.parentId, pid > 0 { return "tmdb:\(pid)" }
+        return "folder:\(item.libraryId):\(topFolder(item.relPath))"
+    }
+
     private var showGroups: [PersonShowGroup] {
         let episodes = items.filter { $0.metadata?.season != nil }
-        let grouped = Dictionary(grouping: episodes) { "\($0.libraryId):\(topFolder($0.relPath))" }
+        let grouped = Dictionary(grouping: episodes) { showGroupKey($0) }
         return grouped.values.compactMap { eps -> PersonShowGroup? in
             guard let first = eps.first else { return nil }
             let sorted = eps.sorted {
@@ -95,7 +105,7 @@ struct PersonItemsView: View {
                 return ($0.metadata?.episode ?? 0) < ($1.metadata?.episode ?? 0)
             }
             return PersonShowGroup(
-                key: "\(first.libraryId):\(topFolder(first.relPath))",
+                key: showGroupKey(first),
                 folderName: topFolder(first.relPath),
                 parentId: first.metadata?.parentId,
                 episodes: sorted
@@ -401,9 +411,18 @@ private struct PersonShowCard: View {
         .contentShape(Rectangle())
     }
 
+    /// Serien-Poster von der Parent-Show-Metadata — wie im Browser (`renderPersonShowCard`)
+    /// fällt das auf das Thumbnail der ersten gefundenen Folge zurück, wenn kein
+    /// `parentId` vorliegt (Fallback-Gruppierung über Ordner/Library statt TMDB-Show-ID,
+    /// User-Wunsch 2026-09-20: "sonst Fallback-Thumbnail einer Folge").
     private var posterURL: URL? {
-        guard let parentId = group.parentId, let url = client.posterURL(metadataId: parentId) else { return nil }
-        return url
+        if let parentId = group.parentId, let url = client.posterURL(metadataId: parentId) {
+            return url
+        }
+        if let fallbackId = group.episodes.first?.id {
+            return client.thumbURL(itemId: fallbackId)
+        }
+        return nil
     }
 }
 
