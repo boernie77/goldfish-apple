@@ -38,6 +38,11 @@ struct ItemGridView: View {
     // Button unter dem Grid, der bei Antippen genau diese zusätzlichen Treffer nachlädt.
     @State private var fuzzyExtraCount = 0
     @State private var isLoadingFuzzyExtra = false
+    // "Aufgegliederte Trefferanzeige" (Server v1.4.22): `/api/items?search=` matches only
+    // titles now (actor matches removed there) — the companion `/api/search/people`
+    // (scoped exactly like the items search: same libraryId/folder) supplies the actor
+    // row shown above the grid, mirroring the browser's `appendSearchResultCards`.
+    @State private var searchPeople: [SearchPerson] = []
 
     @State private var sort: ItemSort
     @State private var ascending: Bool
@@ -290,6 +295,9 @@ struct ItemGridView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal)
                         }
+
+                        SearchPersonRowView(people: searchPeople)
+                            .padding(.horizontal)
 
                         itemGrid
                             .padding(.horizontal)
@@ -644,6 +652,7 @@ struct ItemGridView: View {
                 // Dieser Zweig sucht client-seitig über Show-Ordnernamen, nicht über
                 // `/api/items` — kein Fuzzy-Header verfügbar, Button ausblenden.
                 fuzzyExtraCount = 0
+                searchPeople = (try? await client.searchPeople(query: q, libraryId: library.id, folder: folder)) ?? []
                 return
             }
             // Server semantics (internal/store/sqlite.go ListItems): folder="" means
@@ -675,6 +684,12 @@ struct ItemGridView: View {
             async let foldersTask: [FolderTile] = effectivelyShowsFolderTiles && search.isEmpty && !favoritesOnly && !isFlat
                 ? client.fetchFolders(libraryId: library.id, parent: folder)
                 : []
+            // Fired in parallel with the items search — the actor row above the grid
+            // must not delay/be delayed by the item results (mirrors the browser, which
+            // also issues both requests concurrently).
+            async let peopleTask: [SearchPerson] = search.isEmpty
+                ? []
+                : ((try? await client.searchPeople(query: search, libraryId: library.id, folder: effectiveFolder)) ?? [])
             let itemsResult = try await itemsTask
             var fetchedItems = itemsResult.items
             // 🔴 Bug (user report 2026-09-06, screenshots: opening a show tile showed
@@ -709,6 +724,7 @@ struct ItemGridView: View {
             // saw duplicate movies as two separate tiles).
             items = groupVariants(fetchedItems)
             folders = sortFolderTiles(try await foldersTask)
+            searchPeople = await peopleTask
             errorMessage = nil
             // Button "N weitere Treffer" macht nur bei einer aktiven Textsuche Sinn — bei
             // reinem Ordner-Browsing/Filtern ignorieren wir den Header (wäre ohnehin 0, der

@@ -51,6 +51,9 @@ struct SearchTabView: View {
     // im Browser, CLAUDE.md "Request-Sequencing"). Fix: Generation-Token, nur die
     // zuletzt gestartete Anfrage darf `searchResults` noch schreiben.
     @State private var searchRequestSeq = 0
+    // "Aufgegliederte Trefferanzeige" (Server v1.4.22): actor row above the item grid,
+    // fired in parallel with the item search, same scope (`lastLibraryContext`).
+    @State private var searchPeople: [SearchPerson] = []
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -96,6 +99,9 @@ struct SearchTabView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal)
                         } else {
+                            SearchPersonRowView(people: searchPeople)
+                                .padding(.horizontal)
+
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 220), spacing: 48, alignment: .top)], spacing: 48) {
                                 ForEach(searchResults) { item in
                                     ItemCard(item: item, width: 220, queue: searchResults)
@@ -133,6 +139,9 @@ struct SearchTabView: View {
             .navigationDestination(for: ItemNavTarget.self) { target in
                 ItemDetailView(item: target.item, queue: target.queue)
             }
+            .navigationDestination(for: PersonRef.self) { ref in
+                PersonItemsView(personTmdbId: ref.tmdbId, personName: ref.name)
+            }
             .onChange(of: search) { _ in
                 Task { await loadSearchResults() }
             }
@@ -141,6 +150,7 @@ struct SearchTabView: View {
                 search = ""
                 searchResults = []
                 fuzzyExtraCount = 0
+                searchPeople = []
                 searchedLibraryId = newValue
             }
             // Direkt beim Öffnen des Tabs die Tastatur-Fokussierung anbieten — spart den
@@ -158,6 +168,7 @@ struct SearchTabView: View {
         guard !search.isEmpty else {
             searchResults = []
             fuzzyExtraCount = 0
+            searchPeople = []
             return
         }
         isSearching = true
@@ -167,6 +178,7 @@ struct SearchTabView: View {
             // Gescopt auf die zuletzt besuchte Bibliothek, falls bekannt — sonst (z. B.
             // direkt nach App-Start ohne vorherigen Bibliotheks-Besuch) global über alle
             // ACL-zugänglichen Bibliotheken, wie bisher.
+            async let peopleTask = (try? await client.searchPeople(query: search, libraryId: lastLibraryContext.libraryId)) ?? []
             let result = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search)
             // Nur übernehmen, wenn währenddessen keine neuere Anfrage gestartet wurde —
             // verhindert, dass eine langsame, veraltete Antwort die aktuellen Treffer
@@ -174,6 +186,7 @@ struct SearchTabView: View {
             guard mySeq == searchRequestSeq else { return }
             searchResults = result.items
             fuzzyExtraCount = result.fuzzyExtraCount
+            searchPeople = await peopleTask
         } catch {
             if GoldfishClient.isAuthError(error) {
                 client.markSessionInvalid()
@@ -182,6 +195,7 @@ struct SearchTabView: View {
             guard mySeq == searchRequestSeq else { return }
             searchResults = []
             fuzzyExtraCount = 0
+            searchPeople = []
         }
     }
 

@@ -66,8 +66,16 @@ targets:
         # Transcode-Profil; neue Einstellung pro Konto, Standard aus) — identisch
         # auf allen drei Plattformen (geteiltes GoldfishCore + PlayerView).
         # SICHTBARE interne Version auf 1.2 erhöht.
-        CFBundleShortVersionString: "1.3"
-        CFBundleVersion: "239"
+        # Build 239 (2026-09-20): Feature "Aufgegliederte Trefferanzeige" — Suchtreffer
+        # (global UND bibliotheks-gescopt) zeigen jetzt zuerst eine horizontal scrollbare
+        # Schauspieler-Zeile (neuer Server-Endpoint GET /api/search/people, Server v1.4.22),
+        # danach die (jetzt titel-only) Film-/Serien-Treffer — spiegelt den Browser
+        # (cards.js appendSearchResultCards/renderSearchPersonCard). Tippen auf eine
+        # Schauspieler-Karte öffnet die bestehende Personen-Filmografie-Ansicht
+        # (PersonItemsView, dieselbe Navigation wie ein Cast-Klick auf der Detailseite).
+        # SICHTBARE interne Version auf 1.4 erhöht.
+        CFBundleShortVersionString: "1.4"
+        CFBundleVersion: "240"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -221,8 +229,11 @@ targets:
         # gespeicherten filePath) wurden nicht mehr als "Offline abspielen"
         # erkannt, obwohl die Dateien physisch vorhanden waren. localFileURL()
         # löst jetzt zusätzlich gegen das aktuelle Downloads-Verzeichnis auf.
-        CFBundleShortVersionString: "1.9"
-        CFBundleVersion: "209"
+        # Build 210 (2026-09-20): Feature "Aufgegliederte Trefferanzeige" (siehe
+        # GoldfishMac-Target, Build 239/1.4) — identischer Code, geteiltes GoldfishCore
+        # + gemeinsame ItemGridView/SearchPersonRowView.
+        CFBundleShortVersionString: "1.10"
+        CFBundleVersion: "210"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -304,7 +315,12 @@ targets:
         # (siehe GoldfishMac-Target, Build 238) — auf tvOS mit explizitem
         # Fokus-Ziel für die beiden Knöpfe des Overlays, per D-Pad erreichbar.
         # SICHTBARE interne Version auf 1.5 erhöht.
-        CFBundleShortVersionString: "1.6"
+        # Build 14 (2026-09-20): Feature "Aufgegliederte Trefferanzeige" (siehe
+        # GoldfishMac-Target, Build 239/1.4) — eigener Such-Tab (SearchTabView.swift)
+        # bekommt dieselbe Schauspieler-Zeile, mit Focus/onTapGesture-Wiring wie die
+        # bestehende Besetzungsleiste (CastStripView), kein Menu verwendet.
+        # SICHTBARE interne Version auf 1.7 erhöht.
+        CFBundleShortVersionString: "1.7"
         CFBundleVersion: "14"
     settings:
       base:

@@ -502,6 +502,18 @@ public struct CastMember: Decodable, Identifiable, Hashable {
     public var id: Int64 { personId }
 }
 
+/// `GET /api/search/people?q=...` (Server v1.4.22) — companion to the now title-only
+/// `/api/items` search (actor/cast matches were removed from that endpoint). Mirrors the
+/// browser's `renderSearchPersonCard` (cards.js): id/tmdbId/name/profilePath, where
+/// `profilePath` is a raw TMDB path fragment (e.g. "/abc123.jpg") built into a full URL
+/// via the same `tmdbImageURL(_:size:)` helper the cast strip already uses.
+public struct SearchPerson: Decodable, Identifiable, Hashable {
+    public let id: Int64
+    public let tmdbId: Int64
+    public let name: String
+    public let profilePath: String
+}
+
 /// Bio-Daten + volle Filmografie einer Person (`GET /api/person/{tmdbId}`,
 /// serverseitig aus TMDB `combined_credits` zusammengesetzt).
 public struct PersonDetails: Decodable {

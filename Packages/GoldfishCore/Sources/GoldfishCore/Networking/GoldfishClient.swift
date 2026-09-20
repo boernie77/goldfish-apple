@@ -589,6 +589,22 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/metadata/\(metadataId)/cast")
     }
 
+    /// `GET /api/search/people?q=...` (Server v1.4.22) — the "aufgegliederte
+    /// Trefferanzeige" split search: `/api/items?search=` now matches ONLY the title
+    /// (cast/actor matches were removed there), this new endpoint is the companion that
+    /// returns actor hits separately, exactly mirroring the browser's split search-result
+    /// row (`cards.js appendSearchResultCards`/`renderSearchPersonCard`). `libraryId`/
+    /// `folder` scope it identically to `/api/items`'s own search scope. The server
+    /// returns `[]` for a query under 3 characters — guarded here too, to skip an
+    /// avoidable round trip on every keystroke of a short term.
+    public func searchPeople(query: String, libraryId: Int64? = nil, folder: String? = nil) async throws -> [SearchPerson] {
+        guard query.trimmingCharacters(in: .whitespaces).count >= 3 else { return [] }
+        var q: [URLQueryItem] = [URLQueryItem(name: "q", value: query)]
+        if let libraryId { q.append(URLQueryItem(name: "libraryId", value: String(libraryId))) }
+        if let folder { q.append(URLQueryItem(name: "folder", value: folder)) }
+        return try await perform("/api/search/people", query: q)
+    }
+
     /// Nur für Filme (`tmdb_type=movie`) — der Server antwortet mit 404, wenn kein
     /// öffentlicher YouTube-Trailer gefunden wurde (Normalfall bei den meisten
     /// Filmen), das ist hier ein regulärer `throw`, kein Sonderfall.
