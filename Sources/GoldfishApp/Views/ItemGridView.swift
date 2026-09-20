@@ -374,6 +374,15 @@ struct ItemGridView: View {
         .navigationDestination(for: FolderDestination.self) { dest in
             destinationView(for: dest)
         }
+        // Bug (User-Report 2026-09-20): Schauspieler-Kacheln in der Bibliotheks-
+        // suche (SearchPersonRowView oben) ließen sich antippen, ohne dass etwas
+        // passierte — `PersonRef` war hier nie als Navigationsziel registriert
+        // (ItemDetailView/SearchTabView haben es, ItemGridView selbst nicht).
+        // SwiftUI ignoriert einen `NavigationLink(value:)` lautlos, wenn kein
+        // `.navigationDestination` für seinen Werttyp im aktiven Stack hängt.
+        .navigationDestination(for: PersonRef.self) { ref in
+            PersonItemsView(personTmdbId: ref.tmdbId, personName: ref.name)
+        }
         #if os(iOS)
         .searchable(text: $search, prompt: "Suchen")
         #endif
