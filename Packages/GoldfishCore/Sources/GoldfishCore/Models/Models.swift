@@ -511,7 +511,16 @@ public struct SearchPerson: Decodable, Identifiable, Hashable {
     public let id: Int64
     public let tmdbId: Int64
     public let name: String
-    public let profilePath: String
+    // ⚠ Server sendet `profilePath` mit `omitempty` (internal/model/types.go
+    // Person.ProfilePath) — bei einer Person OHNE TMDB-Foto fehlt das Feld im
+    // JSON komplett, es steht NICHT als "" oder null da. Ein Nicht-optionaler
+    // String hätte in dem Fall den kompletten Array-Decode scheitern lassen
+    // (der Aufrufer fängt das mit `try?` ab → leere Liste), sodass eine ganze
+    // Suche 0 Schauspieler zeigte, sobald AUCH NUR EINER kein Foto hat — echter
+    // Bug, User-Report 2026-09-20 (iOS/macOS: "Schauspieler kommen dort nicht
+    // als Treffer", nachdem der Server-Fix schon lief und der Browser bereits
+    // korrekt funktionierte).
+    public let profilePath: String?
 }
 
 /// Bio-Daten + volle Filmografie einer Person (`GET /api/person/{tmdbId}`,
