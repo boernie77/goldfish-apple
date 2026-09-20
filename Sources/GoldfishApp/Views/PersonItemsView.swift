@@ -253,45 +253,76 @@ struct PersonItemsView: View {
     private func filmographySection(_ filmography: [PersonCredit]) -> some View {
         let byMovie = ownedMovieByTmdb
         let byShow = ownedShowByTmdb
-        Text("🎞 Filmografie · \(filmography.count)")
-            .font(.headline)
+        // User-Wunsch 2026-09-20: "Auf iOS wird bei Filmen auch nur Filme angezeigt,
+        // wenn ich auf den Schauspieler filtere, wenn ich das ganze unter Serien
+        // mache, dann habe ich dort aber auch alle Filme." + "Es sollen immer alle
+        // Treffer von Filmen und Serien aufgezeigt werden, aber Kategorisiert. Also
+        // Erst Filme (mit Überschrift) und dann extra Bereich mit Überschrift Serien."
+        // Vorher rendere diese Funktion die TMDB-Filmografie als EINE gemischte
+        // Kachelreihe (Filme und Serien in TMDB-Karriere-Reihenfolge durcheinander).
+        // Jetzt: zwei komplett getrennte Sektionen mit eigener Überschrift, Filme
+        // zuerst — Reihenfolge INNERHALB jeder Sektion bleibt wie in `filmography`.
+        let movieCredits = filmography.filter { $0.mediaType == "movie" }
+        let showCredits = filmography.filter { $0.mediaType == "tv" }
+        let leftoverMovies = leftoverOwnedMovies(filmography)
+        let leftoverShows = leftoverOwnedShows(filmography)
+
+        if !movieCredits.isEmpty || !leftoverMovies.isEmpty {
+            Text("🎬 Filme · \(movieCredits.count)")
+                .font(.headline)
+                .padding(.horizontal)
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(movieCredits) { cr in
+                    if let owned = byMovie[cr.tmdbId] {
+                        NavigationLink(value: ItemNavTarget(item: owned, queue: movies)) {
+                            ItemCard(item: owned).frame(width: cardWidth)
+                        }
+                        .buttonStyle(.plain)
+                        .focusableCompat(false)
+                    } else if !ownedOnly {
+                        PersonMissingCard(credit: cr).frame(width: cardWidth)
+                    }
+                }
+                // Vorhandenes, das TMDB nicht in der Filmografie listet, nie verstecken.
+                ForEach(leftoverMovies) { item in
+                    NavigationLink(value: ItemNavTarget(item: item, queue: movies)) {
+                        ItemCard(item: item).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                }
+            }
             .padding(.horizontal)
-        LazyVGrid(columns: columns, spacing: 16) {
-            ForEach(filmography) { cr in
-                if cr.mediaType == "movie", let owned = byMovie[cr.tmdbId] {
-                    NavigationLink(value: ItemNavTarget(item: owned, queue: movies)) {
-                        ItemCard(item: owned).frame(width: cardWidth)
-                    }
-                    .buttonStyle(.plain)
-                    .focusableCompat(false)
-                } else if cr.mediaType == "tv", let owned = byShow[cr.tmdbId] {
-                    NavigationLink(value: owned) {
-                        PersonShowCard(group: owned).frame(width: cardWidth)
-                    }
-                    .buttonStyle(.plain)
-                    .focusableCompat(false)
-                } else if !ownedOnly {
-                    PersonMissingCard(credit: cr).frame(width: cardWidth)
-                }
-            }
-            // Vorhandenes, das TMDB nicht in der Filmografie listet, nie verstecken.
-            ForEach(leftoverOwnedMovies(filmography)) { item in
-                NavigationLink(value: ItemNavTarget(item: item, queue: movies)) {
-                    ItemCard(item: item).frame(width: cardWidth)
-                }
-                .buttonStyle(.plain)
-                .focusableCompat(false)
-            }
-            ForEach(leftoverOwnedShows(filmography)) { group in
-                NavigationLink(value: group) {
-                    PersonShowCard(group: group).frame(width: cardWidth)
-                }
-                .buttonStyle(.plain)
-                .focusableCompat(false)
-            }
         }
-        .padding(.horizontal)
+
+        if !showCredits.isEmpty || !leftoverShows.isEmpty {
+            Text("📺 Serien · \(showCredits.count)")
+                .font(.headline)
+                .padding(.horizontal)
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(showCredits) { cr in
+                    if let owned = byShow[cr.tmdbId] {
+                        NavigationLink(value: owned) {
+                            PersonShowCard(group: owned).frame(width: cardWidth)
+                        }
+                        .buttonStyle(.plain)
+                        .focusableCompat(false)
+                    } else if !ownedOnly {
+                        PersonMissingCard(credit: cr).frame(width: cardWidth)
+                    }
+                }
+                ForEach(leftoverShows) { group in
+                    NavigationLink(value: group) {
+                        PersonShowCard(group: group).frame(width: cardWidth)
+                    }
+                    .buttonStyle(.plain)
+                    .focusableCompat(false)
+                }
+            }
+            .padding(.horizontal)
+        }
     }
+
 
     private func leftoverOwnedMovies(_ filmography: [PersonCredit]) -> [Item] {
         let known = Set(filmography.filter { $0.mediaType == "movie" }.map(\.tmdbId))

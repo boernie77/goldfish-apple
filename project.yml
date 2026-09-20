@@ -75,7 +75,7 @@ targets:
         # (PersonItemsView, dieselbe Navigation wie ein Cast-Klick auf der Detailseite).
         # SICHTBARE interne Version auf 1.4 erhöht.
         CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "242"
+        CFBundleVersion: "243"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -233,7 +233,7 @@ targets:
         # GoldfishMac-Target, Build 239/1.4) — identischer Code, geteiltes GoldfishCore
         # + gemeinsame ItemGridView/SearchPersonRowView.
         CFBundleShortVersionString: "1.10"
-        CFBundleVersion: "212"
+        CFBundleVersion: "213"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
