@@ -1,5 +1,13 @@
 # GoldfishApple — Projektregeln
 
+> **`CLAUDE.md` ist absichtlich nur der Import-Shim `@AGENTS.md` — nicht beschreiben.**
+> Regeln, die in jeder Session gelten, gehören in diese Datei; Detailwissen in einen
+> Themenskill unter `.claude/skills/<thema>/SKILL.md`. Ein Wächter-Hook
+> (`~/.hermes/hooks/claude_md_shim_guard.py`, registriert in `~/.claude/settings.json`)
+> lehnt Schreibzugriffe auf `CLAUDE.md` ab und setzt sie bei Drift automatisch zurück —
+> auch nach Änderungen per Editor oder Skript. Claude-Code-Spezifisches, das Hermes
+> bewusst nicht sehen soll, gehört nach `.claude/rules/`.
+
 **Diese Datei wird bei jedem Agentenstart vollständig geladen — deshalb kurz halten.**
 Detailwissen liegt in den Themenskills (`.claude/skills/`, Tabelle unten), nicht hier. Neue
 Erkenntnisse gehören in den passenden Themenskill, nicht in diese Datei; sie ist bewusst unter
