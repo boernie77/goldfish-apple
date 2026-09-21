@@ -29,7 +29,11 @@ struct SearchPersonRowView: View {
     var body: some View {
         if !people.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Schauspieler")
+                // User-Report 2026-09-20 (Screenshot): "es werden bei Schauspielern
+                // leider null Treffer angezeigt, obwohl es zwei Treffer gibt ...
+                // es muss pro Kategorie die Anzahl der Treffer geben" — die
+                // "Filme"-Überschrift zeigt bereits "(N)", diese Zeile fehlte hier.
+                Text("Schauspieler (\(people.count))")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
 
