@@ -575,6 +575,10 @@ struct ShuffleScopeSettingsList: View {
                 }
             }
         }
+        // Eigener Titel (User-Report 2026-09-23) — die beiden anderen Einstellungen-Unterseiten
+        // (`HomeAndNavPreferencesView`, `WatchLinkSettingsView`) tragen schon einen; ohne Titel
+        // bleibt die Kopfzeile der gepushten Ansicht leer, was wie ein fehlender Zurück-Pfeil wirkt.
+        .navigationTitle("Bibliotheken für Zufall")
         // Gleicher Fix wie `WatchLinkSettingsView` (User-Anfrage 2026-08-19: "Textsprung
         // nach Auswahl... das habe ich oft!") — jede als NavigationLink-Ziel gepushte
         // List/Form ohne explizites Frame kann beim ersten Re-Render (hier: lazy

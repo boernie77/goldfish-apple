@@ -14,6 +14,23 @@ private enum FolderPickerTarget {
     case reconnectLibrary(LocalLibrary)
 }
 
+/// Wertbasierte Ziele der gepushten Unterseiten im Einstellungen-Tab.
+///
+/// User-Report 2026-09-23: „wenn man im Menü den Punkt Gesehen-Sync öffnet, bitte einen
+/// Zurück-Pfeil einbauen … ebenso Bibliotheken für Zufall und Startseite anpassen" —
+/// dieselbe Ursache wie bei `ItemNavTarget` (siehe dortiger Kommentar): ein View-basierter
+/// `NavigationLink { Ziel }` hängt den Push NICHT an den von `MainTabView` gebundenen
+/// `NavigationPath`. `isAtTabRoot` bleibt dadurch `true`, der Goldfish-Kopfbereich bleibt
+/// stehen und verdeckt auf dem iPhone die native Zurück-Leiste — genau deshalb fehlte der
+/// Pfeil nur hier und in keinem anderen Bereich (überall sonst wird `NavigationLink(value:)`
+/// verwendet). Wertbasierte Links füllen den Pfad, der Kopfbereich weicht, der System-Pfeil
+/// erscheint — dieselbe Optik wie in allen anderen Bereichen.
+private enum SettingsDestination: Hashable {
+    case shuffleScope
+    case homeAndNav
+    case watchLinks
+}
+
 struct SettingsView: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
@@ -162,9 +179,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        ShuffleScopeSettingsList(libraries: shuffleScopeLibraries)
-                    } label: {
+                    NavigationLink(value: SettingsDestination.shuffleScope) {
                         HStack {
                             Text("Bibliotheken für Zufall")
                             Spacer()
@@ -182,9 +197,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        HomeAndNavPreferencesView()
-                    } label: {
+                    NavigationLink(value: SettingsDestination.homeAndNav) {
                         Text("🏠 Startseite & Bibliotheken anpassen")
                     }
                 } footer: {
@@ -192,9 +205,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        WatchLinkSettingsView(watchLinks: $watchLinks)
-                    } label: {
+                    NavigationLink(value: SettingsDestination.watchLinks) {
                         HStack {
                             Text("Gesehen-Sync")
                             Spacer()
@@ -563,6 +574,20 @@ struct SettingsView: View {
             .formStyle(.grouped)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Einstellungen")
+            // Wertbasierte Ziele der drei gepushten Unterseiten (siehe `SettingsDestination`):
+            // nur so landet der Push im `settingsPath` des Tabs, der Kopfbereich weicht und die
+            // native Zurück-Leiste erscheint (User-Report 2026-09-23: „eigentlich immer, wenn ich
+            // wo rein gehe, soll ich auch mit einem Zurück-Button wieder raus kommen").
+            .navigationDestination(for: SettingsDestination.self) { destination in
+                switch destination {
+                case .shuffleScope:
+                    ShuffleScopeSettingsList(libraries: shuffleScopeLibraries)
+                case .homeAndNav:
+                    HomeAndNavPreferencesView()
+                case .watchLinks:
+                    WatchLinkSettingsView(watchLinks: $watchLinks)
+                }
+            }
             // fileImporter (freier Ordner-Picker) existiert nicht auf tvOS — dort gibt
             // es kein Dateisystem, das der Nutzer durchsuchen könnte; Downloads liegen
             // dort ohnehin nur im App-Datenordner.

@@ -79,8 +79,14 @@ targets:
         # erneuten Betreten des Ordners: DownloadManager.watchedOverrides +
         # effectiveWatched(_:) in GoldfishCore, gelesen von ItemCard/EpisodeTile/SeasonCard/
         # ItemDetailView. SICHTBARE Version 1.4 -> 1.5, Build 244 -> 245.
-        CFBundleShortVersionString: "1.5"
-        CFBundleVersion: "245"
+        # Build 246 (2026-09-23): zweiter Fix desselben Tages — die drei gepushten
+        # Einstellungen-Unterseiten (Bibliotheken für Zufall / Startseite anpassen /
+        # Gesehen-Sync) nutzten noch den View-basierten NavigationLink, der den Tab-Pfad
+        # nicht füllt; der Kopfbereich blieb deshalb stehen und verdeckte die native
+        # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
+        # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
+        CFBundleShortVersionString: "1.6"
+        CFBundleVersion: "246"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -240,8 +246,11 @@ targets:
         # Build 215 (2026-09-23): derselbe Bugfix wie GoldfishMac Build 245/1.5 (geteiltes
         # GoldfishCore + gemeinsame Kacheln) — Gesehen-Haken zieht sofort nach.
         # SICHTBARE Version 1.10 -> 1.11, Build 214 -> 215.
-        CFBundleShortVersionString: "1.11"
-        CFBundleVersion: "215"
+        # Build 216 (2026-09-23): zweiter Fix desselben Tages, siehe GoldfishMac Build 246/1.6
+        # (geteiltes GoldfishCore + gemeinsame SettingsView) — Zurück-Pfeil in den drei
+        # Einstellungen-Unterseiten. SICHTBARE Version 1.11 -> 1.12, Build 215 -> 216.
+        CFBundleShortVersionString: "1.12"
+        CFBundleVersion: "216"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -330,8 +339,10 @@ targets:
         # SICHTBARE interne Version auf 1.7 erhöht.
         # Build 15 (2026-09-23): derselbe Bugfix wie GoldfishMac Build 245/1.5 — der
         # Gesehen-Haken auf der Kachel zieht sofort nach. SICHTBARE Version 1.7 -> 1.8.
-        CFBundleShortVersionString: "1.8"
-        CFBundleVersion: "15"
+        # Build 16 (2026-09-23): derselbe zweite Fix wie GoldfishMac Build 246/1.6.
+        # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
+        CFBundleShortVersionString: "1.9"
+        CFBundleVersion: "16"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
