@@ -971,7 +971,11 @@ struct ItemCard: View {
     var homeFolderLibrary: Library? = nil
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
-    @State private var watched: Bool
+    /// Kein `@State` mehr (User-Report 2026-09-23: „Kachel wird nach dem Ansehen nicht grün"):
+    /// der Gesehen-Status wird bei jedem Re-Render aus `DownloadManager.watchedOverrides`
+    /// gelesen. Eine Wiedergabe im Player trägt dort ein, die Kachel färbt sich sofort — statt
+    /// erst beim nächsten Neuladen der Liste (Ordner verlassen und wieder betreten).
+    private var watched: Bool { downloads.effectiveWatched(item) }
     @State private var favorite: Bool
     #if os(macOS)
     /// Hover-Feedback für den klickbaren Serien-/Kanalnamen auf der
@@ -1015,7 +1019,6 @@ struct ItemCard: View {
         self.width = width
         self.queue = queue
         self.homeFolderLibrary = homeFolderLibrary
-        _watched = State(initialValue: item.watched)
         _favorite = State(initialValue: item.favorite)
     }
 
@@ -1208,11 +1211,12 @@ struct ItemCard: View {
 
     private func toggleWatched() {
         let newValue = !watched
-        watched = newValue
-        Task { try? await client.setWatched(itemId: item.id, watched: newValue) }
-        // Keeps a downloaded item's frozen tile-snapshot in sync too — see
-        // `Item.withWatched`'s doc comment.
+        // Über `downloads` statt über einen lokalen `@State`: trägt den Wert in die
+        // sitzungsweite Überlagerung ein (siehe `ItemCard.watched`), damit ALLE Ansichten
+        // derselben Sitzung denselben Stand zeigen — deckt auch den Fall ab, dass dasselbe
+        // Item gleichzeitig in Home-Streifen, Suche und Ordnerliste sichtbar ist.
         downloads.updateCachedWatched(itemId: item.id, watched: newValue)
+        Task { try? await client.setWatched(itemId: item.id, watched: newValue) }
     }
 
     private func toggleFavorite() {

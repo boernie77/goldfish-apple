@@ -265,9 +265,10 @@ private struct SeasonCard: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
     // User-Anfrage 2026-08-30: "bei Staffeln den gesehen Button haben" — markiert ALLE
-    // vorhandenen Folgen der Staffel auf einmal als gesehen/ungesehen. @State für sofortiges
-    // UI-Feedback, mirrors EpisodeTile.watched. Startwert: alle vorhandenen Folgen gesehen?
-    @State private var watchedAll: Bool
+    // vorhandenen Folgen der Staffel auf einmal als gesehen/ungesehen. Kein `@State` mehr
+    // (User-Report 2026-09-23, gleiche Ursache wie `ItemCard.watched`): der Status wird aus der
+    // sitzungsweiten Überlagerung abgeleitet, damit die Staffel-Kachel nach dem Ansehen der
+    // letzten Folge sofort nachzieht statt erst beim nächsten Laden der Serienübersicht.
     @State private var busy = false
     #if os(tvOS)
     // Gleiches Fokus-Skalierungs-Muster wie `ItemCard.posterSection` — siehe
@@ -277,7 +278,20 @@ private struct SeasonCard: View {
 
     init(season: SeasonOut) {
         self.season = season
-        _watchedAll = State(initialValue: season.ownedCount > 0 && season.watchedCount >= season.ownedCount)
+    }
+
+    /// Alle vorhandenen Folgen gesehen? Pro Folge den effektiven Status (Überlagerung schlägt
+    /// den beim Laden mitgegebenen Wert) — fällt auf die Server-Zählung zurück, wenn die
+    /// Staffel-Antwort keine Episodenliste mitbringt.
+    private var watchedAll: Bool {
+        let owned = season.episodes.filter { $0.owned }
+        guard !owned.isEmpty else {
+            return season.ownedCount > 0 && season.watchedCount >= season.ownedCount
+        }
+        return owned.allSatisfy { ep in
+            guard let id = ep.itemId else { return true }
+            return downloads.watchedOverride(itemId: id) ?? ep.watched
+        }
     }
 
     var body: some View {
@@ -342,7 +356,6 @@ private struct SeasonCard: View {
 
     private func toggleSeasonWatched() {
         let newValue = !watchedAll
-        watchedAll = newValue
         busy = true
         Task {
             for episode in season.episodes where episode.owned {
@@ -453,9 +466,13 @@ private struct EpisodeTile: View {
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
     // User-Anfrage 2026-08-19: "der Gesehen Button fehlt noch bei den Folgen" — vorher nur
-    // ein statisches Icon, kein Toggle. @State für sofortiges UI-Feedback, mirrors
-    // ItemCard.watched.
-    @State private var watched: Bool
+    // ein statisches Icon, kein Toggle. Kein `@State` mehr (User-Report 2026-09-23, gleiche
+    // Ursache wie `ItemCard.watched`): der Status kommt aus der sitzungsweiten Überlagerung,
+    // sonst bleibt die Folge nach dem Ansehen im Player grau, bis die Staffel neu geladen wird.
+    private var watched: Bool {
+        guard let itemId = episode.itemId else { return episode.watched }
+        return downloads.watchedOverride(itemId: itemId) ?? episode.watched
+    }
     #if os(tvOS)
     // Gleiches Fokus-Skalierungs-Muster wie `ItemCard`/`SeasonCard` — siehe dortige
     // Kommentar-Historie zum "weißes Fenster"-Fokusrahmen-Bug.
@@ -465,7 +482,6 @@ private struct EpisodeTile: View {
     init(episode: EpisodeOut, action: @escaping () -> Void = {}) {
         self.episode = episode
         self.action = action
-        _watched = State(initialValue: episode.watched)
     }
 
     var body: some View {
@@ -570,9 +586,8 @@ private struct EpisodeTile: View {
     private func toggleWatched() {
         guard let itemId = episode.itemId else { return }
         let newValue = !watched
-        watched = newValue
-        Task { try? await client.setWatched(itemId: itemId, watched: newValue) }
         downloads.updateCachedWatched(itemId: itemId, watched: newValue)
+        Task { try? await client.setWatched(itemId: itemId, watched: newValue) }
     }
 }
 

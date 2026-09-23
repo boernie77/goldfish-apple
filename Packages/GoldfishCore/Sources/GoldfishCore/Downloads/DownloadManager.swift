@@ -66,6 +66,17 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// `allRecordsOnDisk` is the real, cross-user persisted truth (everyone on this Mac
     /// typically shares the same default downloads folder, hence the same index file).
     @Published public private(set) var records: [Int64: DownloadRecord] = [:]
+    /// Sitzungsweite Überlagerung des Gesehen-Status, NUR für die Anzeige — der
+    /// Server-Zustand kommt aus `client.setWatched`. User-Report 2026-09-23: „wenn man eine
+    /// Folge gesehen hat, wird im Infofeld der Haken gesetzt, aber die Kachel wird nicht grün
+    /// — erst nach Verlassen und erneutem Betreten des Ordners." Ursache: jede Liste/Kachel
+    /// hält ihren `Item`-Schnappschuss vom Ladezeitpunkt; nur die Downloads-Kacheln wurden
+    /// bisher nachgezogen (`updateCachedWatched`). Der Browser macht es richtig
+    /// (`player.js` → `silentlyRefreshItem`). Diese Map ist das App-Pendant: `updateCachedWatched`
+    /// trägt hier ein (auch für NICHT heruntergeladene Items), und jede Kachel liest den
+    /// effektiven Wert über `effectiveWatched(_:)` — dadurch wird die Kachel sofort grün,
+    /// ohne Neuladen der Liste. Die Map ist flüchtig (App-Neustart lädt ohnehin frisch).
+    @Published public private(set) var watchedOverrides: [Int64: Bool] = [:]
     private var allRecordsOnDisk: [Int64: DownloadRecord] = [:]
     @Published public private(set) var downloadsDir: URL
     /// True once a folder the user picked is in use (vs. the app-private default).
@@ -457,12 +468,32 @@ public final class DownloadManager: NSObject, ObservableObject {
 
     /// Keeps a download's frozen `Item` snapshot in sync with the real watched state — see
     /// `Item.withWatched`'s doc comment for the bug this fixes. Called right after any
-    /// successful `client.setWatched` for an item that also happens to be downloaded.
+    /// successful `client.setWatched` for an item.
+    ///
+    /// Trägt den Wert ZUSÄTZLICH in `watchedOverrides` ein (siehe dessen Kommentar): das ist
+    /// der einzige Ort, an dem alle Aufrufstellen (Player-Ende, Detail-Toggle, Grid-Toggle,
+    /// Staffel-Bulk) zusammenlaufen — dadurch wird jede Kachel sofort grün, auch wenn das Item
+    /// gar nicht heruntergeladen ist (der `records`-Zweig unten greift dann nicht).
     public func updateCachedWatched(itemId: Int64, watched: Bool) {
+        watchedOverrides[itemId] = watched
         guard var rec = records[itemId], let item = rec.cachedItem else { return }
         rec.itemData = try? JSONEncoder().encode(item.withWatched(watched))
         setRecord(rec)
         saveIndex()
+    }
+
+    /// Effektiver Gesehen-Status eines Items für die Anzeige: die sitzungsweite Überlagerung
+    /// schlägt den (beim Laden eingefrorenen) Wert des `Item`-Schnappschusses. Jede Kachel/Zeile
+    /// muss DAS hier lesen statt `item.watched`, sonst bleibt sie nach einer Wiedergabe grau,
+    /// bis die Liste neu geladen wird — siehe `watchedOverrides`.
+    public func effectiveWatched(_ item: Item) -> Bool {
+        watchedOverrides[item.id] ?? item.watched
+    }
+
+    /// Dasselbe für Aufrufer, die nur eine Item-ID haben (z. B. `SeasonCard`, deren Episoden
+    /// als `EpisodeOut` und nicht als `Item` ankommen). `nil` = kein Eintrag in dieser Sitzung.
+    public func watchedOverride(itemId: Int64) -> Bool? {
+        watchedOverrides[itemId]
     }
 
     /// User-Anfrage 2026-08-24: "wenn ich einen Film downloade, und dann feststelle er ist

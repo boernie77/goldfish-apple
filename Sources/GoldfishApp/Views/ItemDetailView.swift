@@ -28,7 +28,11 @@ struct ItemDetailView: View {
     @State private var trailerStreamURL: URL? = nil
     @State private var isLoadingTrailer = false
     @State private var isFavorite: Bool
-    @State private var isWatched: Bool
+    /// Kein `@State` mehr (User-Report 2026-09-23: „im Infofeld wird der Haken gesetzt, die
+    /// Kachel aber nicht grün" — dieselbe Ursache, nur umgekehrt: der Status muss auch hier
+    /// aus der sitzungsweiten Überlagerung kommen, damit Info-Feld und Kachel nie auseinander
+    /// laufen, egal wer zuletzt geändert hat).
+    private var isWatched: Bool { downloads.effectiveWatched(selectedItem) }
     @State private var showResumePrompt = false
     @State private var startFromBeginning = false
     @State private var isCheckingResume = false
@@ -85,7 +89,6 @@ struct ItemDetailView: View {
         self.queue = queue
         _selectedItem = State(initialValue: item)
         _isFavorite = State(initialValue: item.favorite)
-        _isWatched = State(initialValue: item.watched)
     }
 
     var body: some View {
@@ -366,7 +369,6 @@ struct ItemDetailView: View {
                             Button {
                                 selectedItem = variant
                                 isFavorite = variant.favorite
-                                isWatched = variant.watched
                             } label: {
                                 if variant.id == selectedItem.id {
                                     Label(variantLabel(variant), systemImage: "checkmark")
@@ -688,9 +690,8 @@ struct ItemDetailView: View {
 
     private func toggleWatched() async {
         let newValue = !isWatched
-        isWatched = newValue
-        try? await client.setWatched(itemId: selectedItem.id, watched: newValue)
         downloads.updateCachedWatched(itemId: selectedItem.id, watched: newValue)
+        try? await client.setWatched(itemId: selectedItem.id, watched: newValue)
     }
 
     private func loadStreams(for id: Int64) async {

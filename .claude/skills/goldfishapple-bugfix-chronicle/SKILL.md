@@ -104,4 +104,19 @@ Chronologisch, Build 0100 (2026-08-19) bis Build 207:
   Container-Pfad als einzige Wahrheit persistieren** — immer auch den
   relativen Dateinamen speichern und gegen das aktuelle Verzeichnis
   auflösen.
+- **Gesehen-Haken auf der Kachel blieb grau** (User-Report 2026-09-23,
+  iOS): nach dem Ansehen einer Folge war der Haken im Infofeld gesetzt,
+  die Kachel wurde aber erst grün, wenn man den Ordner (Kanal) verließ und
+  neu betrat — im Browser funktionierte es. Ursache: jede Liste/Kachel hält
+  ihren `Item`-Schnappschuß vom Ladezeitpunkt; `PlayerView.markWatchedNow`/
+  `maybeMarkWatchedOrSaveResume` zogen bisher nur die Downloads-Kacheln
+  nach (`updateCachedWatched` → `DownloadRecord.itemData`). Fix:
+  `DownloadManager.watchedOverrides` (sitzungsweite Überlagerung, gefüllt in
+  `updateCachedWatched`) + `effectiveWatched(_:)`/`watchedOverride(itemId:)`.
+  `ItemCard`, `EpisodeTile`, `SeasonCard` und `ItemDetailView` lesen den
+  Gesehen-Status jetzt daraus statt aus einem eigenen `@State` — Anzeige
+  folgt damit sofort, ohne die Liste neu zu laden (App-Pendant zu
+  `player.js` → `silentlyRefreshItem`). **Regel: kein `@State`/Schnappschuß
+  für einen Zustand, den der Server auch kennt** — sonst laufen Infofeld
+  und Kachel auseinander.
 

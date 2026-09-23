@@ -74,8 +74,13 @@ targets:
         # Schauspieler-Karte öffnet die bestehende Personen-Filmografie-Ansicht
         # (PersonItemsView, dieselbe Navigation wie ein Cast-Klick auf der Detailseite).
         # SICHTBARE interne Version auf 1.4 erhöht.
-        CFBundleShortVersionString: "1.4"
-        CFBundleVersion: "244"
+        # Build 245 (2026-09-23): Bugfix — der Gesehen-Haken auf der Kachel (und im
+        # Infofeld) zieht nach einer Wiedergabe SOFORT nach, statt erst beim Verlassen und
+        # erneuten Betreten des Ordners: DownloadManager.watchedOverrides +
+        # effectiveWatched(_:) in GoldfishCore, gelesen von ItemCard/EpisodeTile/SeasonCard/
+        # ItemDetailView. SICHTBARE Version 1.4 -> 1.5, Build 244 -> 245.
+        CFBundleShortVersionString: "1.5"
+        CFBundleVersion: "245"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -232,8 +237,11 @@ targets:
         # Build 210 (2026-09-20): Feature "Aufgegliederte Trefferanzeige" (siehe
         # GoldfishMac-Target, Build 239/1.4) — identischer Code, geteiltes GoldfishCore
         # + gemeinsame ItemGridView/SearchPersonRowView.
-        CFBundleShortVersionString: "1.10"
-        CFBundleVersion: "214"
+        # Build 215 (2026-09-23): derselbe Bugfix wie GoldfishMac Build 245/1.5 (geteiltes
+        # GoldfishCore + gemeinsame Kacheln) — Gesehen-Haken zieht sofort nach.
+        # SICHTBARE Version 1.10 -> 1.11, Build 214 -> 215.
+        CFBundleShortVersionString: "1.11"
+        CFBundleVersion: "215"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -320,8 +328,10 @@ targets:
         # bekommt dieselbe Schauspieler-Zeile, mit Focus/onTapGesture-Wiring wie die
         # bestehende Besetzungsleiste (CastStripView), kein Menu verwendet.
         # SICHTBARE interne Version auf 1.7 erhöht.
-        CFBundleShortVersionString: "1.7"
-        CFBundleVersion: "14"
+        # Build 15 (2026-09-23): derselbe Bugfix wie GoldfishMac Build 245/1.5 — der
+        # Gesehen-Haken auf der Kachel zieht sofort nach. SICHTBARE Version 1.7 -> 1.8.
+        CFBundleShortVersionString: "1.8"
+        CFBundleVersion: "15"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
