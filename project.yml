@@ -85,8 +85,9 @@ targets:
         # nicht füllt; der Kopfbereich blieb deshalb stehen und verdeckte die native
         # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
         # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
-        CFBundleShortVersionString: "1.6"
-        CFBundleVersion: "246"
+        # Vorspann-überspringen-Button ergänzt (Intro-Skip). SICHTBARE Version 1.6 -> 1.7, Build 246 -> 247.
+        CFBundleShortVersionString: "1.7"
+        CFBundleVersion: "247"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -249,8 +250,9 @@ targets:
         # Build 216 (2026-09-23): zweiter Fix desselben Tages, siehe GoldfishMac Build 246/1.6
         # (geteiltes GoldfishCore + gemeinsame SettingsView) — Zurück-Pfeil in den drei
         # Einstellungen-Unterseiten. SICHTBARE Version 1.11 -> 1.12, Build 215 -> 216.
-        CFBundleShortVersionString: "1.12"
-        CFBundleVersion: "216"
+        # Vorspann-überspringen-Button ergänzt (Intro-Skip). SICHTBARE Version 1.12 -> 1.13, Build 216 -> 217.
+        CFBundleShortVersionString: "1.13"
+        CFBundleVersion: "217"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -341,8 +343,9 @@ targets:
         # Gesehen-Haken auf der Kachel zieht sofort nach. SICHTBARE Version 1.7 -> 1.8.
         # Build 16 (2026-09-23): derselbe zweite Fix wie GoldfishMac Build 246/1.6.
         # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
-        CFBundleShortVersionString: "1.9"
-        CFBundleVersion: "16"
+        # Vorspann-überspringen-Button ergänzt (Intro-Skip). SICHTBARE Version 1.9 -> 1.10, Build 16 -> 17.
+        CFBundleShortVersionString: "1.10"
+        CFBundleVersion: "17"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
