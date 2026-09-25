@@ -190,6 +190,23 @@ struct PlayerView: View {
     /// Dialog) bleiben unverändert, weil dieser Wert dann durchgehend `nil` ist.
     @State private var carriedOverProfile: String?
 
+    // MARK: - „Vorspann überspringen" (Server-Erkennung)
+
+    /// Absolute Start-/Endposition des erkannten Vorspanns in Sekunden, so wie der
+    /// Server sie in `GET /api/items/{id}` liefert (`introStartSec`/`introEndSec`).
+    /// Beide `nil` = keine Erkennung vorhanden → es gibt keinen Knopf. Sie kommen
+    /// NUR über den Item-Endpoint, nicht über die Listen-Endpoints — deshalb werden
+    /// sie in `setUp()` eigens nachgeladen (siehe `loadIntroMarkers`).
+    @State private var introStartSec: Double?
+    @State private var introEndSec: Double?
+    /// Gesetzt, sobald der Nutzer in DIESER Wiedergabe einmal auf „Vorspann
+    /// überspringen" getippt hat. Der Knopf bleibt danach für dieses Item weg, auch
+    /// wenn der Nutzer anschließend wieder in den Vorspann-Bereich zurückspult:
+    /// `AVPlayer.seek(to:)` landet ohne Toleranzangabe auch mal ein paar
+    /// Zehntelsekunden VOR dem Ziel — ohne dieses Flag könnte der Knopf direkt nach
+    /// dem Sprung kurz wieder auftauchen. Wird in `setUp()` pro Item zurückgesetzt.
+    @State private var introSkipUsed = false
+
     /// Audio-track switcher (User-Anfrage 2026-08-27: "Tonspur wählen können", zuerst für den
     /// Mac-Download von Kill Bill geprüft — der Download hatte bis dahin nur die englische Spur,
     /// weil `LocalTranscodeService`s Konvertierung nur den ERSTEN Audiostream behielt, siehe den
@@ -304,6 +321,24 @@ struct PlayerView: View {
     }
     private var hasNext: Bool {
         randomContext != nil || (!queue.isEmpty && queueIndex < queue.count - 1)
+    }
+
+    /// Sichtbarkeit des „Vorspann überspringen"-Knopfes — exakt die Regel des
+    /// Browser-Players (`player.js maybeToggleIntroSkip`): sichtbar, solange die
+    /// aktuelle Position im erkannten Vorspann-Fenster liegt. `currentTime` ist hier
+    /// bereits ABSOLUT (der Zeit-Observer rechnet `virtualOffset` schon ein, siehe
+    /// `attachObservers`), also ist im Gegensatz zum Browser keine eigene
+    /// Offset-Korrektur nötig.
+    private var isIntroSkipVisible: Bool {
+        guard !introSkipUsed,
+              errorMessage == nil,
+              player != nil,
+              !didFinishPlayback,
+              nextEpisodeItem == nil,
+              let start = introStartSec,
+              let end = introEndSec,
+              end > start else { return false }
+        return currentTime >= start && currentTime < end
     }
 
     var body: some View {
@@ -597,6 +632,16 @@ struct PlayerView: View {
             .disabled(!controlsVisible)
             #endif
 
+            // „Vorspann überspringen" (Server-Erkennung, Browser-Pendant:
+            // `maybeToggleIntroSkip` in `player.js`): eigenes ZStack-Kind NACH der
+            // Steuerleiste, damit der Knopf über ihr liegt und von ihrer
+            // `.opacity(...)`/`.disabled(...)`-Behandlung unberührt bleibt — er soll
+            // gerade auch bei ausgeblendeter Leiste sichtbar und bedienbar sein.
+            // Vor dem „Nächste Folge"-Overlay, das am Folgenende Vorrang hat.
+            if isIntroSkipVisible {
+                introSkipButton()
+            }
+
             // „Nächste Folge automatisch starten" (User-Wunsch 2026-09-18):
             // bewusst als LETZTES Kind der ZStack — liegt damit über Video,
             // Untertiteln UND Steuerleiste. Am Serienfolgen-Ende ist die
@@ -622,6 +667,31 @@ struct PlayerView: View {
         }
         #endif
         .task(id: item.id) { await setUp() }
+        #if os(tvOS)
+        // Erscheint der Knopf, bekommt er den Fokus — sonst müsste der Nutzer ihn per
+        // D-Pad erst suchen, während der Vorspann schon läuft. Ein Runloop-Tick
+        // Verzögerung, weil der Knopf im selben Render-Durchlauf noch gar nicht
+        // existiert (dieselbe Race wie beim Wieder-Einblenden der Steuerleiste, siehe
+        // `resetAutoHide()`). Verschwindet er wieder, MUSS der Fokus explizit
+        // weitergereicht werden — ein fokussierter View, der verschwindet, lässt den
+        // Fokus auf tvOS sonst verwaist zurück (dokumentierter Fehler in dieser Datei).
+        .onChange(of: isIntroSkipVisible) { visible in
+            if visible {
+                Task { @MainActor in
+                    await Task.yield()
+                    // In genau diesem Tick kann der Knopf schon wieder weg sein (⏭,
+                    // Ende des Vorspann-Fensters, Stream-Fehler, „Nächste Folge") —
+                    // dann darf der Fokus nicht auf ein verschwundenes Ziel gesetzt
+                    // werden, sonst ist er verwaist und es lässt sich nichts mehr
+                    // auswählen (dieselbe Fehlerklasse wie in `resetAutoHide()`).
+                    guard isIntroSkipVisible else { return }
+                    tvFocusTarget = .introSkip
+                }
+            } else if tvFocusTarget == .introSkip {
+                tvFocusTarget = controlsVisible ? .playPause : .videoSurface
+            }
+        }
+        #endif
         .onDisappear {
             hideControlsTask?.cancel()
             #if os(macOS)
@@ -873,7 +943,13 @@ struct PlayerView: View {
                 if isPlaying {
                     controlsVisible = false
                     #if os(tvOS)
-                    tvFocusTarget = .videoSurface
+                    // Den Fokus NICHT dem „Vorspann überspringen"-Knopf wegnehmen, falls
+                    // der gerade sichtbar ist: er hängt bewusst nicht an `controlsVisible`
+                    // und bleibt beim Ausblenden der Leiste stehen. `.onChange(of:
+                    // isIntroSkipVisible)` feuert danach nicht mehr (der Wert ändert sich
+                    // ja nicht) — der Knopf bliebe sonst für den Rest des Vorspanns
+                    // unfokussiert und per Select nicht auslösbar.
+                    tvFocusTarget = isIntroSkipVisible ? .introSkip : .videoSurface
                     #endif
                     return
                 }
@@ -1116,6 +1192,11 @@ struct PlayerView: View {
         trickplaySprite = nil
         subtitleCues = []
         subtitlesOn = false
+        // Vorspann-Marker gehören zum ITEM — bei jedem Wechsel (⏮/⏭/Zufall/nächste
+        // Folge) zurücksetzen, sonst zeigt der Knopf die Werte des vorigen Videos.
+        introStartSec = nil
+        introEndSec = nil
+        introSkipUsed = false
         // Bei jedem Item-Wechsel (⏮/⏭) zurück auf Server-Default; sonst würde die
         // Audiospur-Wahl vom vorigen Video auf ein Item mit ganz anderer
         // Stream-Reihenfolge übertragen.
@@ -1124,6 +1205,10 @@ struct PlayerView: View {
         if item.trickplayStatus == "done" {
             Task { await loadTrickplay() }
         }
+        // Vorspann-Marker holen (siehe `loadIntroMarkers`) — bewusst im Hintergrund
+        // wie `loadTrickplay()`: der Wiedergabestart darf darauf nicht warten, und
+        // ein Fehlschlag (offline, alter Server) bedeutet einfach „kein Knopf".
+        Task { await loadIntroMarkers(generation: myGeneration) }
 
         // Offline-first: if this item was downloaded, play the local file — works with no
         // network at all. Since 2026-08-27 the server itself already delivers a compatible
@@ -1466,6 +1551,103 @@ struct PlayerView: View {
             : (!next.displayTitle.isEmpty ? next.displayTitle : next.title)
         if let code = next.episodeCode { return "\(code) · \(title)" }
         return title
+    }
+
+    // MARK: - „Vorspann überspringen"
+
+    /// Lädt `introStartSec`/`introEndSec` für das aktuell laufende Item.
+    ///
+    /// Die Felder kommen serverseitig NUR aus `GET /api/items/{id}` (`GetItemFor`),
+    /// nicht aus den Listen-Endpoints — das `Item`, mit dem der Player geöffnet
+    /// wurde, stammt aber fast immer aus einer Liste und hat sie deshalb `nil`.
+    /// Sind sie am vorhandenen `item` ausnahmsweise schon gesetzt (z. B. über den
+    /// Detail-Dialog gekommen), spart das den zusätzlichen Abruf.
+    ///
+    /// Best-effort: schlägt der Abruf fehl (offline, älterer Server), bleiben die
+    /// Marker `nil` und es erscheint schlicht kein Knopf — kein Fehlerdialog, keine
+    /// Auswirkung auf die Wiedergabe.
+    ///
+    /// `generation` ist die `setupGeneration` des aufrufenden `setUp()`-Durchlaufs
+    /// (gleiches Muster wie dort, siehe den `setupGeneration`-Kommentar oben): ist
+    /// inzwischen ein NEUERER Durchlauf gestartet — etwa weil der Nutzer währenddessen
+    /// ⏭ gedrückt hat —, dürfen die Marker des alten Items nicht mehr geschrieben
+    /// werden.
+    private func loadIntroMarkers(generation: Int) async {
+        let currentItemId = item.id
+        if item.introStartSec != nil, item.introEndSec != nil {
+            introStartSec = item.introStartSec
+            introEndSec = item.introEndSec
+            return
+        }
+        guard let full = try? await client.fetchItem(id: currentItemId) else { return }
+        guard generation == setupGeneration, full.id == item.id else { return }
+        introStartSec = full.introStartSec
+        introEndSec = full.introEndSec
+    }
+
+    /// Klick auf „Vorspann überspringen": ans Ende des Vorspanns springen.
+    /// `seek(toAbsolute:)` erledigt dabei beides — den einfachen Sprung bei Direct
+    /// Play/Download und, falls die Zielposition außerhalb des bereits
+    /// transkodierten Bereichs liegt, den kompletten Neustart der Transcode-Session
+    /// (`restartTranscodeSession`). Die Steuerleiste wird bewusst NICHT eingeblendet
+    /// (kein `resetAutoHide()`): der Nutzer will weitergucken, nicht bedienen.
+    private func skipIntro() {
+        guard let end = introEndSec else { return }
+        introSkipUsed = true
+        seek(toAbsolute: end)
+        #if os(tvOS)
+        // Der Knopf verschwindet im selben Render-Durchlauf — ohne explizites neues
+        // Ziel bliebe der Fokus auf tvOS verwaist hängen (dieselbe Fehlerklasse wie
+        // in `resetAutoHide()`/`cancelNextEpisode()` dokumentiert).
+        tvFocusTarget = controlsVisible ? .playPause : .videoSurface
+        #endif
+    }
+
+    /// Der Knopf selbst — auffällig im Videobild unten rechts, NICHT in der
+    /// Steuerleiste (Vorbild: der Browser-Player). Er ist bewusst unabhängig von
+    /// `controlsVisible`: er erscheint auch, wenn die Steuerleiste gerade
+    /// ausgeblendet ist, und rückt nur höher, wenn sie sichtbar ist, damit er sie
+    /// nicht überdeckt (gleiches Muster wie das Untertitel-Overlay in `body`).
+    @ViewBuilder
+    private func introSkipButton() -> some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button {
+                    skipIntro()
+                } label: {
+                    Label("Vorspann überspringen", systemImage: "forward.end.alt.fill")
+                        #if os(tvOS)
+                        .font(.system(size: 28, weight: .semibold))
+                        #else
+                        .font(.headline)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        #endif
+                }
+                #if os(tvOS)
+                // Auf tvOS bewusst der Standard-Buttonstil: nur der liefert den
+                // nativen Fokus-Effekt, an dem der Nutzer per Fernbedienung erkennt,
+                // dass der Knopf gerade ausgewählt ist.
+                .focused($tvFocusTarget, equals: .introSkip)
+                #else
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(.black.opacity(0.75), in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.65), lineWidth: 1))
+                .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
+                #endif
+            }
+            #if os(tvOS)
+            .padding(.trailing, 80)
+            .padding(.bottom, controlsVisible ? 260 : 120)
+            #else
+            .padding(.trailing, 28)
+            .padding(.bottom, controlsVisible ? 120 : 56)
+            #endif
+        }
+        .transition(.opacity)
     }
 
     private func attachObservers(to player: AVPlayer) {
@@ -1816,6 +1998,10 @@ private enum PlayerFocusTarget: Hashable {
     /// sind, ohne mit der Steuerleiste um den Fokus zu konkurrieren.
     case nextEpisodePlay
     case nextEpisodeCancel
+    /// Der „Vorspann überspringen"-Knopf — auf tvOS explizit fokussiert, sobald er
+    /// erscheint (Siri Remote hat keinen Zeiger; ohne gesetztes Ziel wäre er nur über
+    /// Umwege erreichbar). Siehe `PlayerView.body`, `.onChange(of: isIntroSkipVisible)`.
+    case introSkip
 }
 
 private struct PlayerControlsBar: View {

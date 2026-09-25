@@ -103,3 +103,20 @@ oben, Download unten, kein Bundling der beiden).
   `metadata.title` → `title`; `Item.title` ist der **Dateiname** (User-Report
   direkt nach dem ersten Test).
 
+## „Vorspann überspringen" (Intro-Skip, Mac/iOS/tvOS)
+
+- Server liefert `introStartSec`/`introEndSec` (absolute Sekunden) **nur** über
+  `GET /api/items/{id}`, NICHT über Listen-Endpoints — `PlayerView.loadIntroMarkers`
+  holt sie deshalb beim Wiedergabestart per `GoldfishClient.fetchItem(id:)` nach.
+- Beide Felder sind in `Models.swift` schon lange vorhanden; neu ist nur die Player-UI.
+- `PlayerView.currentTime` ist bereits absolut (`virtualOffset` eingerechnet) — die
+  Offset-Korrektur, die der Browser-Player (`maybeToggleIntroSkip`) braucht, entfällt hier.
+- Der Knopf liegt als eigenes ZStack-Kind im Videobild (unten rechts), NICHT in der
+  Steuerleiste, und ist unabhängig von `controlsVisible` sichtbar.
+- Nach einem Klick bleibt er für dieses Item weg (`introSkipUsed`) — `AVPlayer.seek`
+  landet sonst gelegentlich knapp VOR dem Ziel und der Knopf flackert zurück.
+- tvOS: eigenes `PlayerFocusTarget.introSkip`; beim Erscheinen wird der Fokus gesetzt,
+  beim Verschwinden wieder auf `.playPause`/`.videoSurface` zurückgegeben.
+- `LocalPlayerView` (lokale/externe Bibliotheken) hat KEINEN Intro-Skip — dort gibt es
+  keinen Server, der einen Vorspann erkennen könnte.
+
