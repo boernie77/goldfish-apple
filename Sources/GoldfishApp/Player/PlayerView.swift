@@ -126,6 +126,10 @@ struct PlayerView: View {
     /// dafür sorgt die 5s-Zeitschranke in `handlePlaybackFailure`.
     @State private var playerStartedAt: Date?
     @State private var didRetryAfterEarlyFailure = false
+    /// Stille Wiederaufnahmen nach „Playlist File unchanged“ (-12888), siehe
+    /// `recoverStalledTranscode()`. Zeitstempel der letzten Versuche, damit ein
+    /// wirklich dauerhaft hängender Server nicht endlos neu verbunden wird.
+    @State private var stallRecoveryTimes: [Date] = []
     /// Guards against `setUp()` running more than once concurrently for the same
     /// item (User-Report 2026-09-13: Stream-Fehler -12938/-16847 "HTTP 404/500" —
     /// server logs showed the SAME item requested with TWO different `start=`
@@ -1105,6 +1109,7 @@ struct PlayerView: View {
         transcodeURLTemplate = nil
         virtualOffset = 0
         didRetryAfterEarlyFailure = false
+        stallRecoveryTimes = []
         currentTime = 0
         duration = item.durationSec ?? 0
         currentResolutionLabel = nil
@@ -1487,6 +1492,9 @@ struct PlayerView: View {
             // Schwarz. Reuse des ohnehin laufenden 0,5s-Timers statt eines eigenen KVO-
             // Observers.
             if player.currentItem?.status == .failed, errorMessage == nil, !didFinishPlayback {
+                // Dieselbe -12888-Wiederaufnahme wie im Error-Log-Pfad, falls AVPlayer
+                // das Item direkt als gescheitert markiert.
+                if (player.currentItem?.error as NSError?)?.code == -12888, recoverStalledTranscode() { return }
                 handlePlaybackFailure(player.currentItem?.error?.localizedDescription ?? "Wiedergabe fehlgeschlagen.")
                 return
             }
@@ -1588,8 +1596,57 @@ struct PlayerView: View {
                 || comment.localizedCaseInsensitiveContains("end of live playlist") {
                 return
             }
+            // -12888 „Playlist File unchanged for longer than 1.5 * target duration“
+            // (User-Report tvOS 2026-09-25): ffmpeg stockte auf dem Server 8 s lang
+            // (Log: seg02778 → seg02779), obwohl es rund 80 Minuten VOR der Wiedergabe
+            // lag. AVPlayer toleriert bei unserer EVENT-Playlist mit 2-s-Segmenten nur
+            // ~3 s ohne Änderung — egal wie viel Vorlauf da ist. Kein echter Ausfall:
+            // still an derselben Stelle neu verbinden statt den Film abzubrechen.
+            if event.errorStatusCode == -12888 || comment.localizedCaseInsensitiveContains("playlist file unchanged") {
+                if recoverStalledTranscode() { return }
+            }
             handlePlaybackFailure("Stream-Fehler (\(event.errorStatusCode)): \(comment)")
         }
+    }
+
+    /// Verbindet eine hängende Transcode-Wiedergabe still neu (siehe -12888 oben):
+    /// dieselbe Server-Sitzung (gleiches `start=`, OHNE `fresh=1` → der Server
+    /// liefert die bestehende, weit vorausgelaufene Sitzung aus, kein neues ffmpeg)
+    /// in einem frischen AVPlayer öffnen und an die aktuelle Stelle springen.
+    /// Höchstens 3 Versuche in 2 Minuten — hängt der Server wirklich, erscheint
+    /// danach die normale Fehlermeldung. Liefert false, wenn nicht wiederaufgenommen
+    /// wurde (dann greift die übliche Fehlerbehandlung).
+    private func recoverStalledTranscode() -> Bool {
+        guard isTranscode, let template = transcodeURLTemplate, let oldPlayer = player else { return false }
+        let now = Date()
+        stallRecoveryTimes = stallRecoveryTimes.filter { now.timeIntervalSince($0) < 120 }
+        guard stallRecoveryTimes.count < 3 else { return false }
+        stallRecoveryTimes.append(now)
+
+        let relative = oldPlayer.currentTime().seconds
+        guard relative.isFinite,
+              let url = client.resolvedURL(forServerPath: urlWithStart(appendAudioParam(template), start: virtualOffset)) else { return false }
+        let wasPlaying = oldPlayer.timeControlStatus != .paused
+
+        if let token = timeObserverToken { oldPlayer.removeTimeObserver(token) }
+        timeObserverToken = nil
+        if let token = errorLogObserverToken { NotificationCenter.default.removeObserver(token) }
+        errorLogObserverToken = nil
+        if let token = didEndObserverToken { NotificationCenter.default.removeObserver(token) }
+        didEndObserverToken = nil
+        oldPlayer.pause()
+
+        let p = AVPlayer(url: url)
+        self.player = p
+        attachObservers(to: p)
+        p.seek(to: CMTime(seconds: max(0, relative), preferredTimescale: 600),
+               toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            if wasPlaying { p.play() }
+        }
+        #if DEBUG
+        print("[PlayerView] -12888: Transcode still neu verbunden bei \(virtualOffset + relative)s")
+        #endif
+        return true
     }
 
     /// Meldet das Ende einer Wiedergabe-Session ans Server-Protokoll (User-
