@@ -85,9 +85,9 @@ targets:
         # nicht füllt; der Kopfbereich blieb deshalb stehen und verdeckte die native
         # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
         # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
-        # Vorspann-überspringen-Button ergänzt (Intro-Skip). SICHTBARE Version 1.6 -> 1.7, Build 246 -> 247.
+        # Vorspann-überspringen-Button ergänzt (Intro-Skip). SICHTBARE Version 1.6 -> 1.7, Build 246 -> 247 -> 248 (247 war bei Apple durch einen abgebrochenen Upload belegt).
         CFBundleShortVersionString: "1.7"
-        CFBundleVersion: "247"
+        CFBundleVersion: "248"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
