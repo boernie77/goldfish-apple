@@ -1580,6 +1580,18 @@ struct PlayerView: View {
                 || comment.localizedCaseInsensitiveContains("service unavailable") {
                 return
             }
+            // 502/504 kommen vom Reverse-Proxy, solange der Server-Container
+            // neu startet (Deploy, ein paar Sekunden). Ebenfalls vorübergehend:
+            // der Server legt die Sitzung danach an derselben Stelle neu an
+            // (VOD-Playlist), AVPlayer versucht es von selbst erneut
+            // (User-Report macOS 2026-09-26: „HTTP 502: Bad Gateway" genau
+            // während eines Deploys).
+            if comment.localizedCaseInsensitiveContains("502")
+                || comment.localizedCaseInsensitiveContains("bad gateway")
+                || comment.localizedCaseInsensitiveContains("504")
+                || comment.localizedCaseInsensitiveContains("gateway timeout") {
+                return
+            }
             // tvOS-Fix 2026-09-04 (User-Report auf echtem Gerät: "Stream-Fehler (-16832)"
             // erschien zweimal, im jeweils NÄCHSTEN Versuch spielte das Video dann aber
             // trotzdem): dieser Observer wurde als generischer Auffang für stille 401-
