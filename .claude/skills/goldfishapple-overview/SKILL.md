@@ -143,9 +143,13 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
   {showPosterPath}` — nur wenn der Server `metadata.parentId > 0` UND `metadata.showPosterPath`
   (optional, `omitempty`) liefert, sonst Folgenbild wie bisher.
 - **Einheitliche Kacheln** (2026-09-29, nur Startseite): `ItemCard(uniformPosterFrame: true,
-  uniformSubtitleLines:)` — Bilder, deren Seitenverhältnis nicht nahe 2:3 liegt (±0,06; 16:9-
-  `/api/thumb`, quadratische Cover), zeigt `PosterImage(fitNonPosterImages:)` aspect-fit mittig
-  vor einer unscharfen (`blur 14`), abgedunkelten aspect-fill-Kopie; echte Poster weiter fill.
+  uniformSubtitleLines:)` — jedes Bild füllt die 2:3-Kachel (aspect fill). Items ohne Poster
+  (`metadataId` fehlt/0, also private Videos) laden `GoldfishClient.portraitThumbURL(itemId:)`
+  = `/api/thumb/{id}?format=portrait` (Server ab 1.4.54: 400×600, Mitte 2:3 aus dem
+  Originalvideo, gecacht; Audio/Fehler → normales Vorschaubild, Musik-Cover also mittig
+  beschnitten); Serien-/Filmposter wie bisher. ⚠ Die erste Variante (Commit 18a19d5:
+  `PosterImage.fitNonPosterImages`, kleines Bild aspect-fit vor unscharfer, abgedunkelter
+  Kopie) hat der User als „furchtbar" abgelehnt und ist wieder entfernt — nicht wieder einführen.
   Titel `lineLimit(2, reservesSpace: true)`, darunter feste Zahl einzeiliger Unterzeilen (leere
   Zeile als Platzhalter): `HomeRow` setzt 2, wenn der Streifen ein `isPrivateStyle`-Item hat
   (Kanal + Datum), sonst 1. Bibliotheks-Raster/Suche/Playlists nutzen den Modus NICHT.

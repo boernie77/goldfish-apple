@@ -1017,10 +1017,12 @@ struct ItemCard: View {
     /// Server ab 1.4.48): bei Folgen das Serienposter statt des Folgenbilds zeigen (siehe
     /// `posterURL`). Jeder andere Aufrufer lässt das bewusst aus.
     var preferShowPoster: Bool = false
-    /// Nur Startseite (User-Wunsch 2026-09-29): einheitliche Kacheln — Nicht-Poster-Bilder
-    /// (16:9-Vorschaubild, quadratisches Cover) vollständig mittig in der 2:3-Fläche mit
-    /// unscharfer Füllung dahinter (siehe `PosterImage.fitNonPosterImages`), und der Textblock
-    /// darunter mit fester Zeilenzahl, damit alle Kacheln eines Streifens gleich hoch sind.
+    /// Nur Startseite (User-Wunsch 2026-09-29): einheitliche Kacheln — jedes Bild füllt die
+    /// 2:3-Fläche (aspect fill). Items ohne Poster (private Videos) laden dafür das
+    /// Hochformat-Vorschaubild `/api/thumb/{id}?format=portrait` (Server ab 1.4.54, siehe
+    /// `posterURL`); Musik-Cover werden mittig beschnitten. Der Textblock darunter hat eine
+    /// feste Zeilenzahl, damit alle Kacheln eines Streifens gleich hoch sind. Die frühere
+    /// Variante (kleines Bild vor unscharfer Kopie) hat der User abgelehnt.
     /// Bibliotheks-Raster, Suche, Playlists usw. bleiben unverändert (`false`).
     var uniformPosterFrame: Bool = false
     /// Nur mit `uniformPosterFrame`: Anzahl reservierter Unterzeilen unter dem (immer
@@ -1097,7 +1099,7 @@ struct ItemCard: View {
     @ViewBuilder
     private var posterSection: some View {
             // fixedWidth: siehe PosterImage.fixedWidth-Kommentar für den Bug, den das umgeht.
-            PosterImage(url: posterURL, fixedWidth: width, fitNonPosterImages: uniformPosterFrame)
+            PosterImage(url: posterURL, fixedWidth: width)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
                     VStack(spacing: 3) {
@@ -1325,6 +1327,13 @@ struct ItemCard: View {
            let parentId = item.metadata?.parentId, parentId > 0,
            let showPoster = item.metadata?.showPosterPath, !showPoster.isEmpty,
            let url = client.posterURL(metadataId: parentId, posterPath: showPoster) {
+            return url
+        }
+        // Startseite (Server ab 1.4.54): Items ohne Poster bekommen das Hochformat-
+        // Vorschaubild, das die 2:3-Kachel ohne Beschnitt eines 16:9-Bildes füllt. Vor dem
+        // Offline-Cache, weil dort das 16:9-Vorschaubild liegt. Audio liefert der Server als
+        // normales Cover zurück (wird dann mittig beschnitten).
+        if uniformPosterFrame, (item.metadataId ?? 0) <= 0, let url = client.portraitThumbURL(itemId: item.id) {
             return url
         }
         if let cached = downloads.cachedPosterURL(itemId: item.id) { return cached }

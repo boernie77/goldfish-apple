@@ -996,6 +996,17 @@ public final class GoldfishClient: ObservableObject {
         assetURL("/api/thumb/\(itemId)")
     }
 
+    /// Hochformat-Vorschaubild (Server ab 1.4.54, `?format=portrait`): 400×600, mittiger
+    /// 2:3-Ausschnitt aus dem Originalvideo, beim ersten Abruf erzeugt und danach gecacht.
+    /// Für Audio oder bei Fehlern liefert der Server das normale Vorschaubild. Genutzt nur
+    /// von den Startseiten-Kacheln für Items ohne Poster (private Videos).
+    public func portraitThumbURL(itemId: Int64) -> URL? {
+        guard let base = thumbURL(itemId: itemId) else { return nil }
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        comps?.queryItems = [URLQueryItem(name: "format", value: "portrait")]
+        return comps?.url ?? base
+    }
+
     /// `?compat=1`: der Server entscheidet jetzt selbst (analog zu Jellyfins
     /// Geräteprofil-Direct-Play-Logik), ob die Datei schon abspielbar ist, und
     /// liefert sonst eine einmalig serverseitig erzeugte, kompatible Kopie
