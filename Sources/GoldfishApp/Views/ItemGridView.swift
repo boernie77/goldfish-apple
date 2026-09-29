@@ -1013,22 +1013,35 @@ struct ItemCard: View {
     // `homeFolderLibrary` bleibt das Verhalten unverändert (leeres Array, Wert
     // wird dort ignoriert bzw. wie gehabt genutzt).
     var queue: [Item] = []
-    /// Startseiten-Streifen „Als nächstes"/„Zuletzt hinzugefügt" (Server ab 1.4.48):
-    /// bei Folgen das Serienposter statt des Folgenbilds zeigen (siehe `posterURL`).
-    /// „Fortsetzen" und jeder andere Aufrufer lassen das bewusst aus.
+    /// Alle drei Startseiten-Streifen („Fortsetzen", „Als nächstes", „Zuletzt hinzugefügt",
+    /// Server ab 1.4.48): bei Folgen das Serienposter statt des Folgenbilds zeigen (siehe
+    /// `posterURL`). Jeder andere Aufrufer lässt das bewusst aus.
     var preferShowPoster: Bool = false
+    /// Nur Startseite (User-Wunsch 2026-09-29): einheitliche Kacheln — Nicht-Poster-Bilder
+    /// (16:9-Vorschaubild, quadratisches Cover) vollständig mittig in der 2:3-Fläche mit
+    /// unscharfer Füllung dahinter (siehe `PosterImage.fitNonPosterImages`), und der Textblock
+    /// darunter mit fester Zeilenzahl, damit alle Kacheln eines Streifens gleich hoch sind.
+    /// Bibliotheks-Raster, Suche, Playlists usw. bleiben unverändert (`false`).
+    var uniformPosterFrame: Bool = false
+    /// Nur mit `uniformPosterFrame`: Anzahl reservierter Unterzeilen unter dem (immer
+    /// zweizeilig reservierten) Titel. `HomeRow` setzt 2, sobald der Streifen ein
+    /// Privat-/YouTube-Item enthält (Kanalname + Datum), sonst 1.
+    var uniformSubtitleLines: Int = 1
     /// Nur im Streifen „Als nächstes" gesetzt: Kontextmenü-Eintrag „Aus „Als nächstes"
     /// entfernen" (iOS/macOS Langdruck/Rechtsklick, tvOS Langdruck auf die fokussierte
     /// Kachel). `nil` = kein Kontextmenü.
     var onHideNextUp: (() -> Void)? = nil
 
     init(item: Item, width: CGFloat = 150, queue: [Item] = [], homeFolderLibrary: Library? = nil,
-         preferShowPoster: Bool = false, onHideNextUp: (() -> Void)? = nil) {
+         preferShowPoster: Bool = false, uniformPosterFrame: Bool = false, uniformSubtitleLines: Int = 1,
+         onHideNextUp: (() -> Void)? = nil) {
         self.item = item
         self.width = width
         self.queue = queue
         self.homeFolderLibrary = homeFolderLibrary
         self.preferShowPoster = preferShowPoster
+        self.uniformPosterFrame = uniformPosterFrame
+        self.uniformSubtitleLines = uniformSubtitleLines
         self.onHideNextUp = onHideNextUp
         _favorite = State(initialValue: item.favorite)
     }
@@ -1084,7 +1097,7 @@ struct ItemCard: View {
     @ViewBuilder
     private var posterSection: some View {
             // fixedWidth: siehe PosterImage.fixedWidth-Kommentar für den Bug, den das umgeht.
-            PosterImage(url: posterURL, fixedWidth: width)
+            PosterImage(url: posterURL, fixedWidth: width, fitNonPosterImages: uniformPosterFrame)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topLeading) {
                     VStack(spacing: 3) {
@@ -1148,6 +1161,65 @@ struct ItemCard: View {
     // Movies/everything else: title on top, year below (when known).
     @ViewBuilder
     private var titleSection: some View {
+        if uniformPosterFrame {
+            uniformTitleSection
+        } else {
+            freeTitleSection
+        }
+    }
+
+    /// Startseiten-Variante (siehe `uniformPosterFrame`): gleicher Inhalt wie
+    /// `freeTitleSection`, aber mit fester Zeilenzahl — Titel immer zwei Zeilen reserviert
+    /// (`reservesSpace`), darunter genau `uniformSubtitleLines` einzeilige Unterzeilen,
+    /// fehlende werden mit einer leeren Zeile aufgefüllt. So endet jede Kachel eines
+    /// Streifens auf derselben Höhe, egal ob Film, Folge oder YouTube-Video.
+    private var uniformTitleSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            folderLinkableText(item.isEpisode ? (item.showName ?? item.displayTitle) : item.displayTitle,
+                               folderName: item.isEpisode ? item.showName : nil)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(2, reservesSpace: true)
+                .foregroundStyle(.primary)
+            Group {
+                uniformFirstSubtitle
+                if uniformSubtitleLines >= 2 {
+                    if !item.isEpisode, item.isPrivateStyle, let releasedDateLabel = item.releasedDateLabel {
+                        Text(releasedDateLabel)
+                    } else {
+                        Text(" ")
+                    }
+                }
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var uniformFirstSubtitle: some View {
+        let episodeName = item.episodeName.flatMap { $0.isEmpty ? nil : $0 }
+        if item.isEpisode, item.episodeCode != nil || episodeName != nil {
+            HStack(spacing: 4) {
+                if let code = item.episodeCode {
+                    Text(code).fontWeight(.semibold)
+                }
+                if let episodeName {
+                    Text(episodeName)
+                }
+            }
+        } else if !item.isEpisode, item.isPrivateStyle, let channelName = item.channelName {
+            folderLinkableText(channelName, folderName: channelName)
+        } else if !item.isEpisode, !item.isPrivateStyle, let year = item.metadata?.year {
+            Text(String(year))
+        } else {
+            // Platzhalter: hält die Zeile frei, damit die Kachelhöhe gleich bleibt.
+            Text(" ")
+        }
+    }
+
+    @ViewBuilder
+    private var freeTitleSection: some View {
             if item.isEpisode {
                 folderLinkableText(item.showName ?? item.displayTitle, folderName: item.showName)
                     .font(.subheadline.weight(.medium))

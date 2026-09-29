@@ -54,10 +54,12 @@ struct HomeView: View {
                             // die Bibliotheks-Überschriften (z.B. "Filme") aussehen — vorher
                             // nutzten sie nur `HomeRow`s eigene kleine, graue Sub-Überschrift
                             // ohne die groß-fette Titelzeile, die jeder Library-Block hat.
-                            HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems), libraryFor: library(for:))
-                            // Serienposter statt Folgenbild + Kontextmenü „Aus Als nächstes
-                            // entfernen" (Server ab 1.4.48/1.4.49) — nur hier, nicht in
-                            // „Fortsetzen".
+                            // Serienposter statt Folgenbild (Server ab 1.4.48) in allen drei
+                            // Streifen (User-Wunsch 2026-09-29: jetzt auch „Fortsetzen").
+                            HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems), libraryFor: library(for:),
+                                           preferShowPoster: true)
+                            // Kontextmenü „Aus Als nächstes entfernen" (Server ab 1.4.49) —
+                            // nur hier.
                             HomeHeadingRow(title: "📺 Als nächstes", items: visibleNextUp, libraryFor: library(for:),
                                            preferShowPoster: true, onHideNextUp: hideFromNextUp)
 
@@ -265,6 +267,10 @@ private struct HomeRow: View {
                     let tileWidth: CGFloat = 130
                     let tileSpacing: CGFloat = 12
                     #endif
+                    // User-Wunsch 2026-09-29: einheitliche Kacheln auf der Startseite (siehe
+                    // `ItemCard.uniformPosterFrame`) — zwei reservierte Unterzeilen nur, wenn
+                    // der Streifen ein Privat-/YouTube-Item (Kanalname + Datum) enthält.
+                    let subtitleLines = items.contains(where: \.isPrivateStyle) ? 2 : 1
                     HStack(alignment: .top, spacing: tileSpacing) {
                         ForEach(items) { item in
                             #if os(tvOS)
@@ -272,7 +278,8 @@ private struct HomeRow: View {
                             // ums Poster, siehe dortiger Kommentar) — hier also nur noch
                             // die Karte selbst, kein zusätzlicher äußerer Link mehr.
                             ItemCard(item: item, width: tileWidth, queue: items,
-                                     preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
+                                     preferShowPoster: preferShowPoster, uniformPosterFrame: true,
+                                     uniformSubtitleLines: subtitleLines, onHideNextUp: hideAction(for: item))
                                 .frame(width: tileWidth)
                             #elseif os(macOS)
                             // User-Wunsch 2026-09-13: Serien-/Kanalname soll zur Serien-/
@@ -282,12 +289,14 @@ private struct HomeRow: View {
                             // ganze Karte zu umschließen (ein NavigationLink verschachtelt in
                             // einem anderen liefert sonst kein zweites eigenes Tap-Ziel).
                             ItemCard(item: item, width: tileWidth, queue: items, homeFolderLibrary: libraryFor(item),
-                                     preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
+                                     preferShowPoster: preferShowPoster, uniformPosterFrame: true,
+                                     uniformSubtitleLines: subtitleLines, onHideNextUp: hideAction(for: item))
                                 .frame(width: tileWidth)
                             #else
                             NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
                                 ItemCard(item: item, width: tileWidth,
-                                         preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
+                                         preferShowPoster: preferShowPoster, uniformPosterFrame: true,
+                                         uniformSubtitleLines: subtitleLines, onHideNextUp: hideAction(for: item))
                                     .frame(width: tileWidth)
                             }
                             .cardButtonStyleCompat()

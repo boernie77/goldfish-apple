@@ -137,10 +137,18 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
 
 ## Startseite (HomeView) — Server-Funktionen ab 1.4.48/1.4.49
 
-- **Serienposter** in „📺 Als nächstes" und „🆕 Zuletzt hinzugefügt" (NICHT „Fortsetzen"):
+- **Serienposter** in allen drei Streifen („▶ Fortsetzen" seit 2026-09-29, „📺 Als nächstes",
+  „🆕 Zuletzt hinzugefügt"):
   `ItemCard(preferShowPoster: true)` zeigt bei Folgen `/api/poster/metadata/{parentId}?v=
   {showPosterPath}` — nur wenn der Server `metadata.parentId > 0` UND `metadata.showPosterPath`
   (optional, `omitempty`) liefert, sonst Folgenbild wie bisher.
+- **Einheitliche Kacheln** (2026-09-29, nur Startseite): `ItemCard(uniformPosterFrame: true,
+  uniformSubtitleLines:)` — Bilder, deren Seitenverhältnis nicht nahe 2:3 liegt (±0,06; 16:9-
+  `/api/thumb`, quadratische Cover), zeigt `PosterImage(fitNonPosterImages:)` aspect-fit mittig
+  vor einer unscharfen (`blur 14`), abgedunkelten aspect-fill-Kopie; echte Poster weiter fill.
+  Titel `lineLimit(2, reservesSpace: true)`, darunter feste Zahl einzeiliger Unterzeilen (leere
+  Zeile als Platzhalter): `HomeRow` setzt 2, wenn der Streifen ein `isPrivateStyle`-Item hat
+  (Kanal + Datum), sonst 1. Bibliotheks-Raster/Suche/Playlists nutzen den Modus NICHT.
 - **„Aus „Als nächstes" entfernen"**: `POST /api/home/nextup/{itemId}/hide` (204, 404 = keine
   Folge), blendet die ganze Serie aus, bis man weiterschaut. Kontextmenü nur im
   Als-nächstes-Streifen (`ItemCard.onHideNextUp` → `NextUpHideMenu`); auf tvOS hängt es am

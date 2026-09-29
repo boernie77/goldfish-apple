@@ -32,6 +32,13 @@ struct PosterImage: View {
     /// hin. Fester Wert umgeht das Problem komplett, weil nichts mehr neu verhandelt
     /// werden muss. Von `ItemCard` (fester 150pt-Grid-Kontext) genutzt.
     var fixedWidth: CGFloat? = nil
+    /// Startseite (User-Wunsch 2026-09-29, via `ItemCard.uniformPosterFrame`): Bilder, die
+    /// KEIN 2:3-Poster sind (16:9-Vorschaubild privater Bibliotheken, quadratisches
+    /// Musik-Cover), werden nicht beschnitten, sondern vollständig (aspect fit) mittig in der
+    /// 2:3-Fläche gezeigt — dahinter dasselbe Bild als unscharfe, abgedunkelte Füllung.
+    /// Echte Poster (Seitenverhältnis nahe 2:3) bleiben unverändert `scaledToFill`.
+    /// Default `false`: Bibliotheks-Raster, Suche usw. beschneiden wie bisher.
+    var fitNonPosterImages: Bool = false
 
     // User-Bericht 2026-08-19: EIN bestimmtes Poster ("American Fighter" 1985) zeigte
     // in JEDER Ansicht (normales Grid, Sammlung) dasselbe zugeschnitten/gezoomt wirkende
@@ -75,13 +82,35 @@ struct PosterImage: View {
     private var content: some View {
         Group {
             if let loadedImage, !loadFailed {
-                Image(platformImage: loadedImage)
-                    .resizable()
-                    .scaledToFill()
+                if fitNonPosterImages, !Self.isPosterShaped(loadedImage) {
+                    ZStack {
+                        Color.black
+                        Image(platformImage: loadedImage)
+                            .resizable()
+                            .scaledToFill()
+                            .blur(radius: 14)
+                            .overlay(Color.black.opacity(0.4))
+                        Image(platformImage: loadedImage)
+                            .resizable()
+                            .scaledToFit()
+                    }
+                } else {
+                    Image(platformImage: loadedImage)
+                        .resizable()
+                        .scaledToFill()
+                }
             } else {
                 placeholder
             }
         }
+    }
+
+    /// Seitenverhältnis (Breite/Höhe) nahe 2:3 → echtes Poster, darf gefüllt/beschnitten
+    /// werden. Toleranz, weil TMDB-Poster nicht immer exakt 2:3 sind (z. B. 680×1000).
+    private static func isPosterShaped(_ image: PlatformImage) -> Bool {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return true }
+        return abs(size.width / size.height - 2.0 / 3.0) < 0.06
     }
 
     private func load() async {
