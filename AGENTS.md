@@ -108,7 +108,7 @@ echte Werte ersetzen.**
   `GoldfishiOS` (Simulator-SDK), `GoldfishTV` (Simulator-SDK).
 - `#if os(...)`-Grenzen explizit prüfen: Änderungen für macOS dürfen iOS/tvOS strukturell nicht
   berühren (und umgekehrt).
-- Kein `git add`/`commit`/`push` ohne ausdrücklichen Auftrag.
+- Fertige Änderungen selbstständig committen und auf `main` pushen (User-Vorgabe 2026-09-29, gilt für alle Goldfish-Repos). **Kein Archive/Upload zu App Store Connect und keine Einreichung ohne ausdrückliche Anweisung.**
 
 ## API-Kompatibilität zum Server (stille Brüche)
 
