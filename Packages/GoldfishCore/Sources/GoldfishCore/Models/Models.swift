@@ -58,6 +58,23 @@ public struct HomePreferences: Decodable {
     public let libraries: [HomeLibraryPref]
     public let showContinue: Bool
     public let showNextUp: Bool
+    /// Verweildauer der Streifen in Tagen (Server ab 1.4.49), gerechnet ab dem letzten
+    /// Abspielen — 0 = unbegrenzt. Ältere Server liefern die Felder nicht → 0.
+    public let continueMaxAgeDays: Int
+    public let nextUpMaxAgeDays: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case libraries, showContinue, showNextUp, continueMaxAgeDays, nextUpMaxAgeDays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        libraries = try c.decode([HomeLibraryPref].self, forKey: .libraries)
+        showContinue = try c.decode(Bool.self, forKey: .showContinue)
+        showNextUp = try c.decode(Bool.self, forKey: .showNextUp)
+        continueMaxAgeDays = try c.decodeIfPresent(Int.self, forKey: .continueMaxAgeDays) ?? 0
+        nextUpMaxAgeDays = try c.decodeIfPresent(Int.self, forKey: .nextUpMaxAgeDays) ?? 0
+    }
 }
 
 public struct NavLibraryPref: Codable, Identifiable, Hashable {
@@ -110,6 +127,11 @@ public struct Metadata: Codable, Hashable {
     public let episode: Int?
     public let imdbId: String?
     public let ageRating: String?
+    /// Poster-Pfad der zugehörigen SERIE (nur bei Folgen, Server ab 1.4.48, `omitempty`).
+    /// Dient als Cache-Buster für `/api/poster/metadata/{parentId}` — die Startseiten-
+    /// Streifen „Als nächstes"/„Zuletzt hinzugefügt" zeigen damit das Serienposter statt
+    /// des Folgenbilds. Optional, damit ältere Server (Feld fehlt) nicht brechen.
+    public let showPosterPath: String?
 
     /// `genres` is a JSON-encoded string array coming from the server, not a native array.
     public var genreList: [String] {

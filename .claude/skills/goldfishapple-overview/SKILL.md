@@ -135,6 +135,25 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
   Account greift die alte "Free-Personal-Team kann nicht signieren"-
   Einschränkung wieder — dann zuerst prüfen, ob der Account noch bezahlt ist.
 
+## Startseite (HomeView) — Server-Funktionen ab 1.4.48/1.4.49
+
+- **Serienposter** in „📺 Als nächstes" und „🆕 Zuletzt hinzugefügt" (NICHT „Fortsetzen"):
+  `ItemCard(preferShowPoster: true)` zeigt bei Folgen `/api/poster/metadata/{parentId}?v=
+  {showPosterPath}` — nur wenn der Server `metadata.parentId > 0` UND `metadata.showPosterPath`
+  (optional, `omitempty`) liefert, sonst Folgenbild wie bisher.
+- **„Aus „Als nächstes" entfernen"**: `POST /api/home/nextup/{itemId}/hide` (204, 404 = keine
+  Folge), blendet die ganze Serie aus, bis man weiterschaut. Kontextmenü nur im
+  Als-nächstes-Streifen (`ItemCard.onHideNextUp` → `NextUpHideMenu`); auf tvOS hängt es am
+  fokussierbaren `NavigationLink` (Langdruck). Kachel verschwindet lokal erst nach Erfolg.
+- **Verweildauer** in `HomeAndNavPreferencesView`: `continueMaxAgeDays`/`nextUpMaxAgeDays` aus
+  `GET /api/home/preferences` (fehlend → 0 = unbegrenzt), Schreiben per `PUT /api/home/strips`
+  mit nur dem geänderten Feld. Nur 0/7/14/30/60/90/180/365. tvOS-Picker `.navigationLink`,
+  sonst `.menu`.
+- **Reine Kompilierprüfung ohne Schlüsselbund-Abfrage:** `CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""`; beim Mac-Target zusätzlich
+  `EXPANDED_CODE_SIGN_IDENTITY="-"`, sonst scheitert die Skriptphase „Codesign eingebettetes
+  ffmpeg/ffprobe" mit „no identity found". iOS/tvOS gegen `generic/platform=… Simulator`.
+
 ## Was die App NICHT hat
 
 - Kein Windows/Linux-Target (nur macOS + iOS + tvOS).

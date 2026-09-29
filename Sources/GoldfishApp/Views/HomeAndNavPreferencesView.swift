@@ -19,6 +19,9 @@ struct HomeAndNavPreferencesView: View {
     @State private var navLibraries: [NavLibraryPref] = []
     @State private var showContinue = true
     @State private var showNextUp = true
+    /// Verweildauer der Streifen in Tagen (0 = unbegrenzt), Server ab 1.4.49.
+    @State private var continueMaxAgeDays = 0
+    @State private var nextUpMaxAgeDays = 0
     @State private var isLoading = true
     @State private var errorMessage: String?
 
@@ -43,6 +46,30 @@ struct HomeAndNavPreferencesView: View {
                 Text("Startseiten-Streifen")
             } footer: {
                 Text("Gilt global, bibliotheksübergreifend — steuert nur, ob die beiden Streifen überhaupt erscheinen.")
+            }
+
+            // Verweildauer (Server ab 1.4.49): Bindings mit eigenem `set` statt `.onChange`,
+            // damit das Befüllen in `reload()` keinen überflüssigen PUT auslöst. Nur das
+            // geänderte Feld wird geschickt.
+            Section {
+                maxAgePicker("⏳ Fortsetzen bleibt", selection: Binding(
+                    get: { continueMaxAgeDays },
+                    set: { newValue in
+                        continueMaxAgeDays = newValue
+                        Task { try? await client.setHomeStripMaxAge(continueDays: newValue) }
+                    }
+                ))
+                maxAgePicker("⏳ Als nächstes bleibt", selection: Binding(
+                    get: { nextUpMaxAgeDays },
+                    set: { newValue in
+                        nextUpMaxAgeDays = newValue
+                        Task { try? await client.setHomeStripMaxAge(nextUpDays: newValue) }
+                    }
+                ))
+            } header: {
+                Text("Verweildauer")
+            } footer: {
+                Text("Gerechnet ab dem letzten Abspielen. Ältere Einträge verschwinden nur aus der Ansicht.")
             }
 
             Section {
@@ -109,6 +136,28 @@ struct HomeAndNavPreferencesView: View {
         .task { await reload() }
     }
 
+    /// Erlaubte Werte laut Server (`PUT /api/home/strips`) — andere lehnt er ab.
+    private static let maxAgeOptions: [(days: Int, label: String)] = [
+        (0, "unbegrenzt"), (7, "1 Woche"), (14, "2 Wochen"), (30, "1 Monat"),
+        (60, "2 Monate"), (90, "3 Monate"), (180, "6 Monate"), (365, "1 Jahr"),
+    ]
+
+    @ViewBuilder
+    private func maxAgePicker(_ title: String, selection: Binding<Int>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(Self.maxAgeOptions, id: \.days) { option in
+                Text(option.label).tag(option.days)
+            }
+        }
+        #if os(tvOS)
+        // tvOS: kein `Menu`-basierter Picker (öffnet dort unzuverlässig nichts, siehe
+        // AGENTS.md) — `.navigationLink` schiebt eine eigene Auswahlliste auf den Stack.
+        .pickerStyle(.navigationLink)
+        #else
+        .pickerStyle(.menu)
+        #endif
+    }
+
     @ViewBuilder
     private func libraryRow(name: String, isOn: Binding<Bool>, canMoveUp: Bool, canMoveDown: Bool, onMoveUp: @escaping () -> Void, onMoveDown: @escaping () -> Void) -> some View {
         HStack {
@@ -152,6 +201,8 @@ struct HomeAndNavPreferencesView: View {
             homeLibraries = homeResult.libraries
             showContinue = homeResult.showContinue
             showNextUp = homeResult.showNextUp
+            continueMaxAgeDays = homeResult.continueMaxAgeDays
+            nextUpMaxAgeDays = homeResult.nextUpMaxAgeDays
             navLibraries = navResult.libraries
         } catch {
             errorMessage = error.localizedDescription

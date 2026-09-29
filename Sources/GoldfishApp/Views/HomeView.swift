@@ -9,6 +9,10 @@ struct HomeView: View {
     @State private var sections: [HomeSection] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
+    /// Lokal aus „Als nächstes" entfernte Serien (Folgen-Item-IDs + Serien-`parentId`s),
+    /// bis zum nächsten erfolgreichen `load()` — danach filtert der Server selbst.
+    @State private var hiddenNextUpItemIds: Set<Int64> = []
+    @State private var hiddenNextUpShowIds: Set<Int64> = []
     @Environment(\.scenePhase) private var scenePhase
     /// User-Anfrage 2026-09-02: `MainTabView` braucht diesen Pfad, um den eigenen
     /// Goldfish-Kopfbereich nur an der Tab-Wurzel zu zeigen (siehe dortiger Kommentar) —
@@ -51,7 +55,11 @@ struct HomeView: View {
                             // nutzten sie nur `HomeRow`s eigene kleine, graue Sub-Überschrift
                             // ohne die groß-fette Titelzeile, die jeder Library-Block hat.
                             HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems), libraryFor: library(for:))
-                            HomeHeadingRow(title: "📺 Als nächstes", items: sections.flatMap(\.nextUp), libraryFor: library(for:))
+                            // Serienposter statt Folgenbild + Kontextmenü „Aus Als nächstes
+                            // entfernen" (Server ab 1.4.48/1.4.49) — nur hier, nicht in
+                            // „Fortsetzen".
+                            HomeHeadingRow(title: "📺 Als nächstes", items: visibleNextUp, libraryFor: library(for:),
+                                           preferShowPoster: true, onHideNextUp: hideFromNextUp)
 
                             ForEach(sections) { section in
                                 if !section.recent.isEmpty {
@@ -59,7 +67,7 @@ struct HomeView: View {
                                         Text(section.library.name)
                                             .font(.title3.bold())
                                             .padding(.horizontal)
-                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: section.recent, libraryFor: { _ in section.library })
+                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: section.recent, libraryFor: { _ in section.library }, preferShowPoster: true)
                                     }
                                 }
                             }
@@ -135,12 +143,40 @@ struct HomeView: View {
         sections.first { $0.library.id == item.libraryId }?.library
     }
 
+    /// „Als nächstes" ohne die lokal gerade entfernten Serien.
+    private var visibleNextUp: [Item] {
+        sections.flatMap(\.nextUp).filter { item in
+            if hiddenNextUpItemIds.contains(item.id) { return false }
+            if let parentId = item.metadata?.parentId, parentId > 0, hiddenNextUpShowIds.contains(parentId) { return false }
+            return true
+        }
+    }
+
+    /// `POST /api/home/nextup/{id}/hide` — blendet die ganze Serie für dieses Konto aus
+    /// dem Streifen aus (nur Ansicht; sie kommt zurück, sobald man weiterschaut). Die
+    /// Kachel verschwindet erst nach Erfolg; 404 (keine Serienfolge) bleibt folgenlos.
+    private func hideFromNextUp(_ item: Item) {
+        Task {
+            do {
+                try await client.hideFromNextUp(itemId: item.id)
+                hiddenNextUpItemIds.insert(item.id)
+                if let parentId = item.metadata?.parentId, parentId > 0 {
+                    hiddenNextUpShowIds.insert(parentId)
+                }
+            } catch {
+                if GoldfishClient.isAuthError(error) { client.markSessionInvalid() }
+            }
+        }
+    }
+
     private func load() async {
         isLoading = sections.isEmpty
         defer { isLoading = false }
         do {
             let response = try await client.fetchHome()
             sections = response.sections
+            hiddenNextUpItemIds = []
+            hiddenNextUpShowIds = []
             errorMessage = nil
         } catch {
             // 401 = tote Session, nicht "offline": lokalen Login verwerfen, RootView
@@ -167,6 +203,8 @@ private struct HomeHeadingRow: View {
     /// Kanalname-Link braucht die richtige `Library`, "Fortsetzen"/"Als nächstes"
     /// mischen aber Items mehrerer Bibliotheken flach) — siehe `HomeView.library(for:)`.
     var libraryFor: (Item) -> Library? = { _ in nil }
+    var preferShowPoster: Bool = false
+    var onHideNextUp: ((Item) -> Void)? = nil
 
     var body: some View {
         if !items.isEmpty {
@@ -174,7 +212,8 @@ private struct HomeHeadingRow: View {
                 Text(title)
                     .font(.title3.bold())
                     .padding(.horizontal)
-                HomeRow(title: nil, items: items, libraryFor: libraryFor)
+                HomeRow(title: nil, items: items, libraryFor: libraryFor,
+                        preferShowPoster: preferShowPoster, onHideNextUp: onHideNextUp)
             }
         }
     }
@@ -184,6 +223,15 @@ private struct HomeRow: View {
     let title: String?
     let items: [Item]
     var libraryFor: (Item) -> Library? = { _ in nil }
+    /// Folgen mit Serienposter statt Folgenbild (siehe `ItemCard.preferShowPoster`).
+    var preferShowPoster: Bool = false
+    /// Nur „Als nächstes": Kontextmenü „Aus „Als nächstes" entfernen" pro Kachel.
+    var onHideNextUp: ((Item) -> Void)? = nil
+
+    private func hideAction(for item: Item) -> (() -> Void)? {
+        guard let onHideNextUp else { return nil }
+        return { onHideNextUp(item) }
+    }
 
     var body: some View {
         if !items.isEmpty {
@@ -223,7 +271,8 @@ private struct HomeRow: View {
                             // Der NavigationLink steckt jetzt INNERHALB von ItemCard (nur
                             // ums Poster, siehe dortiger Kommentar) — hier also nur noch
                             // die Karte selbst, kein zusätzlicher äußerer Link mehr.
-                            ItemCard(item: item, width: tileWidth, queue: items)
+                            ItemCard(item: item, width: tileWidth, queue: items,
+                                     preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
                                 .frame(width: tileWidth)
                             #elseif os(macOS)
                             // User-Wunsch 2026-09-13: Serien-/Kanalname soll zur Serien-/
@@ -232,11 +281,13 @@ private struct HomeRow: View {
                             // tvOS) den Link INTERN nur ums Poster, statt hier extern die
                             // ganze Karte zu umschließen (ein NavigationLink verschachtelt in
                             // einem anderen liefert sonst kein zweites eigenes Tap-Ziel).
-                            ItemCard(item: item, width: tileWidth, queue: items, homeFolderLibrary: libraryFor(item))
+                            ItemCard(item: item, width: tileWidth, queue: items, homeFolderLibrary: libraryFor(item),
+                                     preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
                                 .frame(width: tileWidth)
                             #else
                             NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
-                                ItemCard(item: item, width: tileWidth)
+                                ItemCard(item: item, width: tileWidth,
+                                         preferShowPoster: preferShowPoster, onHideNextUp: hideAction(for: item))
                                     .frame(width: tileWidth)
                             }
                             .cardButtonStyleCompat()

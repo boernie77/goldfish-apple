@@ -1013,12 +1013,23 @@ struct ItemCard: View {
     // `homeFolderLibrary` bleibt das Verhalten unverändert (leeres Array, Wert
     // wird dort ignoriert bzw. wie gehabt genutzt).
     var queue: [Item] = []
+    /// Startseiten-Streifen „Als nächstes"/„Zuletzt hinzugefügt" (Server ab 1.4.48):
+    /// bei Folgen das Serienposter statt des Folgenbilds zeigen (siehe `posterURL`).
+    /// „Fortsetzen" und jeder andere Aufrufer lassen das bewusst aus.
+    var preferShowPoster: Bool = false
+    /// Nur im Streifen „Als nächstes" gesetzt: Kontextmenü-Eintrag „Aus „Als nächstes"
+    /// entfernen" (iOS/macOS Langdruck/Rechtsklick, tvOS Langdruck auf die fokussierte
+    /// Kachel). `nil` = kein Kontextmenü.
+    var onHideNextUp: (() -> Void)? = nil
 
-    init(item: Item, width: CGFloat = 150, queue: [Item] = [], homeFolderLibrary: Library? = nil) {
+    init(item: Item, width: CGFloat = 150, queue: [Item] = [], homeFolderLibrary: Library? = nil,
+         preferShowPoster: Bool = false, onHideNextUp: (() -> Void)? = nil) {
         self.item = item
         self.width = width
         self.queue = queue
         self.homeFolderLibrary = homeFolderLibrary
+        self.preferShowPoster = preferShowPoster
+        self.onHideNextUp = onHideNextUp
         _favorite = State(initialValue: item.favorite)
     }
 
@@ -1033,6 +1044,9 @@ struct ItemCard: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .buttonBorderShape(.roundedRectangle(radius: 8))
+            // tvOS: `.contextMenu` direkt am fokussierbaren Link — Langdruck auf der
+            // fokussierten Kachel öffnet es (kein `Menu` in Toolbars, siehe AGENTS.md).
+            .modifier(NextUpHideMenu(onHide: onHideNextUp))
 
             titleSection
         }
@@ -1056,12 +1070,14 @@ struct ItemCard: View {
             titleSection
         }
         .contentShape(Rectangle())
+        .modifier(NextUpHideMenu(onHide: onHideNextUp))
         #else
         VStack(alignment: .leading, spacing: 4) {
             posterSection
             titleSection
         }
         .contentShape(Rectangle())
+        .modifier(NextUpHideMenu(onHide: onHideNextUp))
         #endif
     }
 
@@ -1229,11 +1245,42 @@ struct ItemCard: View {
         // Offline-Poster (User-Anfrage 2026-08-19): für heruntergeladene Items bevorzugt das
         // beim Download-Start gecachte Poster von Platte, statt live vom Server zu laden —
         // sonst zeigt die Kachel ohne Netz nur den Platzhalter.
+        // Serienposter statt Folgenbild (Server ab 1.4.48, nur Startseiten-Streifen „Als
+        // nächstes"/„Zuletzt hinzugefügt"): nur wenn der Server `parentId` UND
+        // `showPosterPath` liefert — ältere Server lassen das Feld weg, dann bisheriges
+        // Verhalten. Vor dem Offline-Cache, weil dort das Folgenbild liegt.
+        if preferShowPoster, item.isEpisode,
+           let parentId = item.metadata?.parentId, parentId > 0,
+           let showPoster = item.metadata?.showPosterPath, !showPoster.isEmpty,
+           let url = client.posterURL(metadataId: parentId, posterPath: showPoster) {
+            return url
+        }
         if let cached = downloads.cachedPosterURL(itemId: item.id) { return cached }
         if let metadataId = item.metadataId, let url = client.posterURL(metadataId: metadataId, posterPath: item.metadata?.posterPath) {
             return url
         }
         return client.thumbURL(itemId: item.id)
+    }
+}
+
+/// Kontextmenü „Aus „Als nächstes" entfernen" — nur angehängt, wenn ein Handler gesetzt
+/// ist (sonst bekäme jede Kachel ein leeres Kontextmenü bzw. auf iOS eine Lift-Vorschau
+/// ohne Einträge).
+private struct NextUpHideMenu: ViewModifier {
+    let onHide: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let onHide {
+            content.contextMenu {
+                Button(role: .destructive) {
+                    onHide()
+                } label: {
+                    Label("Aus „Als nächstes“ entfernen", systemImage: "xmark")
+                }
+            }
+        } else {
+            content
+        }
     }
 }
 

@@ -791,6 +791,24 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/home/strips", method: "PUT", jsonBody: data)
     }
 
+    /// Verweildauer der Startseiten-Streifen (Server ab 1.4.49): nur das geänderte Feld
+    /// mitschicken — gleicher Endpoint wie `setHomeStrips`, serverseitig ebenfalls als
+    /// Zeiger ausgewertet. Erlaubt sind nur 0 (unbegrenzt), 7, 14, 30, 60, 90, 180, 365.
+    public func setHomeStripMaxAge(continueDays: Int? = nil, nextUpDays: Int? = nil) async throws {
+        var body: [String: Int] = [:]
+        if let continueDays { body["continueMaxAgeDays"] = continueDays }
+        if let nextUpDays { body["nextUpMaxAgeDays"] = nextUpDays }
+        let data = try JSONEncoder().encode(body)
+        try await performVoid("/api/home/strips", method: "PUT", jsonBody: data)
+    }
+
+    /// „Aus Als nächstes entfernen" (Server ab 1.4.49): blendet die GANZE Serie der Folge
+    /// für dieses Konto aus dem Streifen aus — reine Ansicht, kommt zurück, sobald man in
+    /// der Serie weiterschaut. 204 bei Erfolg, 404 = keine Serienfolge.
+    public func hideFromNextUp(itemId: Int64) async throws {
+        try await performVoid("/api/home/nextup/\(itemId)/hide", method: "POST")
+    }
+
     public func fetchNavPreferences() async throws -> NavPreferences {
         try await perform("/api/nav/preferences")
     }
