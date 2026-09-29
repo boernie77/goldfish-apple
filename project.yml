@@ -86,7 +86,7 @@ targets:
         # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
         # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
         CFBundleShortVersionString: "1.8"
-        CFBundleVersion: "249"
+        CFBundleVersion: "250"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -250,7 +250,7 @@ targets:
         # (geteiltes GoldfishCore + gemeinsame SettingsView) — Zurück-Pfeil in den drei
         # Einstellungen-Unterseiten. SICHTBARE Version 1.11 -> 1.12, Build 215 -> 216.
         CFBundleShortVersionString: "1.14"
-        CFBundleVersion: "218"
+        CFBundleVersion: "219"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -342,7 +342,7 @@ targets:
         # Build 16 (2026-09-23): derselbe zweite Fix wie GoldfishMac Build 246/1.6.
         # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
         CFBundleShortVersionString: "1.11"
-        CFBundleVersion: "18"
+        CFBundleVersion: "19"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
