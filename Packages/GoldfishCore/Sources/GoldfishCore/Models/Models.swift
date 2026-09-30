@@ -298,21 +298,14 @@ public struct Item: Codable, Identifiable, Hashable {
     /// 2. Segment von `relPath`, wenn der Pfad mindestens drei Segmente hat und dieses
     /// Segment KEIN Staffel-/Specials-/Extras-Ordner ist. Gleiche Regex wie `cards.js`.
     public var episodeGroup: String? {
-        guard isEpisode, let relPath, !relPath.isEmpty else { return nil }
-        let segments = relPath.split(separator: "/", omittingEmptySubsequences: false)
-        guard segments.count >= 3 else { return nil }
-        let seg = String(segments[1]).trimmingCharacters(in: .whitespaces)
-        guard !seg.isEmpty else { return nil }
-        let pattern = #"^(staffel|season|serie|s)\s*\d+$|^specials?$|^extras?$"#
-        if seg.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return nil }
-        return String(segments[1])
+        guard isEpisode else { return nil }
+        return episodeGroupInfo(relPath: relPath)?.name
     }
 
     /// `<seg1>/<seg2>` — der Ordner, den ein Klick auf `episodeGroup` öffnet.
     public var episodeGroupFolder: String? {
-        guard episodeGroup != nil, let relPath else { return nil }
-        let segments = relPath.split(separator: "/", omittingEmptySubsequences: false)
-        return "\(segments[0])/\(segments[1])"
+        guard isEpisode else { return nil }
+        return episodeGroupInfo(relPath: relPath)?.folder
     }
 
     /// Dateigröße für die Kachel („4.2 GB" / „850 MB"), nil ohne Größe.
@@ -355,6 +348,20 @@ public struct Item: Codable, Identifiable, Hashable {
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: date)
     }
+}
+
+/// Zwischenordner-Regel für Serienfolgen (Tatort: Kommissar), gemeinsam für `Item` und
+/// `EpisodeOut`: `relPath` mit ≥ 3 Segmenten, deren 2. Segment KEIN Staffel-/Specials-/
+/// Extras-Ordner ist (gleiche Regex wie `cards.js`). Liefert Namen und `<seg1>/<seg2>`.
+public func episodeGroupInfo(relPath: String?) -> (name: String, folder: String)? {
+    guard let relPath, !relPath.isEmpty else { return nil }
+    let segments = relPath.split(separator: "/", omittingEmptySubsequences: false)
+    guard segments.count >= 3 else { return nil }
+    let seg = String(segments[1]).trimmingCharacters(in: .whitespaces)
+    guard !seg.isEmpty else { return nil }
+    let pattern = #"^(staffel|season|serie|s)\s*\d+$|^specials?$|^extras?$"#
+    if seg.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+    return (String(segments[1]), "\(segments[0])/\(segments[1])")
 }
 
 // MARK: - Ermittler-Katalog (Server ab 1.4.65)
@@ -942,8 +949,15 @@ public struct EpisodeOut: Decodable, Identifiable, Hashable {
     public let width: Int?
     public let height: Int?
     public let durationSec: Double?
+    /// Pfad der ersten Datei (Server ab 1.4.69, nur bei vorhandenen Folgen) — Quelle der
+    /// Kommissar-Zeile in der Staffel-Ansicht. Ältere Server lassen das Feld weg.
+    public let relPath: String?
 
     public var id: String { "\(season)-\(episode)" }
+
+    /// Zwischenordner (Tatort: Kommissar), siehe `episodeGroupInfo(relPath:)`.
+    public var episodeGroup: String? { episodeGroupInfo(relPath: relPath)?.name }
+    public var episodeGroupFolder: String? { episodeGroupInfo(relPath: relPath)?.folder }
 
     /// Gleiche Bucket-Formel wie `Item.resolutionLabel`.
     public var resolutionLabel: String {

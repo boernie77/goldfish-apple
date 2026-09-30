@@ -378,6 +378,10 @@ struct SeasonEpisodesView: View {
     @EnvironmentObject var client: GoldfishClient
     @State private var resolvedItem: Item?
     @State private var isResolving = false
+    #if os(tvOS)
+    /// „Alle Folgen: <Kommissar>" aus dem Kontextmenü einer Folge (siehe `EpisodeTile`).
+    @State private var tvGroupTarget: ForcedFolderDestination?
+    #endif
 
     // User-Report 2026-09-08 ("Folgen in der Staffel sind zu eng und etwas zu
     // klein"): gleiches Muster wie bei der Staffelübersicht/Besetzungsleiste —
@@ -406,7 +410,9 @@ struct SeasonEpisodesView: View {
                 // Titel-Zeilenzahl mit.
                 LazyVGrid(columns: columns, spacing: 40) {
                     ForEach(season.episodes) { episode in
-                        EpisodeTile(episode: episode) {
+                        EpisodeTile(episode: episode, onOpenEpisodeGroup: episode.episodeGroupFolder.map { groupFolder in
+                            { tvGroupTarget = ForcedFolderDestination(library: library, folder: groupFolder, showsFolderTiles: false) }
+                        }) {
                             Task { await openEpisode(episode) }
                         }
                         .disabled(!episode.owned || isResolving)
@@ -417,14 +423,24 @@ struct SeasonEpisodesView: View {
                 #else
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(season.episodes) { episode in
-                        Button {
-                            Task { await openEpisode(episode) }
-                        } label: {
-                            EpisodeTile(episode: episode)
+                        if episode.episodeGroupFolder != nil {
+                            // Kommissar-Zeile als zweites Tap-Ziel: der Button sitzt dann nur
+                            // ums Vorschaubild (innerhalb von `EpisodeTile`), ein äußerer
+                            // Button würde den Link in der Zeile schlucken.
+                            EpisodeTile(episode: episode, groupLibrary: library) {
+                                Task { await openEpisode(episode) }
+                            }
+                            .disabled(!episode.owned || isResolving)
+                        } else {
+                            Button {
+                                Task { await openEpisode(episode) }
+                            } label: {
+                                EpisodeTile(episode: episode)
+                            }
+                            .buttonStyle(.plain)
+                            .focusableCompat(false)
+                            .disabled(!episode.owned || isResolving)
                         }
-                        .buttonStyle(.plain)
-                        .focusableCompat(false)
-                        .disabled(!episode.owned || isResolving)
                     }
                 }
                 .padding(.horizontal)
@@ -444,6 +460,18 @@ struct SeasonEpisodesView: View {
         .pushDestination(item: $resolvedItem) { item in
             ItemDetailView(item: item)
         }
+        // Kommissar-Ansicht (wie im Raster). Zustandsloser Handler, eine zusätzliche
+        // Registrierung weiter oben im Stack (ItemGridView/CollectionsView) baut dasselbe.
+        .navigationDestination(for: ForcedFolderDestination.self) { dest in
+            ItemGridView(library: dest.library, folder: dest.folder, showsFolderTiles: dest.showsFolderTiles, forcedFolderView: true)
+        }
+        #if os(tvOS)
+        .navigationDestination(isPresented: Binding(get: { tvGroupTarget != nil }, set: { if !$0 { tvGroupTarget = nil } })) {
+            if let target = tvGroupTarget {
+                ItemGridView(library: target.library, folder: target.folder, showsFolderTiles: false, forcedFolderView: true)
+            }
+        }
+        #endif
     }
 
     private func openEpisode(_ episode: EpisodeOut) async {
@@ -462,6 +490,10 @@ private struct EpisodeTile: View {
     // hält den Aufruf auf den anderen Plattformen unverändert (dort umschließt
     // weiterhin der Aufrufer selbst einen `Button`, siehe `SeasonEpisodesView.body`).
     var action: () -> Void = {}
+    /// iOS/macOS: Kommissar-Zeile als Link (dann baut die Kachel ihren Öffnen-Button selbst
+    /// nur ums Vorschaubild). tvOS: Kontextmenü „Alle Folgen: <Name>".
+    var groupLibrary: Library? = nil
+    var onOpenEpisodeGroup: (() -> Void)? = nil
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var downloads: DownloadManager
@@ -479,8 +511,11 @@ private struct EpisodeTile: View {
     @Environment(\.isFocused) private var isFocused
     #endif
 
-    init(episode: EpisodeOut, action: @escaping () -> Void = {}) {
+    init(episode: EpisodeOut, groupLibrary: Library? = nil, onOpenEpisodeGroup: (() -> Void)? = nil,
+         action: @escaping () -> Void = {}) {
         self.episode = episode
+        self.groupLibrary = groupLibrary
+        self.onOpenEpisodeGroup = onOpenEpisodeGroup
         self.action = action
     }
 
@@ -498,13 +533,22 @@ private struct EpisodeTile: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .buttonBorderShape(.roundedRectangle(radius: 8))
+            .modifier(EpisodeGroupContextMenu(group: episode.episodeGroup, onOpen: onOpenEpisodeGroup))
 
             titleSection
         }
         .contentShape(Rectangle())
         #else
         VStack(alignment: .leading, spacing: 4) {
-            stillSection
+            if groupLibrary != nil {
+                Button(action: action) {
+                    stillSection
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+            } else {
+                stillSection
+            }
             titleSection
         }
         .contentShape(Rectangle())
@@ -581,6 +625,39 @@ private struct EpisodeTile: View {
             #endif
             .lineLimit(2)
             .foregroundStyle(episode.owned ? .primary : .secondary)
+        episodeGroupLine
+    }
+
+    /// Zwischenordner (Tatort: Kommissar, Server ab 1.4.69 über `relPath`) — gleiche Zeile
+    /// wie `ItemCard.episodeGroupLine` in den Rastern.
+    @ViewBuilder
+    private var episodeGroupLine: some View {
+        if let group = episode.episodeGroup {
+            #if os(tvOS)
+            Text(group)
+                .font(.callout)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+            #else
+            if let library = groupLibrary, let groupFolder = episode.episodeGroupFolder {
+                NavigationLink(value: ForcedFolderDestination(library: library, folder: groupFolder, showsFolderTiles: false)) {
+                    Label(group, systemImage: "person.2")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .focusableCompat(false)
+                .help("Alle Folgen: \(group)")
+            } else {
+                Text(group)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
+        }
     }
 
     private func toggleWatched() {
@@ -590,6 +667,28 @@ private struct EpisodeTile: View {
         Task { try? await client.setWatched(itemId: itemId, watched: newValue) }
     }
 }
+
+#if os(tvOS)
+/// tvOS: Kontextmenü „Alle Folgen: <Kommissar>" am fokussierbaren Vorschaubild-Button.
+private struct EpisodeGroupContextMenu: ViewModifier {
+    let group: String?
+    let onOpen: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let group, let onOpen {
+            content.contextMenu {
+                Button {
+                    onOpen()
+                } label: {
+                    Label("Alle Folgen: \(group)", systemImage: "person.2")
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 private extension View {
     /// SwiftUI's own `navigationDestination(item:)` needs iOS 17/macOS 14; this app targets

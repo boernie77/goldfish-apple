@@ -50,8 +50,11 @@ Diese Regeln haben schon Geld, Zeit oder eine App-Store-Freigabe gekostet. Nicht
    Tab angewendet).
 4. **tvOS: NIE `Menu` in einer Toolbar** — öffnet dort zuverlässig NICHTS. Immer
    `.sheet`/`.confirmationDialog` für neue tvOS-UI.
-5. **macOS-App-Sandbox bleibt AUS** und `GoldfishMac.entitlements` muss `<dict/>` bleiben.
-   **Nach jedem `xcodegen generate` prüfen** — xcodegen setzt die Datei sonst zurück.
+5. **macOS-App-Sandbox ist AKTIV** (seit Commit 8f48a8b, Mac App Store): `app-sandbox`,
+   `files.bookmarks.app-scope`, `files.user-selected.read-write`, `network.client`. Die Werte
+   stehen in `project.yml` unter `entitlements.properties` — NUR dort ändern, `xcodegen
+   generate` erzeugt `GoldfishMac.entitlements` daraus und überschreibt Handänderungen.
+   Nach jedem `generate` prüfen, dass die Datei diese vier Schlüssel enthält.
 6. **Signierung läuft über das bezahlte Team `SYQL3PUXA9`** (`-allowProvisioningUpdates`). Bei
    einem Wechsel zurück auf einen kostenlosen Account greift die alte "Free-Personal-Team kann
    nicht signieren"-Einschränkung wieder — dann zuerst prüfen, ob das Konto noch bezahlt ist.

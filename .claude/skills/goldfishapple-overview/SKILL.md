@@ -13,7 +13,7 @@ Produkt/Stack, Target-Layout, GoldfishTV-Details und Architektur des Mac/iOS/tvO
 - iOS: eine persistente Leiste (Mini-Player) NIE als `.safeAreaInset` außen um eine `TabView` legen - sie sitzt PRO Tab-Inhalt (`RootView.swift withMusicBar(...)`).
 - tvOS: `Menu` in einer Toolbar öffnet zuverlässig NICHTS - immer `.sheet`/`.confirmationDialog`.
 - Der Player läuft NICHT als `.sheet`, sondern als eigene `WindowGroup`-Szene (Sheets können kein echtes `NSWindow.toggleFullScreen`).
-- macOS-App-Sandbox bleibt AUS, `GoldfishMac.entitlements` muss `<dict/>` bleiben - nach jedem `xcodegen generate` prüfen.
+- macOS-App-Sandbox ist AKTIV (seit 8f48a8b) - Entitlements nur in `project.yml` (`entitlements.properties`) ändern, `xcodegen generate` erzeugt die Datei daraus; danach prüfen.
 - Nach jeder neuen Datei in `Sources/GoldfishApp/` oder Änderung an `project.yml`: erst `xcodegen generate`, dann bauen.
 - Signierung über das bezahlte Team `SYQL3PUXA9` (`-allowProvisioningUpdates`).
 
@@ -110,8 +110,9 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
 
 ## Architektur-Kurzfassung
 
-- macOS: App Sandbox AUS (`GoldfishMac.entitlements` = `<dict/>`, nach
-  jedem `xcodegen generate` prüfen, wird sonst zurückgesetzt).
+- macOS: App Sandbox AKTIV seit 8f48a8b (Werte in `project.yml`
+  `entitlements.properties`, `xcodegen generate` erzeugt
+  `GoldfishMac.entitlements` daraus — nach jedem `generate` prüfen).
 - Player läuft NICHT als `.sheet`, sondern als eigene `WindowGroup(id:
   "player"/"localPlayer")`-Szene (`openWindow(id:)` +
   `PlayerLaunchCoordinator.shared` hält die live Swift-Werte, da
@@ -190,8 +191,10 @@ Stand 2026-09-30, nur Build + Code-Review (nicht interaktiv getestet).
   (`CardContextMenu`, ersetzt `NextUpHideMenu`) → `tvGroupTarget` →
   `navigationDestination(isPresented:)`. Nicht verlinkt, wenn der Ordner schon offen ist.
   Kommissar-Ansicht: Default-Sortierung Erstausstrahlung aufsteigend (wenn nichts gespeichert).
-  Startseite (einheitliche Kacheln) und `EpisodeTile` (Staffel-Ansicht, kein `relPath`)
-  zeigen die Zeile bewusst nicht.
+  Startseite (einheitliche Kacheln) zeigt die Zeile bewusst nicht. Staffel-Ansicht
+  (`EpisodeTile`) seit Server 1.4.69: `EpisodeOut.relPath` (optional, nur vorhandene Folgen),
+  gemeinsame Regel `episodeGroupInfo(relPath:)`; iOS/macOS Link (Öffnen-Button dann nur ums
+  Vorschaubild), tvOS Kontextmenü am Vorschaubild-Button.
 - **Ermittler-Katalog:** `GoldfishClient.fetchCatalog(libraryId:folder:team:)` →
   `CatalogResponse`. Nur in der erzwungenen Ansicht: auf Kommissar-Ebene (Ordner mit `/`)
   Zähler „owned/total Folgen vorhanden" im Kopf und `CatalogMissingCard`-Platzhalter
