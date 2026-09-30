@@ -166,6 +166,47 @@ Tab-Leiste"-Anforderung sofort so ansetzen.
   `EXPANDED_CODE_SIGN_IDENTITY="-"`, sonst scheitert die Skriptphase „Codesign eingebettetes
   ffmpeg/ffprobe" mit „no identity found". iOS/tvOS gegen `generic/platform=… Simulator`.
 
+## Ordner-Sammlungen, Kommissar-Zeile, Ermittler-Katalog, Dateigröße (Server 1.4.57–1.4.68)
+
+Stand 2026-09-30, nur Build + Code-Review (nicht interaktiv getestet).
+
+- **Ordner-Sammlungen:** `GET /api/collections` liefert zusätzlich `kind: "folder"` (negative
+  `id`, `libraryId`, `folder`, `drilldown`, `movieCount` = Dateien). `Collection` hat dafür
+  optionale Felder + `isFolderCollection`. `CollectionsView` lädt parallel `/api/libraries`
+  und pusht `ForcedFolderDestination(library, folder, showsFolderTiles: true)`; Zähler
+  „N Dateien", Cover immer `/api/poster/collection/{id}`. Ohne passende Bibliothek →
+  Fallback auf die alte Film-Liste (`CollectionDetailView`).
+- **`ForcedFolderDestination`** (ItemGridView.swift) statt `FolderDestination`: SwiftUI nutzt
+  bei mehrfach registrierten Zielen desselben Typs nur das der Wurzel nächste — das
+  TV-Root-Grid hätte sonst eine `ShowSeasonsView` gebaut. Der Wert trägt
+  `showsFolderTiles`, jeder Handler baut zustandslos
+  `ItemGridView(…, forcedFolderView: true)`. Erzwungene Ansicht = Unterordner-Kacheln auch in
+  Film-Bibliotheken, Unterordner bleiben erzwungen (`tile.drilldown` → Kacheln, sonst flach).
+- **Kommissar-Zeile:** `Item.episodeGroup`/`episodeGroupFolder` (GoldfishCore, gleiche Regex
+  wie `cards.js`). `ItemCard.freeTitleSection` zeigt sie unter SxxExx. iOS/macOS im
+  Bibliotheks-Raster: `ItemCard(episodeGroupLibrary:)` → die Karte baut den Item-Link selbst
+  nur ums Poster, die Zeile ist ein zweiter `NavigationLink` (ItemGridView darf die Karte
+  dann NICHT außen umschließen). tvOS: Kontextmenü „Alle Folgen: <Name>"
+  (`CardContextMenu`, ersetzt `NextUpHideMenu`) → `tvGroupTarget` →
+  `navigationDestination(isPresented:)`. Nicht verlinkt, wenn der Ordner schon offen ist.
+  Kommissar-Ansicht: Default-Sortierung Erstausstrahlung aufsteigend (wenn nichts gespeichert).
+  Startseite (einheitliche Kacheln) und `EpisodeTile` (Staffel-Ansicht, kein `relPath`)
+  zeigen die Zeile bewusst nicht.
+- **Ermittler-Katalog:** `GoldfishClient.fetchCatalog(libraryId:folder:team:)` →
+  `CatalogResponse`. Nur in der erzwungenen Ansicht: auf Kommissar-Ebene (Ordner mit `/`)
+  Zähler „owned/total Folgen vorhanden" im Kopf und `CatalogMissingCard`-Platzhalter
+  (`GridEntry.missing`), bei Sortierung Erstausstrahlung aufsteigend vor die erste Folge mit
+  späterem `metadata.releaseDate` einsortiert, sonst hinten; ausgeblendet bei aktiver
+  Suche/Filter/Buchstabe. Serien-Wurzel: Abschnitt „Ermittler ohne eigenen Ordner"
+  (`CatalogTeamCard` → `CatalogTeamDestination` → `CatalogTeamView`, nur Platzhalter wie im
+  Browser). Platzhalter sind auf tvOS fokussierbar (Info-Alert), sonst scrollt die
+  Fokus-Engine nicht bis zu Platzhaltern am Rasterende. Views in `CatalogViews.swift`.
+- **Dateigröße:** Kacheln zeigen die Größe jetzt (Film: „Jahr · Größe", Privat: „Datum ·
+  Größe", Folge: eigene Zeile), abschaltbar per drei lokalen Schaltern unter
+  Einstellungen → Darstellung (`DisplaySettings.showSize{Movies,Tv,Private}Key`, Default an).
+  Bibliotheksart: `ItemCard(libraryKind:)` aus `ItemGridView`, sonst aus dem Item abgeleitet
+  (Folge → Serie, Privat-Stil → Privat, sonst Film).
+
 ## Was die App NICHT hat
 
 - Kein Windows/Linux-Target (nur macOS + iOS + tvOS).

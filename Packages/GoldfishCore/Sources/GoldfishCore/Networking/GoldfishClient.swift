@@ -670,6 +670,15 @@ public final class GoldfishClient: ObservableObject {
         assetURL("/api/poster/album/\(albumId)")
     }
 
+    /// Ermittler-Katalog eines Serien-Ordners (Server ab 1.4.65, bisher nur Tatort):
+    /// `folder=<Serie>` → Team-Übersicht (`groups`), `folder=<Serie>/<Kommissar>` → fehlende
+    /// Folgen dieses Ordners, `folder=<Serie>&team=<Team>` → fehlende Folgen genau dieses Teams.
+    public func fetchCatalog(libraryId: Int64, folder: String, team: String? = nil) async throws -> CatalogResponse {
+        var query = [URLQueryItem(name: "folder", value: folder)]
+        if let team, !team.isEmpty { query.append(URLQueryItem(name: "team", value: team)) }
+        return try await perform("/api/libraries/\(libraryId)/catalog", query: query)
+    }
+
     public func fetchFolders(libraryId: Int64, parent: String? = nil) async throws -> [FolderTile] {
         var query: [URLQueryItem] = []
         if let parent, !parent.isEmpty { query.append(URLQueryItem(name: "parent", value: parent)) }

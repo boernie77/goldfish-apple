@@ -11,11 +11,36 @@ struct FolderDestination: Hashable {
     let folder: String?
 }
 
+/// Erzwungene Ordner-Ansicht (Server-Browser ab 1.4.57/1.4.63): Ordner-Sammlungen und der
+/// Klick auf die Kommissar-Zeile einer Folge öffnen den Ordner IMMER als Ordner-Ansicht —
+/// nie Staffel-Ansicht, auch in Film-Bibliotheken mit Unterordner-Kacheln. Eigener Typ statt
+/// `FolderDestination`, weil SwiftUI bei mehrfach registrierten Zielen desselben Typs nur das
+/// der Wurzel nächste nutzt — das Bibliotheks-Root-Grid würde daraus sonst eine
+/// `ShowSeasonsView` machen. Trägt `showsFolderTiles` im Wert, damit jeder Handler zustandslos
+/// dasselbe baut.
+struct ForcedFolderDestination: Hashable {
+    let library: Library
+    let folder: String
+    let showsFolderTiles: Bool
+}
+
+/// Team ohne eigenen Ordner aus dem Ermittler-Katalog (Server ab 1.4.65) — nur Platzhalter
+/// der fehlenden Folgen, siehe `CatalogTeamView`.
+struct CatalogTeamDestination: Hashable {
+    let library: Library
+    let folder: String
+    let team: String
+}
+
 struct ItemGridView: View {
     let library: Library
     var folder: String? = nil
     /// Root level and drilldown-enabled folders show subfolder tiles; everything else is flat.
     var showsFolderTiles: Bool = true
+    /// Ordner-Sammlung bzw. Kommissar-Klick (siehe `ForcedFolderDestination`): Unterordner-
+    /// Kacheln auch in Film-Bibliotheken, Unterordner bleiben in der erzwungenen Ansicht, und
+    /// der Ermittler-Katalog (fehlende Folgen) wird eingeblendet.
+    var forcedFolderView: Bool = false
 
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var shuffleScope: ShuffleScope
@@ -43,6 +68,13 @@ struct ItemGridView: View {
     // (scoped exactly like the items search: same libraryId/folder) supplies the actor
     // row shown above the grid, mirroring the browser's `appendSearchResultCards`.
     @State private var searchPeople: [SearchPerson] = []
+    /// Ermittler-Katalog (Server ab 1.4.65), nur in der erzwungenen Ordner-Ansicht geladen.
+    @State private var catalog: CatalogResponse?
+    #if os(tvOS)
+    /// tvOS: „Alle Folgen: <Kommissar>" aus dem Kontextmenü einer Kachel — dort gibt es kein
+    /// zweites Tap-Ziel auf der Kachel, deshalb programmatischer Push.
+    @State private var tvGroupTarget: ForcedFolderDestination?
+    #endif
 
     @State private var sort: ItemSort
     @State private var ascending: Bool
@@ -91,10 +123,11 @@ struct ItemGridView: View {
     /// immer "Veröffentlicht aufsteigend" (älteste zuerst) als Standard zeigen, nicht Titel —
     /// mirrors the Browser's `restoreSortForContext()` (CLAUDE.md "UI": "Default-Sort in
     /// privaten Libs ist 'Veröffentlicht' aufsteigend").
-    init(library: Library, folder: String? = nil, showsFolderTiles: Bool = true) {
+    init(library: Library, folder: String? = nil, showsFolderTiles: Bool = true, forcedFolderView: Bool = false) {
         self.library = library
         self.folder = folder
         self.showsFolderTiles = showsFolderTiles
+        self.forcedFolderView = forcedFolderView
         // User-Anfrage 2026-08-19: "eine Bibliothek soll sich die letzte Sortierung merken" —
         // vorher immer der harte kind-abhängige Default, jede Navigation zurück in eine
         // Bibliothek/einen Ordner setzte die Sortierung zurück. Gleiche Konvention wie der
@@ -103,6 +136,11 @@ struct ItemGridView: View {
         if let savedRaw = UserDefaults.standard.string(forKey: key), let saved = ItemSort(rawValue: savedRaw) {
             _sort = State(initialValue: saved)
             _ascending = State(initialValue: UserDefaults.standard.object(forKey: key + ".asc") as? Bool ?? saved.defaultAscending)
+        } else if forcedFolderView, !showsFolderTiles {
+            // Kommissar-Ansicht (Browser ab 1.4.64): standardmäßig nach Erstausstrahlung,
+            // älteste zuerst — dann sortieren sich auch die „Fehlt"-Platzhalter ein.
+            _sort = State(initialValue: .released)
+            _ascending = State(initialValue: true)
         } else {
             _sort = State(initialValue: library.isPrivate ? .released : .title)
             _ascending = State(initialValue: true)
@@ -128,6 +166,61 @@ struct ItemGridView: View {
     }
     private var displayedItems: [Item] {
         items.filter { AlphabetSidebar.matches($0.displayTitle, alphaFilter) }
+    }
+
+    // MARK: Ermittler-Katalog
+
+    /// Kommissar-Ebene (`<Serie>/<Kommissar>`) innerhalb der erzwungenen Ordner-Ansicht.
+    private var isCatalogTeamLevel: Bool { forcedFolderView && (folder?.contains("/") ?? false) }
+
+    private var catalogCountLabel: String? {
+        guard isCatalogTeamLevel, let catalog, catalog.available,
+              let total = catalog.total, total > 0 else { return nil }
+        return "\(catalog.owned ?? 0)/\(total) Folgen vorhanden"
+    }
+
+    /// Fehlende Folgen — nur ohne aktive Suche/Filter, sonst wären die Platzhalter irreführend.
+    private var catalogMissing: [CatalogEntry] {
+        guard isCatalogTeamLevel, let catalog, catalog.available,
+              !isFilterActive, alphaFilter == nil else { return [] }
+        return (catalog.missing ?? []).sorted { $0.date < $1.date }
+    }
+
+    /// Serien-Wurzel einer Ordner-Sammlung: Teams ohne eigenen Unterordner.
+    private var catalogLooseGroups: [CatalogGroup] {
+        guard forcedFolderView, !isCatalogTeamLevel, let catalog, catalog.available,
+              !isFilterActive else { return [] }
+        return (catalog.groups ?? []).filter { ($0.folder ?? "").isEmpty }
+    }
+
+    /// Items plus „Fehlt"-Platzhalter. Bei Sortierung Erstausstrahlung aufsteigend
+    /// chronologisch einsortiert (vor die erste vorhandene Folge mit späterem Datum), sonst
+    /// hinten angehängt — wie `applyCatalogGaps` im Browser.
+    private var displayedEntries: [GridEntry] {
+        var entries = displayedItems.map(GridEntry.item)
+        let missing = catalogMissing
+        guard !missing.isEmpty else { return entries }
+        let chrono = sort == .released && ascending
+        for entry in missing {
+            let index = chrono ? entries.firstIndex { candidate in
+                guard case .item(let item) = candidate,
+                      let date = item.metadata?.releaseDate.map({ String($0.prefix(10)) }),
+                      !date.isEmpty else { return false }
+                return date > entry.date
+            } : nil
+            if let index {
+                entries.insert(.missing(entry), at: index)
+            } else {
+                entries.append(.missing(entry))
+            }
+        }
+        return entries
+    }
+
+    /// Kommissar-Link einer Kachel — nur wenn er woanders hinführt als die offene Ansicht.
+    private func groupFolder(for item: Item) -> String? {
+        guard let groupFolder = item.episodeGroupFolder, groupFolder != folder else { return nil }
+        return groupFolder
     }
 
     // Fixed (min == max) column width instead of a fully adaptive grid: adaptive grids
@@ -212,14 +305,23 @@ struct ItemGridView: View {
             ForEach(displayedFolders) { tile in
                 // Der NavigationLink steckt jetzt INNERHALB von FolderCard/ItemCard
                 // (nur ums Poster) — siehe Kommentar dort. Kein äußerer Link mehr nötig.
-                FolderCard(tile: tile, library: library)
+                FolderCard(tile: tile, library: library, forcedFolderView: forcedFolderView)
                     .frame(width: cardWidth)
                     .focused($focusedCardID, equals: AnyHashable(tile.id))
             }
-            ForEach(displayedItems) { item in
-                ItemCard(item: item, width: cardWidth, queue: items)
-                    .frame(width: cardWidth)
-                    .focused($focusedCardID, equals: AnyHashable(item.id))
+            ForEach(displayedEntries) { entry in
+                switch entry {
+                case .item(let item):
+                    ItemCard(item: item, width: cardWidth, queue: items, libraryKind: library.kind,
+                             onOpenEpisodeGroup: groupFolder(for: item).map { groupFolder in
+                                 { tvGroupTarget = ForcedFolderDestination(library: library, folder: groupFolder, showsFolderTiles: false) }
+                             })
+                        .frame(width: cardWidth)
+                        .focused($focusedCardID, equals: AnyHashable(item.id))
+                case .missing(let missing):
+                    CatalogMissingCard(entry: missing, width: cardWidth)
+                        .frame(width: cardWidth)
+                }
             }
         }
         // User-Anfrage 2026-09-05: "von der Buchstabenleiste von jedem Buchstaben nach
@@ -234,24 +336,84 @@ struct ItemGridView: View {
         #else
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(displayedFolders) { tile in
-                NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
-                    FolderCard(tile: tile)
-                        .frame(width: cardWidth)
-                }
-                .cardButtonStyleCompat()
-                .focusableCompat(false)
+                folderTileLink(tile)
             }
-            ForEach(displayedItems) { item in
-                NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
-                    ItemCard(item: item)
+            ForEach(displayedEntries) { entry in
+                switch entry {
+                case .item(let item):
+                    if groupFolder(for: item) != nil {
+                        // Kommissar-Zeile als zweites Tap-Ziel: die Karte baut ihren Link
+                        // selbst (nur ums Poster), ein äußerer Link würde den inneren schlucken.
+                        ItemCard(item: item, queue: items, libraryKind: library.kind, episodeGroupLibrary: library)
+                            .frame(width: cardWidth)
+                    } else {
+                        NavigationLink(value: ItemNavTarget(item: item, queue: items)) {
+                            ItemCard(item: item, libraryKind: library.kind)
+                                .frame(width: cardWidth)
+                        }
+                        .cardButtonStyleCompat()
+                        .focusableCompat(false)
+                    }
+                case .missing(let missing):
+                    CatalogMissingCard(entry: missing, width: cardWidth)
                         .frame(width: cardWidth)
                 }
-                .cardButtonStyleCompat()
-                .focusableCompat(false)
             }
         }
         #endif
     }
+
+    #if !os(tvOS)
+    @ViewBuilder
+    private func folderTileLink(_ tile: FolderTile) -> some View {
+        if forcedFolderView {
+            NavigationLink(value: ForcedFolderDestination(library: library, folder: tile.name, showsFolderTiles: tile.drilldown)) {
+                FolderCard(tile: tile)
+                    .frame(width: cardWidth)
+            }
+            .cardButtonStyleCompat()
+            .focusableCompat(false)
+        } else {
+            NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
+                FolderCard(tile: tile)
+                    .frame(width: cardWidth)
+            }
+            .cardButtonStyleCompat()
+            .focusableCompat(false)
+        }
+    }
+    #endif
+
+    /// Abschnitt „Ermittler ohne eigenen Ordner" unter den Ordner-Kacheln der Serien-Wurzel
+    /// einer Ordner-Sammlung.
+    @ViewBuilder
+    private var catalogLooseGroupsSection: some View {
+        let groups = catalogLooseGroups
+        if !groups.isEmpty, let folder {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("🕵 Ermittler ohne eigenen Ordner (\(groups.count))")
+                    .font(.title3.bold())
+                    .padding(.horizontal)
+                LazyVGrid(columns: columns, spacing: gridSpacing) {
+                    ForEach(groups) { group in
+                        CatalogTeamCard(group: group, library: library, folder: folder, width: cardWidth)
+                            .frame(width: cardWidth)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.trailing, 60)
+                #if os(tvOS)
+                .focusSection()
+                #endif
+            }
+        }
+    }
+
+    #if os(tvOS)
+    private let gridSpacing: CGFloat = 48
+    #else
+    private let gridSpacing: CGFloat = 16
+    #endif
 
     var body: some View {
         Group {
@@ -270,6 +432,11 @@ struct ItemGridView: View {
                             Text(showTotalSize && !items.isEmpty ? "(\(folders.count + items.count) · \(totalSizeLabel))" : "(\(folders.count + items.count))")
                                 .font(.title3)
                                 .foregroundStyle(.secondary)
+                            if let catalogCountLabel {
+                                Text("· \(catalogCountLabel)")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
                             #if os(tvOS)
                             Spacer()
                             tvActionRow
@@ -308,6 +475,8 @@ struct ItemGridView: View {
                             #if os(tvOS)
                             .padding(.top, 24)
                             #endif
+
+                        catalogLooseGroupsSection
 
                         // FTS5-Umstellung des Servers: eine normale Suche matcht nur noch
                         // ganze Wörter. Dieser Button erscheint nur, wenn der Server per
@@ -374,6 +543,19 @@ struct ItemGridView: View {
         .navigationDestination(for: FolderDestination.self) { dest in
             destinationView(for: dest)
         }
+        .navigationDestination(for: ForcedFolderDestination.self) { dest in
+            ItemGridView(library: dest.library, folder: dest.folder, showsFolderTiles: dest.showsFolderTiles, forcedFolderView: true)
+        }
+        .navigationDestination(for: CatalogTeamDestination.self) { dest in
+            CatalogTeamView(library: dest.library, folder: dest.folder, team: dest.team)
+        }
+        #if os(tvOS)
+        .navigationDestination(isPresented: Binding(get: { tvGroupTarget != nil }, set: { if !$0 { tvGroupTarget = nil } })) {
+            if let target = tvGroupTarget {
+                ItemGridView(library: target.library, folder: target.folder, showsFolderTiles: false, forcedFolderView: true)
+            }
+        }
+        #endif
         // Bug (User-Report 2026-09-20): Schauspieler-Kacheln in der Bibliotheks-
         // suche (SearchPersonRowView oben) ließen sich antippen, ohne dass etwas
         // passierte — `PersonRef` war hier nie als Navigationsziel registriert
@@ -625,7 +807,13 @@ struct ItemGridView: View {
     private func destinationView(for dest: FolderDestination) -> some View {
         // Top-level folder in a TV library = a show — hand off to the season browser
         // instead of a flat/drilldown item grid (mirrors the web app's default behavior).
-        if dest.library.isTV, folder == nil, let name = dest.folder {
+        if forcedFolderView, let name = dest.folder {
+            // Sollte nicht vorkommen (erzwungene Ansicht pusht `ForcedFolderDestination`),
+            // aber falls doch: nie Staffel-Ansicht.
+            ItemGridView(library: dest.library, folder: name,
+                         showsFolderTiles: folders.first(where: { $0.name == name })?.drilldown ?? false,
+                         forcedFolderView: true)
+        } else if dest.library.isTV, folder == nil, let name = dest.folder {
             ShowSeasonsView(library: dest.library, folder: name)
         } else if let tile = folders.first(where: { $0.name == dest.folder }), tile.drilldown {
             ItemGridView(library: dest.library, folder: dest.folder, showsFolderTiles: true)
@@ -637,7 +825,7 @@ struct ItemGridView: View {
     // Movies libraries never show folder tiles at all in the web app — every movie
     // lives in its own folder, so browsing is always flat (`flatView` in grid.js is
     // forced true for `kind==="movies"`). TV/private libraries do use folder tiles.
-    private var effectivelyShowsFolderTiles: Bool { showsFolderTiles && !library.isMovies }
+    private var effectivelyShowsFolderTiles: Bool { showsFolderTiles && (!library.isMovies || forcedFolderView) }
 
     private func load() async {
         isLoading = items.isEmpty && folders.isEmpty
@@ -734,6 +922,11 @@ struct ItemGridView: View {
             items = groupVariants(fetchedItems)
             folders = sortFolderTiles(try await foldersTask)
             searchPeople = await peopleTask
+            // Ermittler-Katalog: best effort, ein Fehler/älterer Server blendet nur die
+            // Platzhalter aus.
+            if forcedFolderView, let folder, !folder.isEmpty {
+                catalog = try? await client.fetchCatalog(libraryId: library.id, folder: folder)
+            }
             errorMessage = nil
             // Button "N weitere Treffer" macht nur bei einer aktiven Textsuche Sinn — bei
             // reinem Ordner-Browsing/Filtern ignorieren wir den Header (wäre ohnehin 0, der
@@ -760,7 +953,7 @@ struct ItemGridView: View {
             // Root spans the whole library, recursively; a subfolder stays scoped to
             // that folder (also recursive) — matches grid.js's search-vs-flatView branch.
             return folder
-        } else if library.isMovies {
+        } else if library.isMovies, !forcedFolderView {
             return nil
         } else {
             return folder ?? "/"
@@ -854,6 +1047,19 @@ struct ItemGridView: View {
     }
 }
 
+/// Eintrag im Item-Raster: vorhandenes Item oder „Fehlt"-Platzhalter aus dem Katalog.
+private enum GridEntry: Identifiable {
+    case item(Item)
+    case missing(CatalogEntry)
+
+    var id: String {
+        switch self {
+        case .item(let item): return "i\(item.id)"
+        case .missing(let entry): return "m\(entry.id)"
+        }
+    }
+}
+
 struct FolderCard: View {
     let tile: FolderTile
     @EnvironmentObject var client: GoldfishClient
@@ -862,6 +1068,8 @@ struct FolderCard: View {
     // tvOS-Fokushintergrund, der sich sonst über Poster UND Titeltext erstreckt.
     @Environment(\.isFocused) private var isFocused
     let library: Library
+    /// Erzwungene Ordner-Ansicht: Link auf `ForcedFolderDestination` statt `FolderDestination`.
+    var forcedFolderView: Bool = false
     #endif
 
     var body: some View {
@@ -875,8 +1083,16 @@ struct FolderCard: View {
         // Titeltext, damit der überschießende Rahmen selbst wenn er weiterhin übergreift,
         // den Text nicht mehr erreicht.
         VStack(alignment: .leading, spacing: 24) {
-            NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
-                posterSection
+            Group {
+                if forcedFolderView {
+                    NavigationLink(value: ForcedFolderDestination(library: library, folder: tile.name, showsFolderTiles: tile.drilldown)) {
+                        posterSection
+                    }
+                } else {
+                    NavigationLink(value: FolderDestination(library: library, folder: tile.name)) {
+                        posterSection
+                    }
+                }
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
@@ -1033,10 +1249,23 @@ struct ItemCard: View {
     /// entfernen" (iOS/macOS Langdruck/Rechtsklick, tvOS Langdruck auf die fokussierte
     /// Kachel). `nil` = kein Kontextmenü.
     var onHideNextUp: (() -> Void)? = nil
+    /// Bibliotheksart für die Dateigrößen-Schalter (Einstellungen → Darstellung). `nil` =
+    /// aus dem Item abgeleitet (Folge → Serie, Privat-Stil → Privat, sonst Film).
+    var libraryKind: String? = nil
+    /// iOS/macOS: Kommissar-Zeile (`Item.episodeGroup`) als eigener Link auf
+    /// `<Serie>/<Kommissar>` — nur `ItemGridView` setzt das. Dann baut die Karte den Link
+    /// zum Item selbst (nur ums Poster), der Aufrufer darf sie NICHT außen umschließen.
+    var episodeGroupLibrary: Library? = nil
+    /// tvOS: Kontextmenü-Eintrag „Alle Folgen: <Kommissar>" (Langdruck auf die Kachel).
+    var onOpenEpisodeGroup: (() -> Void)? = nil
+    @AppStorage(DisplaySettings.showSizeMoviesKey) private var showSizeMovies = true
+    @AppStorage(DisplaySettings.showSizeTvKey) private var showSizeTv = true
+    @AppStorage(DisplaySettings.showSizePrivateKey) private var showSizePrivate = true
 
     init(item: Item, width: CGFloat = 150, queue: [Item] = [], homeFolderLibrary: Library? = nil,
          preferShowPoster: Bool = false, uniformPosterFrame: Bool = false, uniformSubtitleLines: Int = 1,
-         onHideNextUp: (() -> Void)? = nil) {
+         onHideNextUp: (() -> Void)? = nil, libraryKind: String? = nil, episodeGroupLibrary: Library? = nil,
+         onOpenEpisodeGroup: (() -> Void)? = nil) {
         self.item = item
         self.width = width
         self.queue = queue
@@ -1045,7 +1274,28 @@ struct ItemCard: View {
         self.uniformPosterFrame = uniformPosterFrame
         self.uniformSubtitleLines = uniformSubtitleLines
         self.onHideNextUp = onHideNextUp
+        self.libraryKind = libraryKind
+        self.episodeGroupLibrary = episodeGroupLibrary
+        self.onOpenEpisodeGroup = onOpenEpisodeGroup
         _favorite = State(initialValue: item.favorite)
+    }
+
+    /// Kommissar-Zeile ist auf iOS/macOS klickbar → Link nur ums Poster (siehe oben).
+    private var linksEpisodeGroup: Bool {
+        episodeGroupLibrary != nil && item.episodeGroupFolder != nil
+    }
+
+    /// Dateigröße auf der Kachel je Bibliotheksart ein-/ausblendbar (Browser ab 1.4.62).
+    private var sizeLabelIfShown: String? {
+        let kind = libraryKind ?? (item.isEpisode ? "tv" : item.isPrivateStyle ? "private" : "movies")
+        let enabled: Bool
+        switch kind {
+        case "movies": enabled = showSizeMovies
+        case "tv": enabled = showSizeTv
+        case "private": enabled = showSizePrivate
+        default: enabled = true
+        }
+        return enabled ? item.sizeLabel : nil
     }
 
     var body: some View {
@@ -1061,14 +1311,16 @@ struct ItemCard: View {
             .buttonBorderShape(.roundedRectangle(radius: 8))
             // tvOS: `.contextMenu` direkt am fokussierbaren Link — Langdruck auf der
             // fokussierten Kachel öffnet es (kein `Menu` in Toolbars, siehe AGENTS.md).
-            .modifier(NextUpHideMenu(onHide: onHideNextUp))
+            .modifier(CardContextMenu(onHideNextUp: onHideNextUp,
+                                      episodeGroup: item.episodeGroup,
+                                      onOpenEpisodeGroup: onOpenEpisodeGroup))
 
             titleSection
         }
         .contentShape(Rectangle())
         #elseif os(macOS)
         VStack(alignment: .leading, spacing: 4) {
-            if homeFolderLibrary != nil {
+            if homeFolderLibrary != nil || linksEpisodeGroup {
                 // Home-Kontext (siehe `homeFolderLibrary`-Kommentar oben): Link nur ums
                 // Poster, damit der Serien-/Kanalname weiter unten in `titleSection`
                 // (`folderLinkableText`) ein unabhängiges zweites Tap-Ziel bleiben kann.
@@ -1085,14 +1337,22 @@ struct ItemCard: View {
             titleSection
         }
         .contentShape(Rectangle())
-        .modifier(NextUpHideMenu(onHide: onHideNextUp))
+        .modifier(CardContextMenu(onHideNextUp: onHideNextUp))
         #else
         VStack(alignment: .leading, spacing: 4) {
-            posterSection
+            if linksEpisodeGroup {
+                // Kommissar-Zeile als zweites Tap-Ziel → Link nur ums Poster.
+                NavigationLink(value: ItemNavTarget(item: item, queue: queue)) {
+                    posterSection
+                }
+                .buttonStyle(.plain)
+            } else {
+                posterSection
+            }
             titleSection
         }
         .contentShape(Rectangle())
-        .modifier(NextUpHideMenu(onHide: onHideNextUp))
+        .modifier(CardContextMenu(onHideNextUp: onHideNextUp))
         #endif
     }
 
@@ -1238,6 +1498,12 @@ struct ItemCard: View {
                 .font(.caption)
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
+                episodeGroupLine
+                if let size = sizeLabelIfShown {
+                    Text(size)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Text(item.displayTitle)
                     .font(.subheadline.weight(.medium))
@@ -1254,17 +1520,54 @@ struct ItemCard: View {
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
                     }
-                    if let releasedDateLabel = item.releasedDateLabel {
-                        Text(releasedDateLabel)
+                    if let line = joinedMeta(item.releasedDateLabel, sizeLabelIfShown) {
+                        Text(line)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                } else if let year = item.metadata?.year {
-                    Text(String(year))
+                } else if let line = joinedMeta(item.metadata?.year.map { String($0) }, sizeLabelIfShown) {
+                    Text(line)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+    }
+
+    private func joinedMeta(_ parts: String?...) -> String? {
+        let present = parts.compactMap { $0 }.filter { !$0.isEmpty }
+        return present.isEmpty ? nil : present.joined(separator: " · ")
+    }
+
+    /// Zwischenordner einer Serienfolge (Tatort: Kommissar, Browser ab 1.4.60) als eigene
+    /// Zeile. iOS/macOS mit `episodeGroupLibrary`: Link auf alle Folgen dieses Ordners
+    /// (Browser ab 1.4.63); tvOS: Kontextmenü (siehe `CardContextMenu`).
+    @ViewBuilder
+    private var episodeGroupLine: some View {
+        if let group = item.episodeGroup {
+            #if os(tvOS)
+            Text(group)
+                .font(.caption)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+            #else
+            if let library = episodeGroupLibrary, let groupFolder = item.episodeGroupFolder {
+                NavigationLink(value: ForcedFolderDestination(library: library, folder: groupFolder, showsFolderTiles: false)) {
+                    Label(group, systemImage: "person.2")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Alle Folgen: \(group)")
+            } else {
+                Text(group)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
+        }
     }
 
     /// Serien-/Kanalname klickbar → Serien-/Kanalübersicht (User-Wunsch 2026-09-13,
@@ -1344,19 +1647,31 @@ struct ItemCard: View {
     }
 }
 
-/// Kontextmenü „Aus „Als nächstes" entfernen" — nur angehängt, wenn ein Handler gesetzt
-/// ist (sonst bekäme jede Kachel ein leeres Kontextmenü bzw. auf iOS eine Lift-Vorschau
-/// ohne Einträge).
-private struct NextUpHideMenu: ViewModifier {
-    let onHide: (() -> Void)?
+/// Kontextmenü einer Kachel — „Aus „Als nächstes" entfernen" und (tvOS) „Alle Folgen:
+/// <Kommissar>". Nur angehängt, wenn mindestens ein Eintrag existiert (sonst bekäme jede
+/// Kachel ein leeres Kontextmenü bzw. auf iOS eine Lift-Vorschau ohne Einträge).
+private struct CardContextMenu: ViewModifier {
+    let onHideNextUp: (() -> Void)?
+    var episodeGroup: String? = nil
+    var onOpenEpisodeGroup: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
-        if let onHide {
+        let groupAction: (() -> Void)? = episodeGroup == nil ? nil : onOpenEpisodeGroup
+        if onHideNextUp != nil || groupAction != nil {
             content.contextMenu {
-                Button(role: .destructive) {
-                    onHide()
-                } label: {
-                    Label("Aus „Als nächstes“ entfernen", systemImage: "xmark")
+                if let groupAction, let episodeGroup {
+                    Button {
+                        groupAction()
+                    } label: {
+                        Label("Alle Folgen: \(episodeGroup)", systemImage: "person.2")
+                    }
+                }
+                if let onHideNextUp {
+                    Button(role: .destructive) {
+                        onHideNextUp()
+                    } label: {
+                        Label("Aus „Als nächstes“ entfernen", systemImage: "xmark")
+                    }
                 }
             }
         } else {

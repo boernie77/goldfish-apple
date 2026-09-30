@@ -20,6 +20,11 @@ import UIKit
 /// nur, dass es abschaltbar sein soll, nicht dass es erst manuell angeschaltet werden muss.
 public enum DisplaySettings {
     public static let showTotalSizeKey = "goldfish.showTotalSize"
+    /// Dateigröße auf den Kacheln je Bibliotheksart (Browser ab 1.4.62, „Anzeige"), rein
+    /// lokal pro Gerät, Default an.
+    public static let showSizeMoviesKey = "goldfish.showSizeMovies"
+    public static let showSizeTvKey = "goldfish.showSizeTv"
+    public static let showSizePrivateKey = "goldfish.showSizePrivate"
 }
 
 public enum LocalPlaybackSettings {

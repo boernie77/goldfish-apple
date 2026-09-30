@@ -4,6 +4,9 @@ import GoldfishCore
 struct CollectionsView: View {
     @EnvironmentObject var client: GoldfishClient
     @State private var collections: [Collection] = []
+    /// Für Ordner-Sammlungen (Server ab 1.4.57): die Kachel öffnet `folder` in der Bibliothek
+    /// `libraryId` — dafür braucht `ItemGridView` das volle `Library`-Objekt.
+    @State private var libraries: [Library] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     // User-Anfrage 2026-08-19: "im Sammlungen und Playlist fehlt das Suchfeld" — beide Listen
@@ -49,12 +52,7 @@ struct CollectionsView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(filteredCollections) { collection in
-                            NavigationLink(value: collection) {
-                                CollectionCard(collection: collection)
-                                    .frame(width: cardWidth)
-                            }
-                            .buttonStyle(.plain)
-                            .focusableCompat(false)
+                            collectionLink(collection)
                         }
                     }
                     .padding()
@@ -86,6 +84,9 @@ struct CollectionsView: View {
         }
         .navigationDestination(for: Item.self) { item in
             ItemDetailView(item: item)
+        }
+        .navigationDestination(for: ForcedFolderDestination.self) { dest in
+            ItemGridView(library: dest.library, folder: dest.folder, showsFolderTiles: dest.showsFolderTiles, forcedFolderView: true)
         }
         #if os(iOS)
         .searchable(text: $search, prompt: "Suchen")
@@ -119,10 +120,35 @@ struct CollectionsView: View {
         .refreshable { await load() }
     }
 
+    /// Ordner-Sammlung → Ordner-Ansicht (Unterordner als Kacheln, nie Staffel-Ansicht), wie im
+    /// Browser. Ist die Bibliothek (noch) unbekannt, bleibt der alte Weg über die Film-Liste
+    /// (`/api/collections/{id}/items` liefert dann alle Dateien des Ordners).
+    @ViewBuilder
+    private func collectionLink(_ collection: Collection) -> some View {
+        if collection.isFolderCollection, let folder = collection.folder, !folder.isEmpty,
+           let library = libraries.first(where: { $0.id == collection.libraryId }) {
+            NavigationLink(value: ForcedFolderDestination(library: library, folder: folder, showsFolderTiles: true)) {
+                CollectionCard(collection: collection)
+                    .frame(width: cardWidth)
+            }
+            .buttonStyle(.plain)
+            .focusableCompat(false)
+        } else {
+            NavigationLink(value: collection) {
+                CollectionCard(collection: collection)
+                    .frame(width: cardWidth)
+            }
+            .buttonStyle(.plain)
+            .focusableCompat(false)
+        }
+    }
+
     private func load() async {
         isLoading = true
         do {
+            async let librariesTask = try? client.fetchLibraries()
             collections = try await client.fetchCollections()
+            libraries = await librariesTask ?? libraries
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -168,6 +194,9 @@ private struct CollectionCard: View {
     }
 
     private var countLabel: String {
+        if collection.isFolderCollection {
+            return "\(collection.movieCount) \(collection.movieCount == 1 ? "Datei" : "Dateien")"
+        }
         if let partCount = collection.partCount, partCount > 0 {
             return "\(collection.movieCount)/\(partCount) Filme"
         }
@@ -175,6 +204,11 @@ private struct CollectionCard: View {
     }
 
     private var posterURL: URL? {
+        // Ordner-Sammlung: der Server liefert das Cover auch für die negative ID
+        // (Poster des Ordners bzw. Vorschaubild daraus).
+        if collection.isFolderCollection {
+            return client.collectionPosterURL(id: collection.id)
+        }
         if let url = client.collectionPosterURL(id: collection.id), !collection.posterPath.isNilOrEmpty {
             return url
         }

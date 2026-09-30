@@ -294,6 +294,35 @@ public struct Item: Codable, Identifiable, Hashable {
         return segments.count > 1 ? String(segments[0]) : nil
     }
 
+    /// Zwischenordner einer Serienfolge (Server-Browser ab 1.4.60, Tatort: Kommissar) — das
+    /// 2. Segment von `relPath`, wenn der Pfad mindestens drei Segmente hat und dieses
+    /// Segment KEIN Staffel-/Specials-/Extras-Ordner ist. Gleiche Regex wie `cards.js`.
+    public var episodeGroup: String? {
+        guard isEpisode, let relPath, !relPath.isEmpty else { return nil }
+        let segments = relPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard segments.count >= 3 else { return nil }
+        let seg = String(segments[1]).trimmingCharacters(in: .whitespaces)
+        guard !seg.isEmpty else { return nil }
+        let pattern = #"^(staffel|season|serie|s)\s*\d+$|^specials?$|^extras?$"#
+        if seg.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+        return String(segments[1])
+    }
+
+    /// `<seg1>/<seg2>` — der Ordner, den ein Klick auf `episodeGroup` öffnet.
+    public var episodeGroupFolder: String? {
+        guard episodeGroup != nil, let relPath else { return nil }
+        let segments = relPath.split(separator: "/", omittingEmptySubsequences: false)
+        return "\(segments[0])/\(segments[1])"
+    }
+
+    /// Dateigröße für die Kachel („4.2 GB" / „850 MB"), nil ohne Größe.
+    public var sizeLabel: String? {
+        guard let sizeBytes, sizeBytes > 0 else { return nil }
+        let bytes = Double(sizeBytes)
+        if bytes >= 1_000_000_000 { return String(format: "%.1f GB", bytes / 1_000_000_000) }
+        return String(format: "%.0f MB", bytes / 1_000_000)
+    }
+
     /// `releasedAt`'s date portion, formatted for display — nil for Go's zero `time.Time`
     /// (serializes as "0001-01-01T00:00:00Z" when nothing was ever set) so an empty download
     /// tile doesn't show a bogus year-1 date.
@@ -326,6 +355,49 @@ public struct Item: Codable, Identifiable, Hashable {
         formatter.locale = Locale(identifier: "de_DE")
         return formatter.string(from: date)
     }
+}
+
+// MARK: - Ermittler-Katalog (Server ab 1.4.65)
+
+/// Eine Folge aus dem Katalog des Servers (`GET /api/libraries/{id}/catalog`), hier nur die
+/// FEHLENDEN (`missing`). `date` ist `YYYY-MM-DD` (Erstausstrahlung).
+public struct CatalogEntry: Decodable, Hashable, Identifiable {
+    public let nr: String
+    public let title: String
+    public let date: String
+    public let sender: String?
+    public let ermittler: [String]?
+
+    public var id: String { "\(nr)|\(date)|\(title)" }
+
+    /// `TT.MM.JJJJ` wie im Browser.
+    public var dateLabel: String? {
+        let parts = date.split(separator: "-")
+        guard parts.count == 3 else { return date.isEmpty ? nil : date }
+        return "\(parts[2]).\(parts[1]).\(parts[0])"
+    }
+}
+
+/// Ein Ermittler-Team aus der Übersicht (`?folder=<Serienordner>`). `folder` leer = das
+/// Team hat keinen eigenen Unterordner in der Bibliothek.
+public struct CatalogGroup: Decodable, Hashable, Identifiable {
+    public let team: String
+    public let folder: String?
+    public let total: Int
+    public let owned: Int
+
+    public var id: String { team }
+}
+
+/// Antwort von `GET /api/libraries/{id}/catalog`. `available == false` → nichts anzeigen.
+/// Übersicht liefert `groups`, Kommissar-/Team-Ansicht `teams/total/owned/missing`.
+public struct CatalogResponse: Decodable {
+    public let available: Bool
+    public let teams: [String]?
+    public let total: Int?
+    public let owned: Int?
+    public let missing: [CatalogEntry]?
+    public let groups: [CatalogGroup]?
 }
 
 // MARK: - MusicAlbum
@@ -584,6 +656,16 @@ public struct Collection: Decodable, Identifiable, Hashable {
     public let hiddenCount: Int?
     public let unreleasedCount: Int?
     public let fallbackMetaId: Int64?
+    /// Ordner-Sammlung (Server ab 1.4.57): `kind == "folder"`, negative `id`, dazu
+    /// `libraryId`/`folder`/`drilldown`. `movieCount` zählt dann Dateien. Solche Kacheln
+    /// öffnen den Ordner in der Ordner-Ansicht statt der Film-Liste (`CollectionsView`).
+    /// Alle optional — klassische TMDB-Sammlungen und ältere Server lassen die Felder weg.
+    public let kind: String?
+    public let libraryId: Int64?
+    public let folder: String?
+    public let drilldown: Bool?
+
+    public var isFolderCollection: Bool { kind == "folder" }
 
     /// Mirrors the web app's `complete = movieCount >= partCount - hiddenCount` — unreleased
     /// parts don't count as "missing" (CLAUDE.md "Sammlungs-Komplett-Badge").

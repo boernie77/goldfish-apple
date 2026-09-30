@@ -64,6 +64,11 @@ struct SettingsView: View {
     // account-gescoped Settings-Objekts, analog `localBufferSeconds` oben — gilt geräteweit
     // über alle Accounts, genau wie das Erscheinungsbild jeder anderen iOS/macOS-App.
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
+    // Dateigröße auf den Kacheln je Bibliotheksart (Browser ab 1.4.62, Menü „Anzeige") —
+    // rein lokal pro Gerät wie dort pro Browser, Default an.
+    @AppStorage(DisplaySettings.showSizeMoviesKey) private var showSizeMovies = true
+    @AppStorage(DisplaySettings.showSizeTvKey) private var showSizeTv = true
+    @AppStorage(DisplaySettings.showSizePrivateKey) private var showSizePrivate = true
     // User-Wunsch 2026-09-18: „Nächste Folge automatisch starten" + Übernahme der
     // zuletzt gewählten Auflösung. PRO KONTO gespeichert
     // (`AutoPlayNextEpisodeSetting`, Key enthält den Benutzernamen), Standard AUS —
@@ -229,6 +234,9 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    Toggle("Dateigröße auf Film-Kacheln", isOn: $showSizeMovies)
+                    Toggle("Dateigröße auf Serien-Kacheln", isOn: $showSizeTv)
+                    Toggle("Dateigröße auf Privat-Kacheln", isOn: $showSizePrivate)
                 }
 
                 // User-Wunsch 2026-09-18: „Nächste Folge automatisch starten" samt
