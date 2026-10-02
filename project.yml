@@ -249,8 +249,10 @@ targets:
         # Build 216 (2026-09-23): zweiter Fix desselben Tages, siehe GoldfishMac Build 246/1.6
         # (geteiltes GoldfishCore + gemeinsame SettingsView) — Zurück-Pfeil in den drei
         # Einstellungen-Unterseiten. SICHTBARE Version 1.11 -> 1.12, Build 215 -> 216.
-        CFBundleShortVersionString: "1.14"
-        CFBundleVersion: "219"
+        # Build 220 (2026-10-02): Serienansicht — Cover, Text und Besetzung untereinander,
+        # Staffeln füllen 2 Spalten. SICHTBARE Version 1.14 -> 1.15, Build 219 -> 220.
+        CFBundleShortVersionString: "1.15"
+        CFBundleVersion: "220"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
