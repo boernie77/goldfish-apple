@@ -61,6 +61,12 @@ struct ShowSeasonsView: View {
                                 // ("weißes Fenster"-Bug, siehe dortige Kommentare).
                                 SeasonCard(season: season)
                                     .frame(width: cardWidth)
+                                #elseif os(iOS)
+                                // iOS: 2 flexible Spalten — Kachel füllt ihre Spalte statt fixer 150pt.
+                                NavigationLink(value: season) {
+                                    SeasonCard(season: season)
+                                }
+                                .buttonStyle(.plain)
                                 #else
                                 NavigationLink(value: season) {
                                     SeasonCard(season: season)
@@ -133,35 +139,50 @@ private struct ShowHeader: View {
     let show: ShowOut
 
     var body: some View {
+        // User-Wunsch 2026-10-02: auf iOS stehen Cover, Text und Besetzung untereinander
+        // (wie in der Film-Infoseite `ItemDetailView`) statt Cover links/Text rechts —
+        // auf dem schmalen iPhone-Screen wurde der Text sonst in eine enge Spalte gequetscht.
+        #if os(iOS)
+        VStack(alignment: .leading, spacing: 16) {
+            PosterImage(url: tmdbImageURL(show.posterPath), placeholderSystemImage: "tv")
+                .frame(maxWidth: 260)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            details
+        }
+        #else
         HStack(alignment: .top, spacing: 16) {
             PosterImage(url: tmdbImageURL(show.posterPath), placeholderSystemImage: "tv")
                 .frame(width: 140)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+            details
+        }
+        #endif
+    }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(show.title ?? "")
-                    .font(.title2.bold())
-                HStack(spacing: 12) {
-                    if let status = show.status { Text(status) }
-                    if let seasons = show.numberOfSeasons { Text("\(seasons) Staffeln") }
-                    if let episodes = show.numberOfEpisodes { Text("\(episodes) Folgen") }
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                if let overview = show.overview, !overview.isEmpty {
-                    Text(overview).font(.body)
-                }
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(show.title ?? "")
+                .font(.title2.bold())
+            HStack(spacing: 12) {
+                if let status = show.status { Text(status) }
+                if let seasons = show.numberOfSeasons { Text("\(seasons) Staffeln") }
+                if let episodes = show.numberOfEpisodes { Text("\(episodes) Folgen") }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            if let overview = show.overview, !overview.isEmpty {
+                Text(overview).font(.body)
+            }
 
-                if let cast = show.cast, !cast.isEmpty {
-                    // User-Report 2026-09-08 ("zwischen Serienbeschreibung und
-                    // Besetzung bitte etwas Abstand") — die umgebende VStack-
-                    // Spacing (8pt) reichte nicht als optische Trennung zur
-                    // deutlich größeren tvOS-Besetzungsleiste darunter.
-                    ShowCastStrip(cast: cast)
-                        #if os(tvOS)
-                        .padding(.top, 16)
-                        #endif
-                }
+            if let cast = show.cast, !cast.isEmpty {
+                // User-Report 2026-09-08 ("zwischen Serienbeschreibung und
+                // Besetzung bitte etwas Abstand") — die umgebende VStack-
+                // Spacing (8pt) reichte nicht als optische Trennung zur
+                // deutlich größeren tvOS-Besetzungsleiste darunter.
+                ShowCastStrip(cast: cast)
+                    #if os(tvOS)
+                    .padding(.top, 16)
+                    #endif
             }
         }
     }
