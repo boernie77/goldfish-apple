@@ -220,3 +220,9 @@ Stand 2026-09-30, nur Build + Code-Review (nicht interaktiv getestet).
 Server ab 1.5.12: `/api/items?genreSearch=` (siehe Skill `goldfish-playback`), getrennt von `search=`.
 Apple: `GoldfishClient.fetchItems(genreSearch:)`, `Views/SearchGenreSectionView.swift`, eingebunden in `ItemGridView` und `SearchTabView` (Commit 9e840e1).
 Platzhalter des Suchfelds: „Titel, Schauspieler oder Genre…“ (Musik unverändert).
+
+## Standard-Streamingqualität (2026-10-16)
+- Einstellungen → „Streaming-Qualität" → „Standard-Qualität" (`@AppStorage(StreamingSettings.defaultProfileKey)`, lokal pro Gerät, leer = Automatisch). Profil-IDs spiegeln `playback.Profiles` im Server (`StreamingSettings.profiles`).
+- Infoseite: `pickedProfile` startet mit dem Standard (nur wenn der Server das Profil anbietet), pro Titel änderbar. Ausdrückliches „Automatisch" = Sentinel `StreamingSettings.autoProfile` (`"auto"`), damit der Standard nicht trotzdem greift.
+- Wirkt auf Wiedergabe (`PlayerView.effectivePlaybackProfile`, auch ohne Infoseite) und Download (`DownloadButtonRow` → `StreamingSettings.serverProfile`). Server: `orig` und „kein Profil" sind beim Download identisch.
+

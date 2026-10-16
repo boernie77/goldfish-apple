@@ -335,9 +335,9 @@ struct ItemDetailView: View {
                             AVPickerRow(icon: "🎞", label: "Qualität") {
                                 Menu {
                                     Button {
-                                        pickedProfile = nil
+                                        pickedProfile = StreamingSettings.autoProfile
                                     } label: {
-                                        if pickedProfile == nil {
+                                        if pickedProfile == nil || pickedProfile == StreamingSettings.autoProfile {
                                             Label("Automatisch", systemImage: "checkmark")
                                         } else {
                                             Text("Automatisch")
@@ -705,7 +705,11 @@ struct ItemDetailView: View {
             streams = full.streams ?? []
             availableProfiles = []
         }
-        pickedProfile = nil
+        // Vorwahl = Standard-Streamingqualität aus den Einstellungen (nur wenn der Server das
+        // Profil für diesen Titel anbietet); pro Titel weiter änderbar.
+        pickedProfile = StreamingSettings.defaultProfile.flatMap { id in
+            availableProfiles.contains(where: { $0.id == id }) ? id : nil
+        }
         pickedSubtitle = nil
         let audio = streams.filter { $0.type == "audio" }
         pickedAudioIndex = audio.first(where: { $0.isDefault == true })?.index ?? audio.first?.index
@@ -792,7 +796,7 @@ struct DownloadButtonRow: View {
     }
 
     private func startDownload() {
-        guard let url = client.downloadFileURL(itemId: item.id, profile: profile) else { return }
+        guard let url = client.downloadFileURL(itemId: item.id, profile: StreamingSettings.serverProfile(profile)) else { return }
         downloads.startDownload(item: item, from: url)
     }
 }

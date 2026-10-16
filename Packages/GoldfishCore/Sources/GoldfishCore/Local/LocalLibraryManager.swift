@@ -27,6 +27,45 @@ public enum DisplaySettings {
     public static let showSizePrivateKey = "goldfish.showSizePrivate"
 }
 
+/// Standard-Streamingqualität (User-Wunsch 2026-10-16): Vorwahl des Qualitäts-Profils für
+/// Wiedergabe UND Download. Die Infoseite startet mit diesem Wert und lässt ihn pro Titel
+/// ändern; Wiedergaben ohne Infoseite (Weiterschauen, Zufall, Kachel) nutzen ihn direkt.
+/// Rein lokal pro Gerät (`UserDefaults`). Leer = „Automatisch" (Server-Default, kein Cap).
+public enum StreamingSettings {
+    public static let defaultProfileKey = "goldfish.defaultStreamProfile"
+    /// Ausdrückliche Wahl „Automatisch" auf der Infoseite, auch wenn ein Standard gesetzt ist.
+    public static let autoProfile = "auto"
+
+    /// Spiegel von `playback.Profiles` im Server (internal/playback/ffmpeg.go). Die Infoseite
+    /// zeigt weiterhin die vom Server gelieferte Liste; diese hier füttert nur die Einstellungen.
+    public static let profiles: [(id: String, label: String)] = [
+        ("orig", "Original (Qualität)"),
+        ("1080p-hq", "1080p · 8 Mbps (hoch)"),
+        ("1080p", "1080p · 5 Mbps (mittel)"),
+        ("1080p-lq", "1080p · 3 Mbps (niedrig)"),
+        ("720p-hq", "720p · 4 Mbps (hoch)"),
+        ("720p", "720p · 2,5 Mbps (mittel)"),
+        ("720p-lq", "720p · 1,5 Mbps (niedrig)"),
+        ("480p-hq", "480p · 2 Mbps (hoch)"),
+        ("480p", "480p · 1 Mbps (mittel)"),
+        ("480p-lq", "480p · 600 kbps (niedrig)"),
+    ]
+
+    /// Gespeicherter Standard oder `nil` für „Automatisch".
+    public static var defaultProfile: String? {
+        let v = UserDefaults.standard.string(forKey: defaultProfileKey) ?? ""
+        return v.isEmpty || v == autoProfile ? nil : v
+    }
+
+    /// Wert, der tatsächlich an den Server geht: die ausdrückliche Wahl, sonst der Standard;
+    /// `auto` (und leer) bedeutet „kein Profil".
+    public static func serverProfile(_ chosen: String?) -> String? {
+        let v = chosen ?? defaultProfile
+        guard let v, !v.isEmpty, v != autoProfile else { return nil }
+        return v
+    }
+}
+
 public enum LocalPlaybackSettings {
     public static let bufferSecondsKey = "goldfish.localBufferSeconds"
     public static let defaultBufferSeconds: Double = 60

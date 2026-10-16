@@ -63,6 +63,7 @@ struct SettingsView: View {
     // User-Anfrage 2026-09-02: Dark-Mode-Wahlschalter im Menü. `@AppStorage` statt eines
     // account-gescoped Settings-Objekts, analog `localBufferSeconds` oben — gilt geräteweit
     // über alle Accounts, genau wie das Erscheinungsbild jeder anderen iOS/macOS-App.
+    @AppStorage(StreamingSettings.defaultProfileKey) private var defaultStreamProfile: String = ""
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     // Dateigröße auf den Kacheln je Bibliotheksart (Browser ab 1.4.62, Menü „Anzeige") —
     // rein lokal pro Gerät wie dort pro Browser, Default an.
@@ -296,6 +297,19 @@ struct SettingsView: View {
                     Button("OK", role: .cancel) { playbackSettingsError = nil }
                 } message: {
                     Text(playbackSettingsError ?? "")
+                }
+
+                Section {
+                    Picker("Standard-Qualität", selection: $defaultStreamProfile) {
+                        Text("Automatisch").tag("")
+                        ForEach(StreamingSettings.profiles, id: \.id) { profile in
+                            Text(profile.label).tag(profile.id)
+                        }
+                    }
+                } header: {
+                    Text("Streaming-Qualität")
+                } footer: {
+                    Text("Gilt für Wiedergabe und Downloads. Auf der Infoseite eines Titels ist sie vorgewählt und dort pro Titel änderbar. „Automatisch\u{201C} streamt das Original, wenn das Gerät es abspielen kann.")
                 }
 
                 Section("Downloads") {

@@ -1280,7 +1280,7 @@ struct PlayerView: View {
     /// Qualitäts-/Transcode-Profil für die aktuelle Wiedergabe: die Vorwahl aus dem
     /// Detail-Dialog, sonst das bei einer automatisch weitergestarteten Folge
     /// übernommene Profil der vorigen Folge (siehe `carriedOverProfile`).
-    private var effectivePlaybackProfile: String? { preferredProfile ?? carriedOverProfile }
+    private var effectivePlaybackProfile: String? { StreamingSettings.serverProfile(preferredProfile ?? carriedOverProfile) }
 
     /// Wird aus dem `ended`-Beobachter aufgerufen (siehe `attachObservers`).
     /// Liefert `true`, wenn das Folgen-Ende durch das Hinweis-Overlay behandelt
