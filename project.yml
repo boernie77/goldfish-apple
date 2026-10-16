@@ -251,8 +251,10 @@ targets:
         # Einstellungen-Unterseiten. SICHTBARE Version 1.11 -> 1.12, Build 215 -> 216.
         # Build 220 (2026-10-02): Serienansicht — Cover, Text und Besetzung untereinander,
         # Staffeln füllen 2 Spalten. SICHTBARE Version 1.14 -> 1.15, Build 219 -> 220.
-        CFBundleShortVersionString: "1.15"
-        CFBundleVersion: "220"
+        # Build 221 (2026-10-16): Genre-Sektion in der Suche (Server ab 1.5.12) und
+        # Standard-Streamingqualität in den Einstellungen. 1.15 -> 1.16, Build 220 -> 221.
+        CFBundleShortVersionString: "1.16"
+        CFBundleVersion: "221"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
