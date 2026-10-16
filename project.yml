@@ -85,8 +85,9 @@ targets:
         # nicht füllt; der Kopfbereich blieb deshalb stehen und verdeckte die native
         # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
         # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
-        CFBundleShortVersionString: "1.8"
-        CFBundleVersion: "250"
+        # Build 251 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.8 -> 1.9.
+        CFBundleShortVersionString: "1.9"
+        CFBundleVersion: "251"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -345,8 +346,9 @@ targets:
         # Gesehen-Haken auf der Kachel zieht sofort nach. SICHTBARE Version 1.7 -> 1.8.
         # Build 16 (2026-09-23): derselbe zweite Fix wie GoldfishMac Build 246/1.6.
         # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
-        CFBundleShortVersionString: "1.11"
-        CFBundleVersion: "19"
+        # Build 20 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.11 -> 1.12.
+        CFBundleShortVersionString: "1.12"
+        CFBundleVersion: "20"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
