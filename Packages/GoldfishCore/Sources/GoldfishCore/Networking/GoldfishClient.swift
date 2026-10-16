@@ -485,6 +485,7 @@ public final class GoldfishClient: ObservableObject {
         libraryId: Int64? = nil,
         folder: String? = nil,
         search: String? = nil,
+        genreSearch: String? = nil,
         sort: ItemSort? = nil,
         ascending: Bool? = nil,
         watched: WatchedFilter? = nil,
@@ -497,6 +498,9 @@ public final class GoldfishClient: ObservableObject {
         if let libraryId { query.append(URLQueryItem(name: "libraryId", value: String(libraryId))) }
         if let folder { query.append(URLQueryItem(name: "folder", value: folder)) }
         if let search, !search.isEmpty { query.append(URLQueryItem(name: "search", value: search)) }
+        // Server ab 1.5.12: Genre-Sektion der Suche (Wortanfang eines TMDB-Genres), getrennt
+        // von der Titelsuche — wird in der App unter eigener Überschrift angezeigt.
+        if let genreSearch, !genreSearch.isEmpty { query.append(URLQueryItem(name: "genreSearch", value: genreSearch)) }
         if let sort, sort != .title { query.append(URLQueryItem(name: "sort", value: sort.rawValue)) }
         if let ascending { query.append(URLQueryItem(name: "dir", value: ascending ? "asc" : "desc")) }
         if let watched, watched != .all { query.append(URLQueryItem(name: "watched", value: watched.rawValue)) }

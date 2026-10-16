@@ -68,6 +68,9 @@ struct ItemGridView: View {
     // (scoped exactly like the items search: same libraryId/folder) supplies the actor
     // row shown above the grid, mirroring the browser's `appendSearchResultCards`.
     @State private var searchPeople: [SearchPerson] = []
+    /// Genre-Sektion der Suche (Server ab 1.5.12): Treffer, deren TMDB-Genre mit dem
+    /// Suchbegriff beginnt, unter eigener Überschrift NACH den Titeltreffern.
+    @State private var genreItems: [Item] = []
     /// Ermittler-Katalog (Server ab 1.4.65), nur in der erzwungenen Ordner-Ansicht geladen.
     @State private var catalog: CatalogResponse?
     #if os(tvOS)
@@ -476,6 +479,11 @@ struct ItemGridView: View {
                             .padding(.top, 24)
                             #endif
 
+                        if !search.isEmpty {
+                            SearchGenreSectionView(items: genreItems, libraryKind: library.kind)
+                                .padding(.horizontal)
+                        }
+
                         catalogLooseGroupsSection
 
                         // FTS5-Umstellung des Servers: eine normale Suche matcht nur noch
@@ -850,6 +858,9 @@ struct ItemGridView: View {
                 // `/api/items` — kein Fuzzy-Header verfügbar, Button ausblenden.
                 fuzzyExtraCount = 0
                 searchPeople = (try? await client.searchPeople(query: q, libraryId: library.id, folder: folder)) ?? []
+                genreItems = q.count >= 3
+                    ? ((try? await client.fetchItems(libraryId: library.id, genreSearch: q, sort: .title, ascending: true))?.items ?? [])
+                    : []
                 return
             }
             // Server semantics (internal/store/sqlite.go ListItems): folder="" means
@@ -887,6 +898,9 @@ struct ItemGridView: View {
             async let peopleTask: [SearchPerson] = search.isEmpty
                 ? []
                 : ((try? await client.searchPeople(query: search, libraryId: library.id, folder: effectiveFolder)) ?? [])
+            async let genreTask: [Item] = search.trimmingCharacters(in: .whitespaces).count >= 3
+                ? ((try? await client.fetchItems(libraryId: library.id, folder: effectiveFolder, genreSearch: search, sort: .title, ascending: true))?.items ?? [])
+                : []
             let itemsResult = try await itemsTask
             var fetchedItems = itemsResult.items
             // 🔴 Bug (user report 2026-09-06, screenshots: opening a show tile showed
@@ -922,6 +936,8 @@ struct ItemGridView: View {
             items = groupVariants(fetchedItems)
             folders = sortFolderTiles(try await foldersTask)
             searchPeople = await peopleTask
+            let titleIds = Set(itemsResult.items.map(\.id))
+            genreItems = groupVariants(await genreTask.filter { !titleIds.contains($0.id) })
             // Ermittler-Katalog: best effort, ein Fehler/älterer Server blendet nur die
             // Platzhalter aus.
             if forcedFolderView, let folder, !folder.isEmpty {
@@ -1851,7 +1867,7 @@ struct TVSearchSheet: View {
                 Spacer()
                 Button("Fertig") { dismiss() }
             }
-            TextField("Titel oder Schauspieler…", text: $search)
+            TextField("Titel, Schauspieler oder Genre…", text: $search)
                 // tvOS-Fix 2026-09-04 (User-Report: Schrift beim ersten Öffnen winzig,
                 // erst beim erneuten Öffnen des Sheets korrekt groß): bekannte tvOS-
                 // `.sheet`-Eigenheit — die erste Präsentation übernimmt die Umgebungs-

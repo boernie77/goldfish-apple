@@ -54,13 +54,15 @@ struct SearchTabView: View {
     // "Aufgegliederte Trefferanzeige" (Server v1.4.22): actor row above the item grid,
     // fired in parallel with the item search, same scope (`lastLibraryContext`).
     @State private var searchPeople: [SearchPerson] = []
+    // Genre-Sektion (Server ab 1.5.12) unter den Titeltreffern.
+    @State private var genreItems: [Item] = []
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 16) {
-                        TextField("Titel oder Schauspieler…", text: $search)
+                        TextField("Titel, Schauspieler oder Genre…", text: $search)
                             .font(.system(size: 34))
                             .tvLoginFieldStyle()
                             .focused($searchFieldFocused)
@@ -113,6 +115,9 @@ struct SearchTabView: View {
                             .padding(.top, 8)
                             .focusSection()
 
+                            SearchGenreSectionView(items: genreItems)
+                                .padding(.horizontal)
+
                             // Bewusst ein normaler, fokussierbarer Button — kein `Menu`, das
                             // öffnet auf tvOS zuverlässig nichts (siehe CLAUDE.md).
                             if fuzzyExtraCount > 0 {
@@ -151,6 +156,7 @@ struct SearchTabView: View {
                 searchResults = []
                 fuzzyExtraCount = 0
                 searchPeople = []
+                genreItems = []
                 searchedLibraryId = newValue
             }
             // Direkt beim Öffnen des Tabs die Tastatur-Fokussierung anbieten — spart den
@@ -169,6 +175,7 @@ struct SearchTabView: View {
             searchResults = []
             fuzzyExtraCount = 0
             searchPeople = []
+            genreItems = []
             return
         }
         isSearching = true
@@ -179,6 +186,9 @@ struct SearchTabView: View {
             // direkt nach App-Start ohne vorherigen Bibliotheks-Besuch) global über alle
             // ACL-zugänglichen Bibliotheken, wie bisher.
             async let peopleTask = (try? await client.searchPeople(query: search, libraryId: lastLibraryContext.libraryId)) ?? []
+            async let genreTask: [Item] = search.trimmingCharacters(in: .whitespaces).count >= 3
+                ? ((try? await client.fetchItems(libraryId: lastLibraryContext.libraryId, genreSearch: search, sort: .title, ascending: true))?.items ?? [])
+                : []
             let result = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search)
             // Nur übernehmen, wenn währenddessen keine neuere Anfrage gestartet wurde —
             // verhindert, dass eine langsame, veraltete Antwort die aktuellen Treffer
@@ -187,6 +197,8 @@ struct SearchTabView: View {
             searchResults = result.items
             fuzzyExtraCount = result.fuzzyExtraCount
             searchPeople = await peopleTask
+            let titleIds = Set(result.items.map(\.id))
+            genreItems = await genreTask.filter { !titleIds.contains($0.id) }
         } catch {
             if GoldfishClient.isAuthError(error) {
                 client.markSessionInvalid()
@@ -196,6 +208,7 @@ struct SearchTabView: View {
             searchResults = []
             fuzzyExtraCount = 0
             searchPeople = []
+            genreItems = []
         }
     }
 
