@@ -214,3 +214,9 @@ Stand 2026-09-30, nur Build + Code-Review (nicht interaktiv getestet).
 
 - Kein Windows/Linux-Target (nur macOS + iOS + tvOS).
 
+
+
+## Suche: Genre-Sektion (2026-10-16)
+Server ab 1.5.12: `/api/items?genreSearch=` (siehe Skill `goldfish-playback`), getrennt von `search=`.
+Apple: `GoldfishClient.fetchItems(genreSearch:)`, `Views/SearchGenreSectionView.swift`, eingebunden in `ItemGridView` und `SearchTabView` (Commit 9e840e1).
+Platzhalter des Suchfelds: „Titel, Schauspieler oder Genre…“ (Musik unverändert).
