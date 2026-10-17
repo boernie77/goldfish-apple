@@ -147,8 +147,14 @@ struct SearchTabView: View {
             .navigationDestination(for: PersonRef.self) { ref in
                 PersonItemsView(personTmdbId: ref.tmdbId, personName: ref.name)
             }
-            .onChange(of: search) { _ in
-                Task { await loadSearchResults() }
+            // `.task(id:)` bricht die laufende Suche beim nächsten Zeichen ab; die 200 ms
+            // Wartezeit verhindert bis zu drei Serveranfragen pro Tastendruck.
+            .task(id: search) {
+                if !search.isEmpty {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    if Task.isCancelled { return }
+                }
+                await loadSearchResults()
             }
             .onChange(of: lastLibraryContext.libraryId) { newValue in
                 guard newValue != searchedLibraryId else { return }
@@ -204,6 +210,7 @@ struct SearchTabView: View {
                 client.markSessionInvalid()
                 return
             }
+            if Task.isCancelled { return }
             guard mySeq == searchRequestSeq else { return }
             searchResults = []
             fuzzyExtraCount = 0
