@@ -200,11 +200,12 @@ struct SearchTabView: View {
             // verhindert, dass eine langsame, veraltete Antwort die aktuellen Treffer
             // überschreibt (siehe Kommentar bei `searchRequestSeq`).
             guard mySeq == searchRequestSeq else { return }
-            searchResults = result.items
+            // Gleiche Datei-Varianten (gleiche metadataId) zu EINER Kachel wie im Web/ItemGridView.
+            searchResults = groupVariants(result.items)
             fuzzyExtraCount = result.fuzzyExtraCount
             searchPeople = await peopleTask
             let titleIds = Set(result.items.map(\.id))
-            genreItems = await genreTask.filter { !titleIds.contains($0.id) }
+            genreItems = groupVariants(await genreTask.filter { !titleIds.contains($0.id) })
         } catch {
             if GoldfishClient.isAuthError(error) {
                 client.markSessionInvalid()
@@ -231,7 +232,8 @@ struct SearchTabView: View {
             let result = try await client.fetchItems(libraryId: lastLibraryContext.libraryId, search: search, searchMode: "fuzzy")
             let existingIds = Set(searchResults.map(\.id))
             let newItems = result.items.filter { !existingIds.contains($0.id) }
-            searchResults.append(contentsOf: newItems)
+            // Neu gefundene Dateien können Varianten bereits angezeigter Treffer sein → neu gruppieren.
+            searchResults = groupVariants(searchResults + newItems)
             fuzzyExtraCount = 0
         } catch {
             if GoldfishClient.isAuthError(error) {

@@ -631,16 +631,25 @@ struct ItemDetailView: View {
     }
     #endif
 
+    /// Wie `variantLabel(v)` im Web (app.js): Dateiname vorne, dann Container · Auflösung ·
+    /// Größe · Bitrate · Codecs · gesehen. Der Dateiname ist nötig, weil z. B. „Teil 1/Teil 2"
+    /// oder „DVD 1/DVD 2" dieselbe metadataId (und oft gleiche Auflösung) haben.
     private func variantLabel(_ variant: Item) -> String {
         var parts: [String] = []
-        if let container = variant.container, !container.isEmpty { parts.append(container.uppercased()) }
+        parts.append(variant.container.flatMap { $0.isEmpty ? nil : $0.uppercased() } ?? "?")
         if !variant.resolutionLabel.isEmpty { parts.append(variant.resolutionLabel) }
         if let bytes = variant.sizeBytes, bytes > 0 {
             parts.append(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
         }
-        if let bitrate = variant.bitrateKbps, bitrate > 0 { parts.append("\(bitrate) kbps") }
-        let fileName = (variant.path.map { ($0 as NSString).lastPathComponent }) ?? variant.title
-        return parts.isEmpty ? fileName : "\(fileName) — \(parts.joined(separator: " · "))"
+        if let bitrate = variant.bitrateKbps, bitrate > 0 {
+            parts.append(String(format: "%.1f Mbps", Double(bitrate) / 1000))
+        }
+        if let v = variant.videoCodec, !v.isEmpty { parts.append(v.uppercased()) }
+        if let a = variant.audioCodec, !a.isEmpty { parts.append(a.uppercased()) }
+        if variant.watched { parts.append("✓ gesehen") }
+        let tech = parts.joined(separator: " · ")
+        let fileName = variant.path.map { ($0 as NSString).lastPathComponent } ?? ""
+        return fileName.isEmpty ? tech : "\(fileName) — \(tech)"
     }
 
     /// Downloaded items and items with no meaningful resume position (≤5s, same threshold

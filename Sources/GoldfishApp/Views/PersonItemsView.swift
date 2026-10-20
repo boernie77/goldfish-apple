@@ -238,7 +238,8 @@ struct PersonItemsView: View {
     private func load() async {
         isLoading = true
         do {
-            items = try await client.fetchItems(personId: personTmdbId).items
+            // Dateivarianten (gleiche metadataId) zu einer Kachel, wie im Web (groupVariants).
+            items = groupVariants(try await client.fetchItems(personId: personTmdbId).items)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

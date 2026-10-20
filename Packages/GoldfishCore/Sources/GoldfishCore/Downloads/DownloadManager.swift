@@ -830,12 +830,30 @@ public final class DownloadManager: NSObject, ObservableObject {
         if let cachedPoster = cachedPosterURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: cachedPoster)
         }
+        // Ein Abbruch kann auch einen bereits fehlgeschlagenen Record mit `resumeData`
+        // treffen (Zeile bleibt sichtbar) — dessen System-Teildatei wie in `deleteDownload`
+        // freigeben, sonst bleibt sie für immer liegen.
+        if let resumeData = records[itemId]?.resumeData {
+            session.downloadTask(withResumeData: resumeData).cancel()
+        }
+        // Eigene Staging-Datei (falls der Task gerade fertig wurde, bevor der Abbruch griff).
+        try? FileManager.default.removeItem(
+            at: FileManager.default.temporaryDirectory.appendingPathComponent("goldfish-dl-\(itemId).tmp"))
+        prepProgress[itemId] = nil
         clearSpeedSample(itemId: itemId)
         removeRecord(itemId: itemId)
         saveIndex()
     }
 
     public func deleteDownload(itemId: Int64) {
+        // Löschen während der Download noch läuft (z. B. Papierkorb in der Downloads-Liste):
+        // den Task mitbeenden, sonst lädt er weiter und legt die Datei nach dem Löschen
+        // wieder an. Plain `.cancel()` wie in `cancelDownload` (kein `resumeData`-Leck).
+        if let task = tasks[itemId] {
+            task.cancel()
+            tasks[itemId] = nil
+        }
+        prepProgress[itemId] = nil
         if let url = localFileURL(itemId: itemId) {
             try? FileManager.default.removeItem(at: url)
         }

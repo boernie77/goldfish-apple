@@ -606,12 +606,24 @@ private struct DownloadRow: View {
                 }
             }
             Spacer()
-            Button(role: .destructive) {
-                downloads.deleteDownload(itemId: record.itemId)
-            } label: {
-                Image(systemName: "trash")
+            if record.state == .downloading || record.state == .queued {
+                // Laufender/wartender Download: Abbrechen (Task + Staging + Poster aufräumen),
+                // nicht Löschen — plain Button, funktioniert auch auf tvOS.
+                Button(role: .destructive) {
+                    downloads.cancelDownload(itemId: record.itemId)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Download abbrechen")
+            } else {
+                Button(role: .destructive) {
+                    downloads.deleteDownload(itemId: record.itemId)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 }
