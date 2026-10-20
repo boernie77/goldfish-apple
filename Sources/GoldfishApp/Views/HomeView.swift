@@ -56,11 +56,11 @@ struct HomeView: View {
                             // ohne die groß-fette Titelzeile, die jeder Library-Block hat.
                             // Serienposter statt Folgenbild (Server ab 1.4.48) in allen drei
                             // Streifen (User-Wunsch 2026-09-29: jetzt auch „Fortsetzen").
-                            HomeHeadingRow(title: "▶ Fortsetzen", items: sections.flatMap(\.continueItems), libraryFor: library(for:),
+                            HomeHeadingRow(title: "▶ Fortsetzen", items: groupVariants(sections.flatMap(\.continueItems)), libraryFor: library(for:),
                                            preferShowPoster: true)
                             // Kontextmenü „Aus Als nächstes entfernen" (Server ab 1.4.49) —
                             // nur hier.
-                            HomeHeadingRow(title: "📺 Als nächstes", items: visibleNextUp, libraryFor: library(for:),
+                            HomeHeadingRow(title: "📺 Als nächstes", items: groupVariants(visibleNextUp), libraryFor: library(for:),
                                            preferShowPoster: true, onHideNextUp: hideFromNextUp)
 
                             ForEach(sections) { section in
@@ -69,7 +69,7 @@ struct HomeView: View {
                                         Text(section.library.name)
                                             .font(.title3.bold())
                                             .padding(.horizontal)
-                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: section.recent, libraryFor: { _ in section.library }, preferShowPoster: true)
+                                        HomeRow(title: "🆕 Zuletzt hinzugefügt", items: groupVariants(section.recent), libraryFor: { _ in section.library }, preferShowPoster: true)
                                     }
                                 }
                             }
