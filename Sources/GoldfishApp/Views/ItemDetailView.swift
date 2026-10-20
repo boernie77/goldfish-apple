@@ -242,7 +242,7 @@ struct ItemDetailView: View {
                 // Nur einblendbare Untertitel (von uns erzeugt: 📝 OCR / 🎤 KI) —
                 // Bitmap-Spuren (PGS/VOBSUB) kann der Player nicht darstellen.
                 let subStreams = streams.filter { $0.type == "subtitle" && $0.isDisplayableGeneratedSub }
-                if !audioStreams.isEmpty || !subStreams.isEmpty {
+                if !audioStreams.isEmpty || !subStreams.isEmpty || variants.count > 1 {
                     // User-Anfrage 2026-09-02: "als schönes, abgegrenztes Dropdownmenü
                     // gestalten ... Rahmen ... zwischen Tonspur und Untertitel linksbündig
                     // ausgerichtet" — vorher waren das zwei nackte `Picker`s ohne Container,
@@ -250,6 +250,31 @@ struct ItemDetailView: View {
                     // gibt beiden Zeilen dieselbe feste Label-Breite (Icon+Titel), damit die
                     // Werte-Spalte auf gleicher Höhe beginnt, plus einen gemeinsamen Rahmen.
                     VStack(alignment: .leading, spacing: 8) {
+                        // Dateiversionen desselben Films (Teil 1/Teil 2, DVD 1/DVD 2,
+                        // mehrere Auflösungen) — gleiche Zeile wie Tonspur/Qualität.
+                        // Der Wert zeigt nur den Dateinamen, mittig gekürzt, damit die
+                        // Teil-/DVD-Nummer am Ende sichtbar bleibt; die volle Beschreibung
+                        // (mit Technikdaten) steht in den Menüeinträgen.
+                        if variants.count > 1 {
+                            AVPickerRow(icon: "📁", label: "Version") {
+                                Menu {
+                                    ForEach(variants) { variant in
+                                        Button {
+                                            selectedItem = variant
+                                            isFavorite = variant.favorite
+                                        } label: {
+                                            if variant.id == selectedItem.id {
+                                                Label(variantLabel(variant), systemImage: "checkmark")
+                                            } else {
+                                                Text(variantLabel(variant))
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    AVPickerValueLabel(text: variantFileName(selectedItem), truncation: .middle)
+                                }
+                            }
+                        }
                         if audioStreams.count > 1 {
                             AVPickerRow(icon: "🔊", label: "Tonspur") {
                                 // User-Anfrage 2026-09-02: der native `Picker` überließ die
@@ -361,27 +386,6 @@ struct ItemDetailView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if variants.count > 1 {
-                    Menu {
-                        ForEach(variants) { variant in
-                            Button {
-                                selectedItem = variant
-                                isFavorite = variant.favorite
-                            } label: {
-                                if variant.id == selectedItem.id {
-                                    Label(variantLabel(variant), systemImage: "checkmark")
-                                } else {
-                                    Text(variantLabel(variant))
-                                }
-                            }
-                        }
-                    } label: {
-                        Label(variantLabel(selectedItem), systemImage: "square.stack")
-                            .font(.caption)
-                            .lineLimit(1)
-                    }
                 }
 
                 CastStripView(metadataId: item.metadataId)
@@ -631,6 +635,11 @@ struct ItemDetailView: View {
     }
     #endif
 
+    private func variantFileName(_ variant: Item) -> String {
+        let name = variant.path.map { ($0 as NSString).lastPathComponent } ?? ""
+        return name.isEmpty ? variantLabel(variant) : name
+    }
+
     /// Wie `variantLabel(v)` im Web (app.js): Dateiname vorne, dann Container · Auflösung ·
     /// Größe · Bitrate · Codecs · gesehen. Der Dateiname ist nötig, weil z. B. „Teil 1/Teil 2"
     /// oder „DVD 1/DVD 2" dieselbe metadataId (und oft gleiche Auflösung) haben.
@@ -842,12 +851,13 @@ private struct AVPickerRow<Content: View>: View {
 /// (Sprache · Codec · Kanäle · Standard) nie umbrechen und die Zeilenhöhe sprengen.
 private struct AVPickerValueLabel: View {
     let text: String
+    var truncation: Text.TruncationMode = .tail
 
     var body: some View {
         HStack(spacing: 4) {
             Text(text)
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .truncationMode(truncation)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
