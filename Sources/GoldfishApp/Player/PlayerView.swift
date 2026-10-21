@@ -2016,7 +2016,7 @@ private struct PlayerControlsBar: View {
                             Image(systemName: volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                 .font(.caption)
                         }
-                        .buttonStyle(.plain)
+                        .controlButtonStyle()
                         // Auf dem iPhone hat das Steuerfeld im Hochkantformat zu wenig Platz
                         // für den Slider (iOS hat ohnehin Hardware-Lautstärketasten) — nur
                         // der Mute-Button bleibt, Regler nur auf breiteren Screens (iPad/Mac).
@@ -2178,7 +2178,7 @@ private struct PlayerControlsBar: View {
                 .frame(minWidth: 64, alignment: .trailing)
             }
             .foregroundStyle(.white)
-            .buttonStyle(.plain)
+            .controlButtonStyle()
         }
         .padding(.horizontal, isCompact ? 10 : 20)
         .padding(.vertical, 12)
@@ -2346,5 +2346,43 @@ private struct TrickplaySpriteView: View {
         let m = (total % 3600) / 60
         let s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+
+// User-Wunsch 2026-10-21 (Apple TV): das graue Feld hinter dem fokussierten Steuerknopf
+// war zu groß — der System-Fokus von `.plain` zeichnet auf tvOS eine große Platte. Eigener
+// Stil mit knapper Polsterung; `focusEffectDisabled()` schaltet die Systemplatte ab. Auf
+// iOS/macOS bleibt es bei `.plain`.
+#if os(tvOS)
+private struct TVControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        TVControlButtonBody(configuration: configuration)
+    }
+}
+
+private struct TVControlButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        configuration.label
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(isFocused ? 0.28 : 0)))
+            .scaleEffect(isFocused ? 1.1 : 1)
+            .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+}
+#endif
+
+private extension View {
+    @ViewBuilder
+    func controlButtonStyle() -> some View {
+        #if os(tvOS)
+        self.buttonStyle(TVControlButtonStyle()).focusEffectDisabled()
+        #else
+        self.buttonStyle(.plain)
+        #endif
     }
 }
