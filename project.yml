@@ -86,8 +86,8 @@ targets:
         # Zurück-Leiste. Jetzt wertbasiert (SettingsDestination) wie alle anderen Bereiche.
         # SICHTBARE Version 1.5 -> 1.6, Build 245 -> 246.
         # Build 251 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.8 -> 1.9.
-        CFBundleShortVersionString: "1.9"
-        CFBundleVersion: "251"
+        CFBundleShortVersionString: "1.10"
+        CFBundleVersion: "252"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
