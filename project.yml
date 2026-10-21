@@ -348,7 +348,7 @@ targets:
         # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
         # Build 20 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.11 -> 1.12.
         CFBundleShortVersionString: "1.13"
-        CFBundleVersion: "21"
+        CFBundleVersion: "22"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos

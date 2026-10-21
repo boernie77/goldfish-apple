@@ -1997,7 +1997,7 @@ private struct PlayerControlsBar: View {
             .foregroundStyle(.white)
 
             HStack(spacing: spacing(compact: 8, regular: 16, tv: 36)) {
-                HStack(spacing: spacing(compact: 6, regular: 12, tv: 26)) {
+                HStack(spacing: spacing(compact: 6, regular: 12, tv: 6)) {
                     if let onClose {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -2034,7 +2034,7 @@ private struct PlayerControlsBar: View {
 
                 Spacer(minLength: spacing(compact: 6, regular: 12, tv: 30))
 
-                HStack(spacing: spacing(compact: 10, regular: 18, tv: 42)) {
+                HStack(spacing: spacing(compact: 10, regular: 18, tv: 22)) {
                     Button { onPrev() } label: {
                         Image(systemName: "backward.end.fill")
                     }.disabled(!hasPrev).opacity(hasPrev ? 1 : 0.35)
@@ -2079,7 +2079,7 @@ private struct PlayerControlsBar: View {
                 .font(.title3)
 
                 Spacer(minLength: spacing(compact: 6, regular: 12, tv: 30))
-                HStack(spacing: spacing(compact: 8, regular: 12, tv: 32)) {
+                HStack(spacing: spacing(compact: 8, regular: 12, tv: 12)) {
                     if let onToggleFavorite {
                         Button(action: onToggleFavorite) {
                             Image(systemName: isFavorite ? "heart.fill" : "heart")
@@ -2194,7 +2194,7 @@ private struct PlayerControlsBar: View {
         // tvOS-Fix 2026-09-04 (User-Report: die neuen ⏪/⏩-Buttons überlappten rechts
         // die Favorit-/Playlist-Icons): 1050pt reichte für die ursprünglichen 5 Buttons,
         // die 2 zusätzlichen Speed-Buttons + ihre Abstände brauchen spürbar mehr Platz.
-        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 1300))
+        .frame(maxWidth: spacing(compact: 560, regular: 560, tv: 1400))
         .padding(.horizontal, isCompact ? 8 : 40)
     }
 
@@ -2369,6 +2369,8 @@ private struct TVControlButtonBody: View {
         configuration.label
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+            // Die Polsterung (je 10 pt links/rechts) wird in `spacing(...)` der Steuerleiste
+            // abgezogen, damit die sichtbaren Abstände zwischen den Symbolen gleich bleiben.
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(isFocused ? 0.28 : 0)))
             .scaleEffect(isFocused ? 1.1 : 1)
             .animation(.easeOut(duration: 0.12), value: isFocused)
