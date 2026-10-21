@@ -71,6 +71,9 @@ struct HomeView: View {
                                             .padding(.horizontal)
                                         HomeRow(title: "🆕 Zuletzt hinzugefügt", items: groupVariants(section.recent), libraryFor: { _ in section.library }, preferShowPoster: true)
                                     }
+                                    #if os(tvOS)
+                                    .focusSection()
+                                    #endif
                                 }
                             }
                         }
@@ -217,6 +220,13 @@ private struct HomeHeadingRow: View {
                 HomeRow(title: nil, items: items, libraryFor: libraryFor,
                         preferShowPoster: preferShowPoster, onHideNextUp: onHideNextUp)
             }
+            #if os(tvOS)
+            // User-Report 2026-10-21 (Apple TV): von der Tab-Leiste nach unten übersprang der
+            // Fokus „Fortsetzen" und landete in der nächsten Zeile. Jede Zeile ist jetzt ein
+            // eigener Fokusbereich, damit die erste Zeile unterhalb der Tab-Leiste das erste
+            // Ziel des Fokus-Systems ist.
+            .focusSection()
+            #endif
         }
     }
 }
