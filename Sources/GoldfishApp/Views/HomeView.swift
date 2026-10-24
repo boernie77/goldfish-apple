@@ -134,6 +134,9 @@ struct HomeView: View {
             .onAppear { lastLibraryContext.clear() }
             #endif
             .refreshable { await load() }
+            .onReceive(NotificationCenter.default.publisher(for: .goldfishPlaybackStopped)) { _ in
+                if !isLoading { Task { await load() } }
+            }
             .onChange(of: scenePhase) { phase in
                 if phase == .active, !isLoading { Task { await load() } }
             }

@@ -889,6 +889,9 @@ public final class GoldfishClient: ObservableObject {
         struct Body: Encodable { let reason: String; let positionSec: Double; let durationSec: Double }
         let body = try JSONEncoder().encode(Body(reason: reason, positionSec: positionSec, durationSec: durationSec))
         try await performVoid("/api/playback/\(itemId)/stop", method: "POST", jsonBody: body)
+        // Startseite ("Als nächstes"/"Fortsetzen") lädt daraufhin neu — sonst blieb die
+        // eben beendete Folge stehen (User-Report 2026-10-23, Browser wie Apps).
+        await MainActor.run { NotificationCenter.default.post(name: .goldfishPlaybackStopped, object: nil) }
     }
 
     /// Meldet einen Wiedergabe-Fehler ans Server-Protokoll (User-Wunsch
@@ -1045,3 +1048,8 @@ public final class GoldfishClient: ObservableObject {
 }
 
 private struct EmptyResponse: Decodable {}
+
+public extension Notification.Name {
+    /// Wird nach erfolgreich gemeldetem Wiedergabe-Ende gepostet (siehe `reportPlaybackStop`).
+    static let goldfishPlaybackStopped = Notification.Name("goldfishPlaybackStopped")
+}
