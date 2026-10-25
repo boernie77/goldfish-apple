@@ -1015,3 +1015,32 @@ public struct SeasonsResponse: Decodable {
     public let show: ShowOut?
     public let seasons: [SeasonOut]
 }
+
+
+/// „Teil X von Y"-Hinweis auf der Film-Infoseite (Server ab 1.5.29,
+/// `GET /api/items/{id}/collection`). `available == false`, wenn der Film zu keiner
+/// Sammlung gehört; ausgeblendete und noch nicht erschienene Teile sind schon
+/// herausgefiltert.
+public struct ItemCollectionHint: Decodable {
+    public struct Part: Decodable, Identifiable {
+        public let tmdbMovieId: Int64
+        public let title: String
+        public let year: String?
+        public let owned: Bool
+        public let itemId: Int64?
+        public let current: Bool
+        public var id: Int64 { tmdbMovieId }
+    }
+    public let available: Bool
+    public let collectionId: Int64?
+    public let name: String?
+    public let position: Int?
+    public let total: Int?
+    public let missing: Int?
+    public let parts: [Part]?
+
+    /// Nummern (1-basiert) der fehlenden Teile.
+    public var missingNumbers: [Int] {
+        (parts ?? []).enumerated().filter { !$0.element.owned }.map { $0.offset + 1 }
+    }
+}

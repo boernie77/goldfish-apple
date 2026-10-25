@@ -542,6 +542,14 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/items/\(id)")
     }
 
+    /// „Teil X von Y"-Hinweis eines Films (Server ab 1.5.29). `nil` bei Filmen ohne
+    /// Sammlung, älteren Servern (404) oder Fehlern — die Zeile bleibt dann einfach weg.
+    public func fetchItemCollection(itemId: Int64) async -> ItemCollectionHint? {
+        guard let hint: ItemCollectionHint = try? await perform("/api/items/\(itemId)/collection"),
+              hint.available else { return nil }
+        return hint
+    }
+
     /// All sibling files sharing the same `metadataId` as `itemId` (including `itemId`
     /// itself) — powers the "Varianten"-Picker in `ItemDetailView`.
     public func fetchVariants(itemId: Int64) async throws -> [Item] {

@@ -70,6 +70,13 @@ struct ItemDetailView: View {
     /// Detail-Ansicht kennt bisher nur `libraryId`, kein `Library`-Objekt).
     @State private var showNavTarget: ShowNavTarget? = nil
     @State private var showNavPushed = false
+    /// „Teil X von Y" (Filme in einer TMDB-Sammlung, Server ab 1.5.28) und die Ziele der Klicks darauf.
+    @State private var collectionHint: ItemCollectionHint? = nil
+    @State private var collectionNavTarget: Collection? = nil
+    @State private var collectionNavPushed = false
+    @State private var partNavItem: Item? = nil
+    @State private var partNavPushed = false
+    @State private var missingPartMessage: String? = nil
     @State private var isResolvingShowLink = false
     #if os(tvOS)
     // tvOS-Fix 2026-09-03 (User-Report: Fernbedienung reagiert im Detail-Dialog
@@ -166,6 +173,10 @@ struct ItemDetailView: View {
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+                if let hint = collectionHint, let parts = hint.parts {
+                    collectionLine(hint, parts: parts)
+                }
 
                 // User-Anfrage 2026-08-19: "Länge der Datei, das Videoformat und die Größe
                 // der Datei anzeigen" — bewusst getrennt von der Zeile oben: dort steht das
@@ -421,6 +432,21 @@ struct ItemDetailView: View {
         // User-Wunsch 2026-09-20: klickbarer Serienname bei Episoden → Staffelübersicht
         // der Serie. `isPresented:` statt `navigationDestination(item:)` — letzteres
         // braucht macOS 14/iOS 17, das Deployment-Target hier ist macOS 13/iOS 16.
+        .navigationDestination(isPresented: $collectionNavPushed) {
+            if let collection = collectionNavTarget {
+                CollectionDetailView(collection: collection)
+            }
+        }
+        .navigationDestination(isPresented: $partNavPushed) {
+            if let part = partNavItem {
+                ItemDetailView(item: part)
+            }
+        }
+        .alert("Fehlt in der Bibliothek", isPresented: Binding(get: { missingPartMessage != nil }, set: { if !$0 { missingPartMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(missingPartMessage ?? "")
+        }
         .navigationDestination(isPresented: $showNavPushed) {
             if let target = showNavTarget {
                 ShowSeasonsView(library: target.library, folder: target.folder)
@@ -428,6 +454,9 @@ struct ItemDetailView: View {
         }
         .task {
             variants = (try? await client.fetchVariants(itemId: item.id)) ?? []
+            if item.metadata?.tmdbType == "movie" {
+                collectionHint = await client.fetchItemCollection(itemId: item.id)
+            }
             await loadStreams(for: selectedItem.id)
             await loadTrailer()
             await loadDownloadResolution(for: selectedItem.id)
@@ -487,6 +516,86 @@ struct ItemDetailView: View {
               let library = libraries.first(where: { $0.id == item.libraryId }) else { return }
         showNavTarget = ShowNavTarget(library: library, folder: showName)
         showNavPushed = true
+    }
+
+    /// Eine Zeile „📚 Teil 2 von 4 · Sammlung ①②③④ Teil 3 und 4 fehlen" (wie im Browser):
+    /// grün vorhanden, blau dieser Film, rot gestrichelt fehlt. Klick auf einen vorhandenen
+    /// Teil öffnet dessen Seite, auf den Namen die Sammlung (auf tvOS nur Anzeige — kleine
+    /// Kreise sind mit der Fernbedienung nicht sinnvoll fokussierbar).
+    @ViewBuilder
+    private func collectionLine(_ hint: ItemCollectionHint, parts: [ItemCollectionHint.Part]) -> some View {
+        let missing = hint.missingNumbers
+        HStack(spacing: 8) {
+            Text("📚 Teil \(hint.position ?? 0) von \(hint.total ?? parts.count) ·")
+            #if os(tvOS)
+            Text(hint.name ?? "Sammlung")
+            #else
+            Button(hint.name ?? "Sammlung") { Task { await openCollection(hint) } }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            #endif
+            HStack(spacing: 4) {
+                ForEach(Array(parts.enumerated()), id: \.element.id) { index, part in
+                    partDot(index + 1, part)
+                }
+            }
+            if missing.isEmpty {
+                Text("✓ komplett").foregroundStyle(.green)
+            } else if missing.count == 1 {
+                Text("Teil \(missing[0]) fehlt").foregroundStyle(.red)
+            } else {
+                Text("Teil " + missing.dropLast().map(String.init).joined(separator: ", ") + " und \(missing.last!) fehlen")
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.subheadline)
+    }
+
+    @ViewBuilder
+    private func partDot(_ number: Int, _ part: ItemCollectionHint.Part) -> some View {
+        let label = Text("\(number)")
+            .font(.caption2.bold())
+            .frame(width: 22, height: 22)
+        let help = part.title + (part.year.map { " (\($0))" } ?? "") + (part.current ? " – dieser Film" : (part.owned ? "" : " – fehlt"))
+        let dot = Group {
+            if part.current {
+                label.foregroundStyle(.white)
+                    .background(Circle().fill(Color.blue))
+                    .overlay(Circle().stroke(Color.blue.opacity(0.5), lineWidth: 2))
+            } else if part.owned {
+                label.foregroundStyle(.white).background(Circle().fill(Color.green))
+            } else {
+                label.foregroundStyle(.red)
+                    .overlay(Circle().stroke(Color.red, style: StrokeStyle(lineWidth: 2, dash: [3, 2])))
+            }
+        }
+        #if os(tvOS)
+        dot
+        #else
+        Button {
+            Task { await openPart(part) }
+        } label: { dot }
+        .buttonStyle(.plain)
+        .help(help)
+        #endif
+    }
+
+    private func openCollection(_ hint: ItemCollectionHint) async {
+        guard let id = hint.collectionId,
+              let collection = (try? await client.fetchCollections())?.first(where: { $0.id == id }) else { return }
+        collectionNavTarget = collection
+        collectionNavPushed = true
+    }
+
+    private func openPart(_ part: ItemCollectionHint.Part) async {
+        if part.current { return }
+        guard part.owned, let id = part.itemId else {
+            missingPartMessage = part.title + (part.year.map { " (\($0))" } ?? "")
+            return
+        }
+        guard let target = try? await client.fetchItem(id: id) else { return }
+        partNavItem = target
+        partNavPushed = true
     }
 
     private var downloadSizeLabel: String? {
