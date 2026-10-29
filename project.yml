@@ -89,7 +89,7 @@ targets:
         # Build 255 (2026-10-29): Verwaltung für Administratoren (Verschieben, Umbenennen,
         # Zuordnung, Metadaten, Scan, Protokoll). 1.12 -> 1.13.
         CFBundleShortVersionString: "1.13"
-        CFBundleVersion: "255"
+        CFBundleVersion: "256"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen

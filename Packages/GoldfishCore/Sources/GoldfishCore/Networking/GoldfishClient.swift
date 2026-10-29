@@ -788,13 +788,21 @@ public final class GoldfishClient: ObservableObject {
         try await perform("/api/scan/status")
     }
 
+    /// Alle Benutzernamen (nur Administratoren) — für den Protokoll-Filter.
+    public func adminUserNames() async throws -> [String] {
+        struct U: Decodable { let username: String? }
+        let users: [U] = try await perform("/api/users")
+        return users.compactMap(\.username).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     public func adminCancelScan() async throws {
         try await performVoid("/api/scan/cancel", method: "POST")
     }
 
-    public func adminActivityLog(category: String, beforeId: Int64, limit: Int = 100) async throws -> [AdminLogEntry] {
+    public func adminActivityLog(category: String, beforeId: Int64, username: String = "", limit: Int = 100) async throws -> [AdminLogEntry] {
         var query = [URLQueryItem(name: "limit", value: String(limit))]
         if !category.isEmpty { query.append(URLQueryItem(name: "category", value: category)) }
+        if !username.isEmpty { query.append(URLQueryItem(name: "username", value: username)) }
         if beforeId > 0 { query.append(URLQueryItem(name: "beforeId", value: String(beforeId))) }
         let resp: AdminLogResponse = try await perform("/api/admin/activity-log", query: query)
         return resp.entries ?? []

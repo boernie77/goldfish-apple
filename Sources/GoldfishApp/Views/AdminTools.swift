@@ -402,6 +402,8 @@ struct AdminLogView: View {
     @EnvironmentObject var client: GoldfishClient
     @State private var entries: [AdminLogEntry] = []
     @State private var category = ""
+    @State private var username = ""
+    @State private var userNames: [String] = []
     @State private var exhausted = false
     @State private var error: String?
 
@@ -413,6 +415,10 @@ struct AdminLogView: View {
                 ForEach(categories, id: \.1) { Text($0.0).tag($0.1) }
             }
             .pickerStyle(.segmented)
+            Picker("Benutzer", selection: $username) {
+                Text("Alle Benutzer").tag("")
+                ForEach(userNames, id: \.self) { Text($0).tag($0) }
+            }
             if let error { Text("Protokoll nicht abrufbar: \(error)").foregroundStyle(.red) }
             ForEach(entries) { entry in
                 VStack(alignment: .leading, spacing: 2) {
@@ -426,13 +432,14 @@ struct AdminLogView: View {
             }
         }
         .navigationTitle("Protokoll")
-        .task(id: category) { await load(reset: true) }
+        .task { userNames = (try? await client.adminUserNames()) ?? [] }
+        .task(id: "\(category)|\(username)") { await load(reset: true) }
     }
 
     private func load(reset: Bool) async {
         let before = reset ? 0 : (entries.last?.id ?? 0)
         do {
-            let page = try await client.adminActivityLog(category: category, beforeId: before)
+            let page = try await client.adminActivityLog(category: category, beforeId: before, username: username)
             entries = reset ? page : entries + page
             exhausted = page.count < 100
             error = nil
