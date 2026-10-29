@@ -721,6 +721,85 @@ public final class GoldfishClient: ObservableObject {
         try await performVoid("/api/items/\(itemId)/favorite", method: "PUT", jsonBody: body)
     }
 
+    // MARK: - Verwaltung (nur Administratoren; der Server prüft es selbst)
+
+    /// Datei nach dem Namensschema aus der TMDB-Zuordnung umbenennen.
+    public func adminRenameItem(itemId: Int64) async throws -> AdminRenameResult {
+        try await perform("/api/items/\(itemId)/rename", method: "POST")
+    }
+
+    public func adminMovePreview(itemId: Int64, targetFolder: String, targetLibraryId: Int64) async throws -> AdminMovePreview {
+        struct Body: Encodable { let ids: [Int64]; let targetFolder: String; let targetLibraryId: Int64 }
+        let body = try JSONEncoder().encode(Body(ids: [itemId], targetFolder: targetFolder, targetLibraryId: targetLibraryId))
+        return try await perform("/api/items/move-preview", method: "POST", jsonBody: body)
+    }
+
+    public func adminMoveItem(itemId: Int64, targetFolder: String, targetLibraryId: Int64, allowCrossDevice: Bool) async throws {
+        struct Body: Encodable { let targetFolder: String; let targetLibraryId: Int64; let allowCrossDevice: Bool }
+        let body = try JSONEncoder().encode(Body(targetFolder: targetFolder, targetLibraryId: targetLibraryId, allowCrossDevice: allowCrossDevice))
+        try await performVoid("/api/items/\(itemId)/move", method: "POST", jsonBody: body)
+    }
+
+    public func adminSearchMetadata(query: String, kind: String) async throws -> [AdminSearchResult] {
+        try await perform("/api/metadata/search", query: [URLQueryItem(name: "q", value: query), URLQueryItem(name: "type", value: kind)])
+    }
+
+    public func adminSetItemMetadata(itemId: Int64, tmdbType: String, tmdbId: Int64, season: Int, episode: Int) async throws {
+        struct Body: Encodable { let tmdbType: String; let tmdbId: Int64; let season: Int?; let episode: Int? }
+        let isEpisode = tmdbType == "episode"
+        let body = try JSONEncoder().encode(Body(tmdbType: tmdbType, tmdbId: tmdbId, season: isEpisode ? season : nil, episode: isEpisode ? episode : nil))
+        try await performVoid("/api/items/\(itemId)/metadata", method: "POST", jsonBody: body)
+    }
+
+    public func adminUnmatchItem(itemId: Int64) async throws {
+        try await performVoid("/api/items/\(itemId)/unmatch", method: "POST")
+    }
+
+    public struct AdminMetadataFields: Encodable {
+        public var title: String
+        public var originalTitle: String
+        public var year: Int
+        public var releaseDate: String
+        public var overview: String
+        public var rating: Double
+        public var runtimeMin: Int
+        public var genres: String
+        public var ageRating: String
+
+        public init(title: String, originalTitle: String, year: Int, releaseDate: String, overview: String,
+                    rating: Double, runtimeMin: Int, genres: String, ageRating: String) {
+            self.title = title; self.originalTitle = originalTitle; self.year = year; self.releaseDate = releaseDate
+            self.overview = overview; self.rating = rating; self.runtimeMin = runtimeMin; self.genres = genres
+            self.ageRating = ageRating
+        }
+    }
+
+    public func adminUpdateMetadata(metadataId: Int64, fields: AdminMetadataFields) async throws {
+        let body = try JSONEncoder().encode(fields)
+        try await performVoid("/api/metadata/\(metadataId)", method: "PUT", jsonBody: body)
+    }
+
+    /// Scan starten: eine Bibliothek, oder alle (`libraryId == nil`).
+    public func adminStartScan(libraryId: Int64?) async throws {
+        try await performVoid(libraryId.map { "/api/scan/\($0)" } ?? "/api/scan/all", method: "POST")
+    }
+
+    public func adminScanStatus() async throws -> AdminScanStatus {
+        try await perform("/api/scan/status")
+    }
+
+    public func adminCancelScan() async throws {
+        try await performVoid("/api/scan/cancel", method: "POST")
+    }
+
+    public func adminActivityLog(category: String, beforeId: Int64, limit: Int = 100) async throws -> [AdminLogEntry] {
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if !category.isEmpty { query.append(URLQueryItem(name: "category", value: category)) }
+        if beforeId > 0 { query.append(URLQueryItem(name: "beforeId", value: String(beforeId))) }
+        let resp: AdminLogResponse = try await perform("/api/admin/activity-log", query: query)
+        return resp.entries ?? []
+    }
+
     // MARK: - Eigenes Passwort ändern
 
     /// Ändert das Passwort des aktuell angemeldeten Users. Der Server prüft

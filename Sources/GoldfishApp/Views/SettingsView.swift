@@ -29,6 +29,8 @@ private enum SettingsDestination: Hashable {
     case shuffleScope
     case homeAndNav
     case watchLinks
+    case adminScan
+    case adminLog
 }
 
 struct SettingsView: View {
@@ -227,6 +229,19 @@ struct SettingsView: View {
                 .task {
                     watchLinks = (try? await client.fetchWatchLinks()) ?? []
                 }
+
+                #if os(macOS)
+                if client.isAdmin {
+                    Section {
+                        NavigationLink(value: SettingsDestination.adminScan) { Text("Scan") }
+                        NavigationLink(value: SettingsDestination.adminLog) { Text("Protokoll") }
+                    } header: {
+                        Text("Verwaltung")
+                    } footer: {
+                        Text("Nur für Administratoren: Bibliotheken scannen und das Server-Protokoll lesen.")
+                    }
+                }
+                #endif
 
                 Section("Darstellung") {
                     Picker("Erscheinungsbild", selection: $appearanceRaw) {
@@ -608,6 +623,18 @@ struct SettingsView: View {
                     HomeAndNavPreferencesView()
                 case .watchLinks:
                     WatchLinkSettingsView(watchLinks: $watchLinks)
+                case .adminScan:
+                    #if os(macOS)
+                    AdminScanView()
+                    #else
+                    EmptyView()
+                    #endif
+                case .adminLog:
+                    #if os(macOS)
+                    AdminLogView()
+                    #else
+                    EmptyView()
+                    #endif
                 }
             }
             // fileImporter (freier Ordner-Picker) existiert nicht auf tvOS — dort gibt

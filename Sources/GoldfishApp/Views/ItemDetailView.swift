@@ -243,6 +243,11 @@ struct ItemDetailView: View {
                 actionButtonsRow
                 DownloadButtonRow(item: selectedItem, profile: pickedProfile)
                 #endif
+                #if os(macOS)
+                if client.isAdmin {
+                    AdminItemMenu(item: selectedItem, onChanged: { Task { await reloadAfterAdmin() } })
+                }
+                #endif
 
                 if let overview = item.metadata?.overview, !overview.isEmpty {
                     Text(overview)
@@ -627,6 +632,16 @@ struct ItemDetailView: View {
         default: downloadResolutionLabel = "\(Int(effective))p"
         }
     }
+
+    #if os(macOS)
+    /// Nach einer Verwaltungsaktion (Verschieben, Zuordnung, …) den Titel frisch laden.
+    private func reloadAfterAdmin() async {
+        if let fresh = try? await client.fetchItem(id: selectedItem.id) {
+            selectedItem = fresh
+            isFavorite = fresh.favorite
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var actionButtonsRow: some View {

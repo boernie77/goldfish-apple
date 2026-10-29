@@ -1044,3 +1044,49 @@ public struct ItemCollectionHint: Decodable {
         (parts ?? []).enumerated().filter { !$0.element.owned }.map { $0.offset + 1 }
     }
 }
+
+
+// MARK: - Verwaltung (nur Administratoren)
+
+public struct AdminRenameResult: Decodable {
+    public let newBase: String?
+}
+
+public struct AdminMovePreview: Decodable {
+    public let anyCrossDevice: Bool
+}
+
+public struct AdminSearchResult: Decodable, Identifiable, Hashable {
+    public let tmdbType: String?
+    public let id: Int64
+    public let title: String?
+    public let year: Int?
+    public let overview: String?
+}
+
+public struct AdminScanStatus: Decodable {
+    public let running: Bool
+    public let batchActive: Bool?
+    public let current: String?
+    public let done: Int?
+    public let total: Int?
+    public let new: Int?
+    public let removed: Int?
+    public let lastError: String?
+
+    public var isActive: Bool { running || (batchActive ?? false) }
+}
+
+public struct AdminLogEntry: Decodable, Identifiable, Hashable {
+    public let id: Int64
+    public let at: String?
+    public let username: String?
+    public let category: String?
+    public let action: String?
+    public let detail: String?
+    public let device: String?
+}
+
+struct AdminLogResponse: Decodable {
+    let entries: [AdminLogEntry]?
+}
