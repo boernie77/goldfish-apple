@@ -326,7 +326,13 @@ public final class DownloadManager: NSObject, ObservableObject {
             } catch { /* Datei bleibt wie sie ist, kein Drama */ }
         }
         for (id, rec) in allRecordsOnDisk where rec.state == .done {
-            guard let newURL = Self.renameMisnamedAudio(at: URL(fileURLWithPath: rec.filePath)) else { continue }
+            // Gespeicherter Pfad kann auf eine alte Container-UUID zeigen (siehe
+            // `localFileURL`) — dann liegt die Datei unter downloadsDir + fileName.
+            var current = URL(fileURLWithPath: rec.filePath)
+            if !FileManager.default.fileExists(atPath: current.path) {
+                current = downloadsDir.appendingPathComponent(rec.fileName)
+            }
+            guard let newURL = Self.renameMisnamedAudio(at: current) else { continue }
             var r = rec
             r.filePath = newURL.path
             r.fileName = newURL.lastPathComponent
