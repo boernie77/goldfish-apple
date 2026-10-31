@@ -50,6 +50,9 @@ struct MusicLibraryView: View {
     /// beim Öffnen der Bibliothek erneut (deckt App-Neustart + neue Titel nach einem
     /// Server-Scan ab, ohne einen eigenen Hintergrund-Daemon zu brauchen).
     @AppStorage private var librarySyncEnabled: Bool
+    /// „Nur Favoriten“ (User-Wunsch 2026-10-31): Alben-Ansichten zeigen nur favorisierte
+    /// Alben, „Alle Titel“ nur favorisierte Titel (wie im Browser).
+    @AppStorage private var favoritesOnly: Bool
     // Sortierung + Genre-Filter (User-Wunsch 2026-09-11: "was haben andere
     // Musikbibliotheken" — beides fehlte, Album-Übersicht war fest nach
     // Künstler/Album sortiert). Genre-Filter läuft server-seitig (genre=
@@ -175,6 +178,7 @@ struct MusicLibraryView: View {
     init(library: Library) {
         self.library = library
         self._librarySyncEnabled = AppStorage(wrappedValue: false, "musicLibrarySync.\(library.id)")
+        self._favoritesOnly = AppStorage(wrappedValue: false, "musicFavoritesOnly.\(library.id)")
     }
 
     private let cardWidth: CGFloat = 170
@@ -198,6 +202,7 @@ struct MusicLibraryView: View {
 
     private var filteredAlbums: [MusicAlbum] {
         var result = albums
+        if favoritesOnly { result = result.filter { $0.favorite ?? false } }
         if !search.isEmpty {
             result = result.filter {
                 matchesSearch($0.album) || matchesSearch($0.artist)
@@ -277,6 +282,7 @@ struct MusicLibraryView: View {
 
     private var filteredTracks: [Item] {
         var result = allTracks
+        if favoritesOnly { result = result.filter { $0.favorite } }
         switch trackSortOption {
         case .title:
             result.sort {
@@ -358,7 +364,7 @@ struct MusicLibraryView: View {
             // Session) — deshalb jetzt als echtes, garantiert sichtbares
             // Text-Element im Inhaltsbereich.
             HStack {
-                Text(isSearching ? searchCountLabel : (displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben"))
+                Text(isSearching ? searchCountLabel : ((favoritesOnly ? "♥ " : "") + (displayMode == .allTracks ? "\(filteredTracks.count) Titel" : "\(filteredAlbums.count) Alben")))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -516,6 +522,9 @@ struct MusicLibraryView: View {
                     }
                     #endif
                     Divider()
+                    Toggle(isOn: $favoritesOnly) {
+                        Label("Nur Favoriten", systemImage: "heart")
+                    }
                     Toggle(isOn: $librarySyncEnabled) {
                         Text("Bibliothek offline synchronisieren")
                     }
@@ -622,6 +631,11 @@ struct MusicLibraryView: View {
             if newMode == .allTracks, !allTracksLoaded {
                 Task { await loadAllTracks() }
             }
+        }
+        .onChange(of: favoritesOnly) { _ in
+            // Favoriten-Stand frisch holen (Herzen wurden evtl. seit dem Laden geändert).
+            Task { await load() }
+            if allTracksLoaded { Task { await loadAllTracks() } }
         }
         .onChange(of: librarySyncEnabled) { enabled in
             if enabled { Task { await syncLibraryIfNeeded() } }
