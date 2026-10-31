@@ -470,18 +470,7 @@ struct MusicLibraryView: View {
                     }
                     #else
                     Menu("Sortierung") {
-                        Picker("Sortierung", selection: $sortOption) {
-                            ForEach(AlbumSort.allCases, id: \.self) { option in
-                                Text(option.label).tag(option)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        Divider()
-                        Button {
-                            sortAscending.toggle()
-                        } label: {
-                            Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
-                        }
+                        sortControls
                     }
                     Menu("☰ Spalten") {
                         MusicColumnsMenuContent(
@@ -543,17 +532,7 @@ struct MusicLibraryView: View {
             NavigationStack {
                 List {
                     Section("Sortierung") {
-                        Picker("Sortierung", selection: $sortOption) {
-                            ForEach(AlbumSort.allCases, id: \.self) { option in
-                                Text(option.label).tag(option)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        Button {
-                            sortAscending.toggle()
-                        } label: {
-                            Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
-                        }
+                        sortControls
                     }
                     if !availableGenres.isEmpty {
                         Section("Genre") {
@@ -650,6 +629,38 @@ struct MusicLibraryView: View {
             Task {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 await refreshPlayStats()
+            }
+        }
+    }
+
+    /// Sortier-Auswahl passend zur Ansicht: „Alle Titel“ sortiert Titel (eigene Auswahl und
+    /// Richtung), Kachel-/Listenansicht sortiert Alben. Vorher änderte das Menü in der
+    /// Titelansicht nur die Album-Sortierung (User-Bericht 2026-10-31).
+    @ViewBuilder
+    private var sortControls: some View {
+        if displayMode == .allTracks {
+            Picker("Sortierung", selection: $trackSortOption) {
+                ForEach(TrackSort.allCases, id: \.self) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            Button {
+                trackSortAscending.toggle()
+            } label: {
+                Label(trackSortAscending ? "Aufsteigend" : "Absteigend", systemImage: trackSortAscending ? "arrow.up" : "arrow.down")
+            }
+        } else {
+            Picker("Sortierung", selection: $sortOption) {
+                ForEach(AlbumSort.allCases, id: \.self) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            Button {
+                sortAscending.toggle()
+            } label: {
+                Label(sortAscending ? "Aufsteigend" : "Absteigend", systemImage: sortAscending ? "arrow.up" : "arrow.down")
             }
         }
     }
