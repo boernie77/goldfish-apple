@@ -616,7 +616,7 @@ struct MusicLibraryView: View {
         }
         .sheet(isPresented: $showPlaylists) {
             NavigationStack {
-                MusicPlaylistsView()
+                MusicPlaylistsView(library: library)
             }
             #if os(macOS)
             .frame(minWidth: 480, minHeight: 480)

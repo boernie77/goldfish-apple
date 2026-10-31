@@ -10,6 +10,8 @@ import SwiftUI
 /// Playlists erscheinen dort nicht mehr. Erreichbar ausschließlich über den
 /// "🎵 Playlists"-Button in `MusicLibraryView`.
 struct MusicPlaylistsView: View {
+    /// Bibliothek, gegen die der Apple-Musik-Import Titel abgleicht (nil = kein Import-Knopf).
+    var library: Library?
     @EnvironmentObject var client: GoldfishClient
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
     @Environment(\.dismiss) private var dismiss
@@ -26,6 +28,7 @@ struct MusicPlaylistsView: View {
     @State private var renamingPlaylist: Playlist?
     @State private var renameText = ""
     @State private var deletingPlaylist: Playlist?
+    @State private var showingAppleMusicImport = false
 
     var body: some View {
         Group {
@@ -85,7 +88,26 @@ struct MusicPlaylistsView: View {
                     Image(systemName: "plus")
                 }
             }
+            #if os(iOS)
+            if library != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAppleMusicImport = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .accessibilityLabel("Aus Apple Musik importieren")
+                }
+            }
+            #endif
         }
+        #if os(iOS)
+        .sheet(isPresented: $showingAppleMusicImport, onDismiss: { Task { await load() } }) {
+            if let library {
+                NavigationStack { AppleMusicImportView(library: library) }
+            }
+        }
+        #endif
         .alert("Neue Musik-Playlist", isPresented: $showingCreate) {
             TextField("Name", text: $newName)
             Button("Abbrechen", role: .cancel) {}

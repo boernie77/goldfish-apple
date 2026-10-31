@@ -172,7 +172,7 @@ struct MusicAlbumDetailView: View {
         }
         .sheet(isPresented: $showPlaylists) {
             NavigationStack {
-                MusicPlaylistsView()
+                MusicPlaylistsView(library: library)
             }
             // User-Report 2026-09-11: "Playlists sind nicht für das Iphone
             // kompatibel" — ein festes `minWidth:480` zwingt den Sheet-Inhalt
