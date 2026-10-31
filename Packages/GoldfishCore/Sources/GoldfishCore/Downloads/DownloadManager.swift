@@ -325,6 +325,14 @@ public final class DownloadManager: NSObject, ObservableObject {
                 changed = true
             } catch { /* Datei bleibt wie sie ist, kein Drama */ }
         }
+        for (id, rec) in allRecordsOnDisk where rec.state == .done {
+            guard let newURL = Self.renameMisnamedAudio(at: URL(fileURLWithPath: rec.filePath)) else { continue }
+            var r = rec
+            r.filePath = newURL.path
+            r.fileName = newURL.lastPathComponent
+            allRecordsOnDisk[id] = r
+            changed = true
+        }
         if changed { saveIndex() }
     }
 
@@ -335,6 +343,37 @@ public final class DownloadManager: NSObject, ObservableObject {
         defer { try? fh.close() }
         guard let head = try? fh.read(upToCount: 12), head.count >= 8 else { return false }
         return head[4] == 0x66 && head[5] == 0x74 && head[6] == 0x79 && head[7] == 0x70
+    }
+
+    /// Audio-Format an den ersten Bytes erkennen (nur Formate, die AVPlayer
+    /// kann). `?compat=1` erzwingt die Endung `.mp4`, der Server liefert bei
+    /// Musik aber oft das unveränderte Original (MP3/FLAC/WAV) — AVPlayer wählt
+    /// den Decoder nach der Endung und spielt „Hello.mp4" mit MP3-Inhalt nicht ab
+    /// (User-Bericht 2026-10-31: heruntergeladene Lieder spielen nicht).
+    private static func sniffedAudioExtension(_ url: URL) -> String? {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? fh.close() }
+        guard let head = try? fh.read(upToCount: 12), head.count >= 4 else { return nil }
+        let b = [UInt8](head)
+        if b[0] == 0x49, b[1] == 0x44, b[2] == 0x33 { return "mp3" }                 // "ID3"
+        if b[0] == 0xFF, b[1] & 0xE0 == 0xE0 { return "mp3" }                         // MPEG-Frame-Sync
+        if b[0] == 0x66, b[1] == 0x4C, b[2] == 0x61, b[3] == 0x43 { return "flac" }  // "fLaC"
+        if b.count >= 12, b[0] == 0x52, b[1] == 0x49, b[2] == 0x46, b[3] == 0x46,
+           b[8] == 0x57, b[9] == 0x41, b[10] == 0x56, b[11] == 0x45 { return "wav" } // RIFF…WAVE
+        return nil
+    }
+
+    /// Benennt eine fälschlich `.mp4` genannte Audio-Datei (kein ISO-BMFF) auf die
+    /// echte Endung um. Liefert die neue URL, sonst `nil`.
+    private static func renameMisnamedAudio(at url: URL) -> URL? {
+        guard url.pathExtension.lowercased() == "mp4",
+              FileManager.default.fileExists(atPath: url.path),
+              !fileLooksLikeISOBMFF(url),
+              let ext = sniffedAudioExtension(url) else { return nil }
+        let newURL = url.deletingPathExtension().appendingPathExtension(ext)
+        guard !FileManager.default.fileExists(atPath: newURL.path),
+              (try? FileManager.default.moveItem(at: url, to: newURL)) != nil else { return nil }
+        return newURL
     }
 
     /// Call when the logged-in account changes (login/logout/switch) — recomputes the
@@ -1077,6 +1116,10 @@ extension DownloadManager: @preconcurrency URLSessionDownloadDelegate {
                     rec.errorMessage = error.localizedDescription
                     try? fm.removeItem(at: stagedURL)
                 }
+            }
+            if rec.state == .done, let fixed = Self.renameMisnamedAudio(at: URL(fileURLWithPath: rec.filePath)) {
+                rec.filePath = fixed.path
+                rec.fileName = fixed.lastPathComponent
             }
             self.setRecord(rec)
             self.tasks[itemId] = nil
