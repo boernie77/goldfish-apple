@@ -475,10 +475,23 @@ public final class DownloadManager: NSObject, ObservableObject {
     /// Persists `allRecordsOnDisk` (ALL users' download records), not the filtered `records`
     /// — saving the filtered view here would silently delete every other account's download
     /// history the next time this user's manager writes the shared index file to disk.
+    /// Gebündeltes Speichern (Absturz 2026-10-31, 0x8BADF00D): „Bibliothek
+    /// synchronisieren" startet hunderte Downloads in einer Schleife auf dem
+    /// Main-Thread; jedes `startDownload` kodierte vorher den GANZEN Index
+    /// (inkl. `itemData` jedes Eintrags) neu → O(n²), der Watchdog beendete die
+    /// App. Jetzt schreibt eine Schleife den Index nur einmal, kurz danach.
+    private var indexSavePending = false
+
     private func saveIndex() {
-        let list = Array(allRecordsOnDisk.values)
-        if let data = try? JSONEncoder().encode(list) {
-            try? data.write(to: indexURL)
+        guard !indexSavePending else { return }
+        indexSavePending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.indexSavePending = false
+            let list = Array(self.allRecordsOnDisk.values)
+            if let data = try? JSONEncoder().encode(list) {
+                try? data.write(to: self.indexURL)
+            }
         }
     }
 
