@@ -10,6 +10,7 @@ import SwiftUI
 /// Playlists erscheinen dort nicht mehr. Erreichbar ausschließlich über den
 /// "🎵 Playlists"-Button in `MusicLibraryView`.
 struct MusicPlaylistsView: View {
+    @EnvironmentObject var downloads: DownloadManager
     /// Bibliothek, gegen die der Apple-Musik-Import Titel abgleicht (nil = kein Import-Knopf).
     var library: Library?
     @EnvironmentObject var client: GoldfishClient
@@ -54,6 +55,16 @@ struct MusicPlaylistsView: View {
                                 renamingPlaylist = playlist
                             } label: {
                                 Label("Umbenennen", systemImage: "pencil")
+                            }
+                            Button {
+                                Task { await downloadPlaylist(playlist) }
+                            } label: {
+                                Label("Herunterladen (offline)", systemImage: "arrow.down.circle")
+                            }
+                            Button {
+                                Task { await removePlaylistDownloads(playlist) }
+                            } label: {
+                                Label("Offline-Dateien entfernen", systemImage: "arrow.down.circle.dotted")
                             }
                             Button(role: .destructive) {
                                 deletingPlaylist = playlist
@@ -144,6 +155,31 @@ struct MusicPlaylistsView: View {
             Text("Die Playlist wird unwiderruflich gelöscht.")
         }
         .task { await load() }
+    }
+
+    /// Lädt alle Titel der Playlist herunter (einmalig; die dauerhafte Synchronisation
+    /// schaltet man weiterhin in der Playlist selbst ein).
+    private func downloadPlaylist(_ playlist: Playlist) async {
+        do {
+            let items = try await client.fetchPlaylistItems(id: playlist.id)
+            downloadAllMissing(items, client: client, downloads: downloads)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Entfernt die Offline-Dateien der Playlist-Titel (laufende Downloads werden abgebrochen)
+    /// und schaltet die Playlist-Synchronisation aus, damit sie nicht wieder anläuft.
+    private func removePlaylistDownloads(_ playlist: Playlist) async {
+        UserDefaults.standard.set(false, forKey: "musicPlaylistSync.\(playlist.id)")
+        do {
+            let items = try await client.fetchPlaylistItems(id: playlist.id)
+            for item in items where downloads.records[item.id] != nil {
+                downloads.deleteDownload(itemId: item.id)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func rename(_ playlist: Playlist) async {
