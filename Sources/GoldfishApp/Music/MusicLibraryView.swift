@@ -632,6 +632,7 @@ struct MusicLibraryView: View {
                 Task { await loadAllTracks() }
             }
         }
+        .modifier(MusicSortDirectionDefaults(albumSort: $sortOption, albumAscending: $sortAscending, trackSort: $trackSortOption, trackAscending: $trackSortAscending))
         .onChange(of: favoritesOnly) { _ in
             // Favoriten-Stand frisch holen (Herzen wurden evtl. seit dem Laden geändert).
             Task { await load() }
@@ -1723,6 +1724,29 @@ func musicOptionalCompare(_ a: MusicSortValue, _ b: MusicSortValue, ascending: B
         case (nil, .some): return false
         }
     default: return false
+    }
+}
+
+/// Zuletzt gehört / Wiedergaben / Hinzugefügt sind nur „neueste/meiste zuerst“ sinnvoll
+/// (User-Bericht 2026-10-31: „Zuletzt gehört klappt nicht“ — die Sortierung lief
+/// aufsteigend, also älteste zuerst und nie Gehörtes am Ende). Als eigener Modifier, weil die
+/// `body`-Modifierkette von `MusicLibraryView` sonst für den Compiler zu lang wird.
+private struct MusicSortDirectionDefaults: ViewModifier {
+    @Binding var albumSort: MusicLibraryView.AlbumSort
+    @Binding var albumAscending: Bool
+    @Binding var trackSort: MusicLibraryView.TrackSort
+    @Binding var trackAscending: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: albumSort) { newValue in
+                let newestFirst: Set<MusicLibraryView.AlbumSort> = [.lastPlayed, .playCount, .added]
+                albumAscending = !newestFirst.contains(newValue)
+            }
+            .onChange(of: trackSort) { newValue in
+                let newestFirst: Set<MusicLibraryView.TrackSort> = [.lastPlayed, .playCount, .added]
+                trackAscending = !newestFirst.contains(newValue)
+            }
     }
 }
 #endif
