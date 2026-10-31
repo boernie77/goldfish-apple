@@ -643,6 +643,21 @@ struct MusicLibraryView: View {
         .onChange(of: selectedGenres) { _ in
             Task { await load() }
         }
+        // Wiedergabe-Statistik (Zuletzt gehört/Wiedergaben) nach einem Titelwechsel still
+        // nachladen — sonst bleibt die Sortierung bis zum erneuten Öffnen der Bibliothek stehen.
+        .onChange(of: musicPlayer.currentItem?.id) { _ in
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await refreshPlayStats()
+            }
+        }
+    }
+
+    private func refreshPlayStats() async {
+        if let fresh = try? await client.fetchAlbums(libraryId: library.id, genres: Array(selectedGenres)) {
+            albums = fresh
+        }
+        if allTracksLoaded { await loadAllTracks() }
     }
 
     private func load() async {

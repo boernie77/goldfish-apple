@@ -246,6 +246,10 @@ final class MusicPlayerEngine: ObservableObject {
         // deshalb hier direkt referenziert statt durch jeden Aufrufer durchgereicht.
         if let localURL = DownloadManager.shared.localFileURL(itemId: item.id) {
             isServerPlayback = false
+            // „Zuletzt gehört“/Wiedergaben auch bei Offline-Titeln mitzählen (User-Bericht
+            // 2026-10-31: der Filter „Zuletzt gehört“ tat nichts, weil heruntergeladene
+            // Titel hier früher gar nicht gemeldet wurden). Ohne Netz schlägt es still fehl.
+            Task { try? await client.touchPlayed(itemId: item.id) }
             let p = AVPlayer(url: localURL)
             player = p
             duration = item.durationSec ?? 0
