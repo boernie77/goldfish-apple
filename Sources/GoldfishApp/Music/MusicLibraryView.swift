@@ -63,6 +63,8 @@ struct MusicLibraryView: View {
     @State private var availableGenres: [String] = []
     @State private var selectedGenres: Set<String> = []
     @State private var navigateToAlbum: MusicAlbum?
+    /// Gewählter Künstler in der Suchtrefferansicht (zeigt dessen Alben).
+    @State private var searchArtist: String?
     // "Alle Titel"-Modus (User-Wunsch 2026-09-11) — eigener, lazy geladener
     // Datensatz statt der Album-Liste; nutzt dasselbe Suchfeld wie die
     // Album-Übersicht, filtert aber Titel/Künstler/Album statt Alben.
@@ -318,12 +320,32 @@ struct MusicLibraryView: View {
     // kein explizit dafür angefragter Umbau).
     private var isSearching: Bool { !search.isEmpty }
 
+    /// Künstler-Treffer der Suche (User-Wunsch 2026-10-31): aus der Albumliste
+    /// abgeleitet — Name passt zur Suche — mit Anzahl Alben und Titel.
+    private var searchArtists: [MusicSearchArtist] {
+        guard isSearching else { return [] }
+        var order: [String] = []
+        var groups: [String: MusicSearchArtist] = [:]
+        for album in albums where !album.artist.isEmpty && matchesSearch(album.artist) {
+            var g = groups[album.artist] ?? MusicSearchArtist(name: album.artist, albumCount: 0, songCount: 0, coverAlbumId: nil)
+            if groups[album.artist] == nil { order.append(album.artist) }
+            g.albumCount += 1
+            g.songCount += album.trackCount ?? 0
+            if g.coverAlbumId == nil { g.coverAlbumId = album.id }
+            groups[album.artist] = g
+        }
+        return order.compactMap { groups[$0] }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Alben, deren TITEL zur Suche passt (Künstler-Treffer stehen im eigenen
+    /// Abschnitt).
+    private var searchAlbumHits: [MusicAlbum] {
+        filteredAlbums.filter { matchesSearch($0.album) }
+    }
+
     private var searchCountLabel: String {
-        #if os(macOS)
-        return "\(filteredAlbums.count) Alben · \(filteredTracks.count) Titel"
-        #else
-        return "\(filteredTracks.count) Titel"
-        #endif
+        "\(searchArtists.count) Künstler · \(searchAlbumHits.count) Alben · \(filteredTracks.count) Titel"
     }
 
     var body: some View {
@@ -349,11 +371,7 @@ struct MusicLibraryView: View {
                     if !allTracksLoaded {
                         ProgressView()
                     } else {
-                        #if os(macOS)
                         musicSearchResultsContent
-                        #else
-                        allTracksContent
-                        #endif
                     }
                 } else {
                     switch displayMode {
@@ -368,6 +386,7 @@ struct MusicLibraryView: View {
         .navigationTitle(library.name)
         .searchable(text: $search, prompt: displayMode == .allTracks ? "Titel/Künstler/Album durchsuchen" : "Titel, Künstler oder Album durchsuchen")
         .onChange(of: search) { newValue in
+            searchArtist = nil
             if !newValue.isEmpty, !allTracksLoaded {
                 Task { await loadAllTracks() }
             }
@@ -929,6 +948,99 @@ struct MusicLibraryView: View {
         }
     }
 
+    /// Gemeinsame Abschnitte der Suchtrefferansicht: Künstler (mit Zahl der
+    /// Alben/Titel) und Alben (mit Titelzahl); ein gewählter Künstler zeigt
+    /// stattdessen seine Alben mit „Zurück zur Suche“.
+    @ViewBuilder
+    private var searchArtistSections: some View {
+        if let artist = searchArtist {
+            Section {
+                Button {
+                    searchArtist = nil
+                } label: {
+                    Label("Zurück zur Suche", systemImage: "chevron.left")
+                }
+                ForEach(albums.filter { $0.artist == artist }) { album in
+                    MusicSearchAlbumRow(album: album)
+                        .contentShape(Rectangle())
+                        .onTapGesture { navigateToAlbum = album }
+                }
+            } header: {
+                Text(artist)
+            }
+        } else {
+            let artists = searchArtists
+            if !artists.isEmpty {
+                Section("Künstler · \(artists.count)") {
+                    ForEach(artists) { artist in
+                        MusicSearchArtistRow(artist: artist)
+                            .contentShape(Rectangle())
+                            .onTapGesture { searchArtist = artist.name }
+                    }
+                }
+            }
+            let hits = searchAlbumHits
+            if !hits.isEmpty {
+                Section("Alben · \(hits.count)") {
+                    ForEach(hits.prefix(48)) { album in
+                        MusicSearchAlbumRow(album: album)
+                            .contentShape(Rectangle())
+                            .onTapGesture { navigateToAlbum = album }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Suchtreffer auf iOS/tvOS: Künstler, Alben, Titel als kompakte Liste.
+    #if !os(macOS)
+    @ViewBuilder
+    private var musicSearchResultsContent: some View {
+        let tracks = filteredTracks
+        if searchArtists.isEmpty && searchAlbumHits.isEmpty && tracks.isEmpty {
+            ContentUnavailableMessage(text: "Kein Künstler, Album oder Titel passt zur Suche.")
+        } else {
+            List {
+                searchArtistSections
+                if searchArtist == nil, !tracks.isEmpty {
+                    Section("Titel · \(tracks.count)") {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { idx, track in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(track.displayTitle)
+                                        .fontWeight(musicPlayer.currentItem?.id == track.id ? .semibold : .regular)
+                                    Text([track.artist, track.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if musicPlayer.currentItem?.id == track.id, musicPlayer.isPlaying {
+                                    Image(systemName: "speaker.wave.2.fill").foregroundStyle(Color.accentColor)
+                                }
+                                Text(track.durationLabel).font(.caption).foregroundStyle(.secondary)
+                                MusicFavoriteButton(isFavorite: track.favorite) { newValue in
+                                    try? await client.setFavorite(itemId: track.id, favorite: newValue)
+                                }
+                                MusicDownloadIcon(item: track)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                musicPlayer.play(queue: tracks, startIndex: idx, client: client)
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .safeAreaInset(edge: .bottom) {
+                if musicPlayer.currentItem != nil {
+                    Color.clear.frame(height: 64)
+                }
+            }
+        }
+    }
+    #endif
+
     #if os(macOS)
     /// Vereinheitlichte Suchtreffer-Ansicht (seit 2026-09-13) — Pendant zu
     /// `_render_search` in GoldfishLinux (`windows/music_page.py`): passende
@@ -942,32 +1054,13 @@ struct MusicLibraryView: View {
     /// Definition oben) — hier wird nur noch gerendert, nicht mehr gefiltert.
     @ViewBuilder
     private var musicSearchResultsContent: some View {
-        let albums = filteredAlbums
         let tracks = filteredTracks
-        if albums.isEmpty && tracks.isEmpty {
-            ContentUnavailableMessage(text: "Kein Album und kein Titel passt zur Suche.")
+        if searchArtists.isEmpty && searchAlbumHits.isEmpty && tracks.isEmpty {
+            ContentUnavailableMessage(text: "Kein Künstler, Album oder Titel passt zur Suche.")
         } else {
             List {
-                if !albums.isEmpty {
-                    Section("Alben · \(albums.count)") {
-                        // Analog Linux' `Gtk.FlowBox`: adaptive Spaltenzahl je
-                        // Fensterbreite, jede Kachel klickbar wie eine normale
-                        // Album-Kachel. Bewusst gedeckelt auf die ersten 48
-                        // Treffer (identisch zu Linux' `albums[:48]`) — eine
-                        // Suche mit hunderten Treffern soll nicht das ganze
-                        // Grid vor der eigentlich gesuchten Titel-Tabelle
-                        // aufblähen.
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 8)], alignment: .leading, spacing: 8) {
-                            ForEach(albums.prefix(48)) { album in
-                                MusicSearchAlbumChip(album: album)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { navigateToAlbum = album }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-                if !tracks.isEmpty {
+                searchArtistSections
+                if searchArtist == nil, !tracks.isEmpty {
                     Section("Titel · \(tracks.count)") {
                         MusicTrackListHeader(
                             titleWidth: $atTitleWidth, artistWidth: $atArtistWidth, albumWidth: $atAlbumWidth,
@@ -1000,6 +1093,60 @@ struct MusicLibraryView: View {
         }
     }
     #endif
+}
+
+/// Künstler-Treffer der Musiksuche (aus der Albumliste abgeleitet).
+private struct MusicSearchArtist: Identifiable {
+    let name: String
+    var albumCount: Int
+    var songCount: Int
+    var coverAlbumId: Int64?
+    var id: String { name }
+}
+
+private struct MusicSearchArtistRow: View {
+    let artist: MusicSearchArtist
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let cover = artist.coverAlbumId {
+                PosterImage(url: client.albumCoverURL(albumId: cover), aspect: 1.0, placeholderSystemImage: "music.mic")
+                    .frame(width: 44, height: 44)
+                    .clipShape(Circle())
+            }
+            Text(artist.name).lineLimit(1)
+            Spacer(minLength: 8)
+            Text("\(artist.albumCount) \(artist.albumCount == 1 ? "Album" : "Alben") · \(artist.songCount) Titel")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct MusicSearchAlbumRow: View {
+    let album: MusicAlbum
+    @EnvironmentObject var client: GoldfishClient
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PosterImage(url: client.albumCoverURL(albumId: album.id), aspect: 1.0, placeholderSystemImage: "music.note")
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle).lineLimit(1)
+                if !album.artist.isEmpty {
+                    Text(album.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            if let count = album.trackCount, count > 0 {
+                Text("\(count) Titel").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
 }
 
 #if os(macOS)
