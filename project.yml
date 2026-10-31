@@ -89,7 +89,7 @@ targets:
         # Build 255 (2026-10-29): Verwaltung für Administratoren (Verschieben, Umbenennen,
         # Zuordnung, Metadaten, Scan, Protokoll). 1.12 -> 1.13.
         CFBundleShortVersionString: "1.14"
-        CFBundleVersion: "259"
+        CFBundleVersion: "260"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -257,7 +257,7 @@ targets:
         # Build 221 (2026-10-16): Genre-Sektion in der Suche (Server ab 1.5.12) und
         # Standard-Streamingqualität in den Einstellungen. 1.15 -> 1.16, Build 220 -> 221.
         CFBundleShortVersionString: "1.20"
-        CFBundleVersion: "227"
+        CFBundleVersion: "228"
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -350,7 +350,7 @@ targets:
         # SICHTBARE Version 1.8 -> 1.9, Build 15 -> 16.
         # Build 20 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.11 -> 1.12.
         CFBundleShortVersionString: "1.16"
-        CFBundleVersion: "28"
+        CFBundleVersion: "29"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos

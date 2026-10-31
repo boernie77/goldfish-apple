@@ -876,6 +876,30 @@ public final class DownloadManager: NSObject, ObservableObject {
         return candidate
     }
 
+    /// Musik-Downloads einer Bibliothek (cachedItem.libraryId + musicAlbumId).
+    private func musicRecordIds(libraryId: Int64, onlyUnfinished: Bool) -> [Int64] {
+        records.values.compactMap { rec -> Int64? in
+            guard let item = rec.cachedItem, item.libraryId == libraryId, item.musicAlbumId != nil else { return nil }
+            if onlyUnfinished && rec.state == .done { return nil }
+            return rec.itemId
+        }
+    }
+
+    /// Anzahl noch laufender/wartender/fehlgeschlagener Musik-Downloads der Bibliothek.
+    public func unfinishedMusicCount(libraryId: Int64) -> Int {
+        musicRecordIds(libraryId: libraryId, onlyUnfinished: true).count
+    }
+
+    /// Bricht alle noch nicht fertigen Musik-Downloads der Bibliothek ab (fertige bleiben).
+    public func cancelUnfinishedMusic(libraryId: Int64) {
+        for id in musicRecordIds(libraryId: libraryId, onlyUnfinished: true) { cancelDownload(itemId: id) }
+    }
+
+    /// Löscht ALLE Musik-Downloads der Bibliothek (fertige und laufende).
+    public func deleteAllMusic(libraryId: Int64) {
+        for id in musicRecordIds(libraryId: libraryId, onlyUnfinished: false) { deleteDownload(itemId: id) }
+    }
+
     public func cancelDownload(itemId: Int64) {
         // Plain `.cancel()` (NICHT `cancel(byProducingResumeData:)`): Foundation verwirft die
         // System-Teildatei damit sofort selbst — kein `resumeData`-Leck wie in `deleteDownload`.

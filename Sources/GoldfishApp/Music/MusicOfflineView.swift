@@ -14,6 +14,16 @@ struct MusicOfflineView: View {
     @EnvironmentObject var musicPlayer: MusicPlayerEngine
     @EnvironmentObject var downloads: DownloadManager
     @Environment(\.dismiss) private var dismiss
+    @AppStorage private var librarySyncEnabled: Bool
+    @State private var confirmCancel = false
+    @State private var confirmDeleteAll = false
+
+    init(library: Library) {
+        self.library = library
+        // Gleicher Schlüssel wie MusicLibraryView: nach dem Aufräumen muss der Sync aus sein,
+        // sonst lädt das nächste Öffnen der Bibliothek alles wieder an.
+        self._librarySyncEnabled = AppStorage(wrappedValue: false, "musicLibrarySync.\(library.id)")
+    }
 
     private var offlineTracks: [Item] {
         downloads.records.values
@@ -86,6 +96,39 @@ struct MusicOfflineView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Fertig") { dismiss() }
             }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        confirmCancel = true
+                    } label: {
+                        Label("Laufende Downloads abbrechen (\(downloads.unfinishedMusicCount(libraryId: library.id)))", systemImage: "xmark.circle")
+                    }
+                    .disabled(downloads.unfinishedMusicCount(libraryId: library.id) == 0)
+                    Button(role: .destructive) {
+                        confirmDeleteAll = true
+                    } label: {
+                        Label("Alle Offline-Musik löschen", systemImage: "trash")
+                    }
+                } label: {
+                    Label("Aufräumen", systemImage: "ellipsis.circle")
+                }
+            }
+        }
+        .confirmationDialog("Alle laufenden und wartenden Musik-Downloads abbrechen? Die Synchronisation wird ausgeschaltet.", isPresented: $confirmCancel, titleVisibility: .visible) {
+            Button("Abbrechen der Downloads", role: .destructive) {
+                librarySyncEnabled = false
+                downloads.cancelUnfinishedMusic(libraryId: library.id)
+            }
+            Button("Zurück", role: .cancel) {}
+        }
+        .confirmationDialog("ALLE offline gespeicherte Musik dieser Bibliothek löschen? Die Synchronisation wird ausgeschaltet.", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+            Button("Alles löschen", role: .destructive) {
+                librarySyncEnabled = false
+                downloads.deleteAllMusic(libraryId: library.id)
+            }
+            Button("Zurück", role: .cancel) {}
         }
     }
 
