@@ -615,7 +615,14 @@ public final class LocalTranscodeService: ObservableObject {
                 if proc.terminationStatus == 0 {
                     continuation.resume()
                 } else {
-                    let tail = stderrBox.tail(400)
+                    var tail = stderrBox.tail(400).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if tail.isEmpty {
+                        // Leerer stderr = ffmpeg ist vor dem ersten Output gestorben (z. B. Sandbox-
+                        // Start-Crash wegen fehlendem `com.apple.security.inherit`).
+                        tail = proc.terminationReason == .uncaughtSignal
+                            ? "ffmpeg wurde mit Signal \(proc.terminationStatus) beendet (keine Ausgabe)"
+                            : "ffmpeg Exit-Code \(proc.terminationStatus) (keine Ausgabe)"
+                    }
                     continuation.resume(throwing: TranscodeError.processFailed(tail))
                 }
             }
