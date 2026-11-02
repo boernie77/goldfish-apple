@@ -853,28 +853,38 @@ public struct MediaStream: Codable, Hashable {
         return parts.joined(separator: " · ")
     }
 
-    /// Nur unsere serverseitig erzeugten, einblendbaren Text-Untertitel
-    /// (📝 OCR / 🎤 KI) — Bild-Untertitel (PGS/VOBSUB) sind nicht darstellbar.
+    /// Bild-basierte Untertitel-Codecs (PGS/VOBSUB/DVB) – der Server kann sie nicht nach
+    /// WebVTT wandeln (`bitmapSubCodecs` in internal/api/subtitles.go, HTTP 415).
+    private static let bitmapSubCodecs: Set<String> = [
+        "hdmv_pgs_subtitle", "pgssub", "pgs", "dvd_subtitle", "dvdsub", "dvb_subtitle", "dvbsub",
+    ]
+
+    /// Einblendbarer Text-Untertitel: von uns erzeugte (📝 OCR / 🎤 KI), eingebettete
+    /// Textspuren (SRT/ASS/…) und Untertitel-Dateien neben dem Video (Sidecar). Der Server
+    /// liefert alle als WebVTT (`/api/subtitle/{id}/{index}.vtt`, wie der Browser-Player).
+    /// Bild-Untertitel (PGS/VOBSUB) sind nicht darstellbar.
     public var isDisplayableGeneratedSub: Bool {
-        codec == "webvtt-ocr" || codec == "webvtt-generated"
+        guard let c = codec?.lowercased() else { return true }
+        return !Self.bitmapSubCodecs.contains(c)
     }
 
-    /// Als `PreferredSubtitle` für die Player-Vorwahl. nil, wenn kein
-    /// einblendbarer erzeugter Untertitel.
+    /// Als `PreferredSubtitle` für die Player-Vorwahl. nil bei Bild-Untertiteln.
     public var asPreferredSubtitle: PreferredSubtitle? {
         guard isDisplayableGeneratedSub else { return nil }
-        return PreferredSubtitle(
-            streamIndex: index,
-            kind: codec == "webvtt-ocr" ? "ocr" : "generated",
-            language: language ?? "de"
-        )
+        let kind: String
+        switch codec {
+        case "webvtt-ocr": kind = "ocr"
+        case "webvtt-generated": kind = "generated"
+        default: kind = "embedded"
+        }
+        return PreferredSubtitle(streamIndex: index, kind: kind, language: language ?? "de")
     }
 }
 
 /// Untertitel-Vorwahl aus dem Detail-Dialog, an den Player durchgereicht.
 public struct PreferredSubtitle: Equatable, Hashable {
     public let streamIndex: Int
-    public let kind: String   // "ocr" | "generated"
+    public let kind: String   // "ocr" | "generated" | "embedded"
     public let language: String
     public init(streamIndex: Int, kind: String, language: String) {
         self.streamIndex = streamIndex
@@ -883,9 +893,11 @@ public struct PreferredSubtitle: Equatable, Hashable {
     }
     /// Server-Pfad zur WebVTT-Datei.
     public func vttPath(itemID: Int64) -> String {
-        kind == "ocr"
-            ? "/api/ocr-subtitle/\(itemID)/\(language).vtt"
-            : "/api/generated-subtitle/\(itemID)/\(language).vtt"
+        switch kind {
+        case "ocr": return "/api/ocr-subtitle/\(itemID)/\(language).vtt"
+        case "generated": return "/api/generated-subtitle/\(itemID)/\(language).vtt"
+        default: return "/api/subtitle/\(itemID)/\(streamIndex).vtt"
+        }
     }
 }
 
