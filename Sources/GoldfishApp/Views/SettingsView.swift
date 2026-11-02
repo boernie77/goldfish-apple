@@ -187,6 +187,18 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(macOS)
+                Section {
+                    Link("VLCKit / libVLC (LGPL 2.1)", destination: URL(string: "https://www.videolan.org/vlc/libvlc.html")!)
+                    Link("FFmpeg (LGPL 2.1)", destination: URL(string: "https://ffmpeg.org/legal.html")!)
+                    Link("LGPL-2.1-Lizenztext", destination: URL(string: "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html")!)
+                } header: {
+                    Text("Lizenzen")
+                } footer: {
+                    Text("Diese App verwendet VLCKit/libVLC (© VideoLAN und Mitwirkende) und FFmpeg, beide unter der GNU Lesser General Public License 2.1 oder neuer. Die Bibliotheken sind dynamisch eingebunden bzw. als eigene Programme beigelegt; Quelltext: code.videolan.org/videolan/VLCKit und ffmpeg.org. Weitergabe und Änderung der Bibliotheken regelt die LGPL.")
+                }
+                #endif
+
                 Section {
                     NavigationLink(value: SettingsDestination.shuffleScope) {
                         HStack {

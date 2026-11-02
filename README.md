@@ -159,3 +159,11 @@ sondern unter der **LGPL-2.1-or-later**: der Build läuft bewusst mit
 `--disable-gpl --disable-nonfree`, damit keine GPL-Komponenten enthalten sind
 (nachprüfbar über `ffmpeg -version`, Zeile `configuration:`). Quelltext und
 Lizenztext: <https://ffmpeg.org/download.html> bzw. <https://ffmpeg.org/legal.html>.
+
+Ebenfalls nur im Mac-Target eingebunden: **VLCKit / libVLC** (VideoLAN) als
+Fallback-Player für Dateien, die AVPlayer nicht abspielt (MKV, AV1, DTS …),
+ebenfalls **LGPL-2.1-or-later** und dynamisch gelinkt (`VLCKit.framework` im
+App-Bundle, austauschbar). Das ~400-MB-Binary wird nicht eingecheckt, sondern
+mit `scripts/fetch-vlckit.sh` geladen. Quelltext: <https://code.videolan.org/videolan/VLCKit>,
+Lizenztext: `Frameworks/VLCKit-COPYING.txt`. In der App unter Einstellungen →
+„Lizenzen" erwähnt.
