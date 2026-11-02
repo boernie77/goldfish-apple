@@ -3,6 +3,7 @@ import AVKit
 import GoldfishCore
 #if os(macOS)
 import AppKit
+import VLCKit
 #endif
 
 /// Plays a local file directly — no server involved, no transcode-seek complexity
@@ -64,6 +65,13 @@ struct LocalPlayerView: View {
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
     @State private var isConverting = false
+    /// VLC-Fallback (siehe VLCBackend): gesetzt, wenn AVPlayer die Datei nicht abspielen kann.
+    @State private var vlc: VLCBackend?
+    @State private var vlcTimer: Timer?
+    @State private var vlcAudioTracks: [VLCBackend.Track] = []
+    @State private var vlcSubTracks: [VLCBackend.Track] = []
+    @State private var vlcAudioSel: Int32 = -1
+    @State private var vlcSubSel: Int32 = -1
     @State private var isFullScreen = false
     @State private var hostWindow: NSWindow?
     /// Gleicher Fix wie `PlayerView.hasSizedWindowToVideo` (User-Anfrage 2026-08-19).
@@ -80,6 +88,19 @@ struct LocalPlayerView: View {
         self.startFromBeginning = startFromBeginning
         _queueIndex = State(initialValue: queue.firstIndex(where: { $0.id == item.id }) ?? 0)
         _randomHistory = State(initialValue: randomPool != nil ? [item] : [])
+    }
+
+    private var hasVLC: Bool {
+        #if os(macOS)
+        vlc != nil
+        #else
+        false
+        #endif
+    }
+    private func setVLCVolume(_ v: Float) {
+        #if os(macOS)
+        vlc?.setVolume(v)
+        #endif
     }
 
     private var hasPrev: Bool {
@@ -126,6 +147,10 @@ struct LocalPlayerView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.white.opacity(0.7))
                 }
+            } else if let vlc {
+                VLCVideoSurface(backend: vlc)
+                    .ignoresSafeArea()
+                    .overlay(Color.clear.contentShape(Rectangle()).onTapGesture { toggleControlsVisibility() })
             } else if let player {
                 NativePlayerView(player: player)
                     .ignoresSafeArea()
@@ -171,7 +196,7 @@ struct LocalPlayerView: View {
             VStack {
                 Color.clear.frame(height: 1).padding(.top, 28)
                 Spacer()
-                if player != nil {
+                if player != nil || hasVLC {
                     // Same fix as `PlayerView` — see that file's comment for why a `ZStack`
                     // (keeps the control bar exactly centered) replaced the previous
                     // single-Spacer `HStack` (shifted the whole pair off-center).
@@ -205,7 +230,7 @@ struct LocalPlayerView: View {
                             onTogglePlay: { togglePlay(); resetAutoHide() },
                             onSkip: { seek(to: currentTime + $0); resetAutoHide() },
                             onScrubEnd: { seek(to: $0); resetAutoHide() },
-                            onVolumeChange: { player?.volume = $0; resetAutoHide() },
+                            onVolumeChange: { player?.volume = $0; setVLCVolume($0); resetAutoHide() },
                             onPrev: { jump(by: -1) },
                             onNext: { jump(by: 1) },
                             isFullScreen: fullScreenStateForControlsBar,
@@ -222,6 +247,44 @@ struct LocalPlayerView: View {
             }
             .opacity(controlsVisible ? 1 : 0)
             .animation(.easeInOut(duration: 0.25), value: controlsVisible)
+
+            #if os(macOS)
+            if vlc != nil, vlcAudioTracks.count > 1 || vlcSubTracks.count > 1 {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Menu {
+                            if vlcAudioTracks.count > 1 {
+                                Section("Tonspur") {
+                                    ForEach(vlcAudioTracks) { t in
+                                        Button { vlc?.currentAudioTrack = t.id; vlcAudioSel = t.id } label: {
+                                            Text(t.name + (t.id == vlcAudioSel ? "  ✓" : ""))
+                                        }
+                                    }
+                                }
+                            }
+                            if vlcSubTracks.count > 1 {
+                                Section("Untertitel") {
+                                    ForEach(vlcSubTracks) { t in
+                                        Button { vlc?.currentSubtitleTrack = t.id; vlcSubSel = t.id } label: {
+                                            Text(t.name + (t.id == vlcSubSel ? "  ✓" : ""))
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "captions.bubble").padding(8)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .foregroundStyle(.white)
+                        .padding(.top, 36).padding(.trailing, 24)
+                    }
+                    Spacer()
+                }
+                .opacity(controlsVisible ? 1 : 0)
+            }
+            #endif
         }
         .task(id: item.id) { await setUp() }
         .confirmationDialog("\"\(item.displayTitle)\" wirklich von der Festplatte löschen?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
@@ -429,6 +492,10 @@ struct LocalPlayerView: View {
             // video + DTS audio in an .mkv — AVFoundation reads the file fine, just can't
             // decode the audio track, `asset.load(.isPlayable)` returns false, no thrown error).
             let playable = (try? await AVURLAsset(url: sourceURL).load(.isPlayable)) ?? false
+            if !playable, VLCBackend.isEnabled {
+                startVLC(sourceURL: sourceURL)
+                return
+            }
             if !playable {
                 isConverting = true
                 do {
@@ -517,6 +584,58 @@ struct LocalPlayerView: View {
         }
     }
 
+    #if os(macOS)
+    /// Spielt die Datei direkt über VLCKit (kein AVPlayer, keine Konvertierung).
+    private func startVLC(sourceURL: URL) {
+        transcode.beginPlayback()
+        let start = (!startFromBeginning && item.resumePosSec > 5) ? item.resumePosSec : 0
+        let backend = VLCBackend(url: sourceURL, startSeconds: start)
+        backend.setVolume(volume)
+        vlc = backend
+        isPlaying = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { backend.play() }
+
+        vlcTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in
+                guard let v = vlc, v === backend else { return }
+                if v.hasFailed {
+                    errorMessage = "Die Datei konnte auch mit der VLC-Engine nicht abgespielt werden."
+                    teardown()
+                    return
+                }
+                if v.hasEnded {
+                    localLibrary.setWatched(item, watched: true)
+                    localLibrary.setResume(item, seconds: 0)
+                    if let pool = randomPool, !pool.isEmpty { jump(by: 1) } else { isPlaying = false }
+                    return
+                }
+                if !isScrubbing { currentTime = v.currentSeconds }
+                let d = v.durationSeconds
+                if d > 0 { duration = d }
+                isPlaying = v.isPlaying
+                let size = v.videoSize
+                if size.width > 0, size.height > 0 {
+                    currentResolutionLabel = Self.resolutionLabel(for: size)
+                    if !hasSizedWindowToVideo {
+                        hasSizedWindowToVideo = true
+                        sizeWindowToVideo(size)
+                    }
+                }
+                if vlcAudioTracks.isEmpty || vlcSubTracks.isEmpty {
+                    vlcAudioTracks = v.audioTracks
+                    vlcSubTracks = v.subtitleTracks
+                    vlcAudioSel = v.currentAudioTrack
+                    vlcSubSel = v.currentSubtitleTrack
+                }
+            }
+        }
+        resetAutoHide()
+        resumeTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+            Task { @MainActor in saveResume() }
+        }
+    }
+    #endif
+
     private func selectAudioOption(_ option: AVMediaSelectionOption) {
         guard let group = audioSelectionGroup else { return }
         player?.currentItem?.select(option, in: group)
@@ -545,22 +664,60 @@ struct LocalPlayerView: View {
             transcode.endPlayback()
             #endif
         }
+        #if os(macOS)
+        if let v = vlc {
+            vlcTimer?.invalidate()
+            vlcTimer = nil
+            let seconds = v.currentSeconds
+            v.stop()
+            if seconds.isFinite {
+                if duration > 0, seconds >= duration * 0.9 {
+                    localLibrary.setWatched(item, watched: true)
+                    localLibrary.setResume(item, seconds: 0)
+                } else if seconds > 0 {
+                    localLibrary.setResume(item, seconds: seconds)
+                }
+            }
+            transcode.endPlayback()
+            vlc = nil
+            vlcAudioTracks = []
+            vlcSubTracks = []
+            hasSizedWindowToVideo = false
+        }
+        #endif
         self.player = nil
     }
 
     private func togglePlay() {
+        #if os(macOS)
+        if let v = vlc {
+            if v.isPlaying { v.pause() } else { v.play() }
+            isPlaying = v.isPlaying
+            return
+        }
+        #endif
         guard let player else { return }
         if player.timeControlStatus == .playing { player.pause() } else { player.play() }
     }
 
     private func seek(to target: Double) {
-        guard let player else { return }
         let clamped = duration > 0 ? max(0, min(target, duration)) : max(0, target)
+        #if os(macOS)
+        if let v = vlc { v.seek(to: clamped); currentTime = clamped; return }
+        #endif
+        guard let player else { return }
         player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
         currentTime = clamped
     }
 
     private func saveResume() {
+        #if os(macOS)
+        if let v = vlc {
+            let sec = v.currentSeconds
+            if sec.isFinite, sec > 0 { localLibrary.setResume(item, seconds: sec) }
+            return
+        }
+        #endif
         guard let player else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds > 0 else { return }

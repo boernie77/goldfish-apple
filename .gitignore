@@ -11,3 +11,6 @@ build/
 
 # Projektlokale Hermes-Skills (Symlink auf .claude/skills — nur lokal)
 /.hermes/
+
+# VLCKit-Binary (403 MB) – per scripts/fetch-vlckit.sh laden
+/Frameworks/VLCKit.xcframework/

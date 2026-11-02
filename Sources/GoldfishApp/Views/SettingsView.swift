@@ -93,6 +93,7 @@ struct SettingsView: View {
     @State private var watchLinks: [WatchLink] = []
     #if os(macOS)
     @EnvironmentObject var transcode: LocalTranscodeService
+    @AppStorage(VLCBackend.enabledKey) private var useVLCFallback = true
     // User-Anfrage 2026-08-26: manueller Sofort-Cleanup für "schnelle" (reine Remux-)
     // Konvertierungen, die vollen Speicher verursacht hatten — siehe
     // `LocalTranscodeService.deleteAllFastConversions`-Kommentar.
@@ -464,6 +465,12 @@ struct SettingsView: View {
                 // Download" versteckt; jetzt reicht "hat eine lokale Bibliothek".
                 if !localLibrary.libraries.isEmpty {
                     Section {
+                    Toggle("Mit VLC-Engine abspielen (statt umzuwandeln)", isOn: $useVLCFallback)
+                } footer: {
+                    Text("Test: Dateien, die macOS nicht abspielen kann (MKV, AV1, DTS …), laufen direkt über die eingebaute VLC-Engine – ohne Konvertierung und ohne Cache-Kopie auf dem Mac. Ausschalten stellt die bisherige Formatanpassung wieder her.")
+                }
+
+                Section {
                         if let current = ownCurrentLocalItem {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Wird angepasst: \(current.displayTitle)")

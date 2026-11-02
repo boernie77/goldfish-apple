@@ -325,6 +325,9 @@ public final class LocalTranscodeService: ObservableObject {
     /// siehe dort) — dauerhaft im `thumbsDir` gespeichert, unabhängig vom (jetzt gar nicht
     /// mehr befüllten) Transcode-Cache für diese Dateien.
     public func enqueueCompatibilityCheck(items: [LocalItem], fileURLProvider: @escaping @MainActor (LocalItem) -> URL?) {
+        // VLC-Fallback aktiv (Einstellung, Default an): nichts vorab konvertieren – der Player
+        // spielt solche Dateien direkt. Schlüssel identisch zu `VLCBackend.enabledKey`.
+        if UserDefaults.standard.object(forKey: "goldfish.mac.vlcFallback") as? Bool ?? true { return }
         Task {
             var slow: [LocalItem] = []
             for item in items {
