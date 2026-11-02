@@ -204,8 +204,10 @@ struct LocalPlayerView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 if let currentResolutionLabel {
-                                    Text(currentResolutionLabel)
+                                    Text(currentResolutionLabel + (hasVLC ? " · VLC" : ""))
                                         .font(.caption2.bold())
+                                } else if hasVLC {
+                                    Text("VLC").font(.caption2.bold())
                                 }
                                 Text(item.displayTitle)
                                     .font(.caption2)
