@@ -94,8 +94,10 @@ targets:
         # Build 251 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.8 -> 1.9.
         # Build 255 (2026-10-29): Verwaltung für Administratoren (Verschieben, Umbenennen,
         # Zuordnung, Metadaten, Scan, Protokoll). 1.12 -> 1.13.
-        CFBundleShortVersionString: "1.14"
-        CFBundleVersion: "270"
+        # Build 271 (2026-11-02): ffmpeg-Sandbox-Fix, VLC-Engine als Fallback-Player,
+        # Lizenzhinweise. 1.14 -> 1.15.
+        CFBundleShortVersionString: "1.15"
+        CFBundleVersion: "271"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
