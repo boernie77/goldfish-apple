@@ -1130,11 +1130,21 @@ public final class GoldfishClient: ObservableObject {
     /// (`PlaybackProfile.id`, z. B. "720p") — der Server nutzt sie als echten
     /// Auflösungs-/Bitrate-Cap, NUR wenn das Item ihn tatsächlich überschreitet.
     /// `nil`/"orig" = weiterhin unverändert das Original laden (kein Cap-Default).
-    public func downloadFileURL(itemId: Int64, profile: String? = nil) -> URL? {
+    public func downloadFileURL(itemId: Int64, profile: String? = nil, videoOriginalOK: Bool = false) -> URL? {
         guard let base = assetURL("/api/download/\(itemId)") else { return nil }
         var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        var items = [URLQueryItem(name: "compat", value: "1")]
-        if let profile, profile != "orig" {
+        let wantsProfile = profile != nil && profile != "orig"
+        var items: [URLQueryItem] = []
+        #if os(macOS)
+        // Mac mit VLC-Engine (Schalter „goldfish.mac.vlcFallback“, Standard an): Originaldatei
+        // laden, keine Server-Formatanpassung – VLC spielt MKV/DTS/ASS direkt. Nur bei einer
+        // gewählten Qualitätsstufe muss der Server weiterhin umwandeln.
+        let vlcOn = UserDefaults.standard.object(forKey: "goldfish.mac.vlcFallback") as? Bool ?? true
+        if !(vlcOn && videoOriginalOK) || wantsProfile { items.append(URLQueryItem(name: "compat", value: "1")) }
+        #else
+        items.append(URLQueryItem(name: "compat", value: "1"))
+        #endif
+        if wantsProfile, let profile {
             items.append(URLQueryItem(name: "profile", value: profile))
         }
         comps?.queryItems = items

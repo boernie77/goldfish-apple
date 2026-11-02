@@ -938,7 +938,7 @@ struct DownloadButtonRow: View {
     }
 
     private func startDownload() {
-        guard let url = client.downloadFileURL(itemId: item.id, profile: StreamingSettings.serverProfile(profile)) else { return }
+        guard let url = client.downloadFileURL(itemId: item.id, profile: StreamingSettings.serverProfile(profile), videoOriginalOK: true) else { return }
         downloads.startDownload(item: item, from: url)
     }
 }
