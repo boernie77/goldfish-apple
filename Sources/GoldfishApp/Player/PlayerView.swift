@@ -205,6 +205,12 @@ struct PlayerView: View {
     @State private var audioSelectionGroup: AVMediaSelectionGroup?
     @State private var audioOptions: [AVMediaSelectionOption] = []
     @State private var selectedAudioOption: AVMediaSelectionOption?
+    /// Eingebettete Untertitel der abgespielten Datei (Offline-Download / Direct Play):
+    /// `AVMediaSelectionGroup(.legible)` – der Server legt Text-Untertitel seit 1.6.7 als
+    /// `mov_text` in die Download-Datei.
+    @State private var avSubtitleGroup: AVMediaSelectionGroup?
+    @State private var avSubtitleOptions: [AVMediaSelectionOption] = []
+    @State private var selectedAVSubtitle: AVMediaSelectionOption?
 
     /// Tonspur-Auswahl bei einer Server-Transcode-Session: hier gibt es KEINE
     /// lokale `AVMediaSelectionGroup` (der HLS-Stream enthält nur die eine vom
@@ -578,6 +584,9 @@ struct PlayerView: View {
                             subtitleStreams: subtitleStreams,
                             selectedSubtitle: subtitlesOn ? selectedSubtitle : nil,
                             onSelectSubtitle: { selectSubtitle($0); resetAutoHide() },
+                            avSubtitleOptions: avSubtitleOptions,
+                            selectedAVSubtitle: selectedAVSubtitle,
+                            onSelectAVSubtitle: { selectAVSubtitle($0); resetAutoHide() },
                             tvFocusTarget: $tvFocusTarget
                         )
                         .padding(.bottom, 24)
@@ -1004,11 +1013,28 @@ struct PlayerView: View {
         audioSelectionGroup = nil
         audioOptions = []
         selectedAudioOption = nil
+        avSubtitleGroup = nil
+        avSubtitleOptions = []
+        selectedAVSubtitle = nil
         guard let asset = player.currentItem?.asset else { return }
+        if let sg = try? await asset.loadMediaSelectionGroup(for: .legible) {
+            let opts = AVMediaSelectionGroup.mediaSelectionOptions(from: sg.options, withoutMediaCharacteristics: [.containsOnlyForcedSubtitles])
+            if !opts.isEmpty {
+                avSubtitleGroup = sg
+                avSubtitleOptions = opts
+                selectedAVSubtitle = player.currentItem?.currentMediaSelection.selectedMediaOption(in: sg)
+            }
+        }
         guard let group = try? await asset.loadMediaSelectionGroup(for: .audible) else { return }
         audioSelectionGroup = group
         audioOptions = group.options
         selectedAudioOption = player.currentItem?.currentMediaSelection.selectedMediaOption(in: group) ?? group.defaultOption
+    }
+
+    private func selectAVSubtitle(_ option: AVMediaSelectionOption?) {
+        guard let group = avSubtitleGroup else { return }
+        player?.currentItem?.select(option, in: group)
+        selectedAVSubtitle = option
     }
 
     private func selectAudioOption(_ option: AVMediaSelectionOption) {
@@ -1957,6 +1983,10 @@ private struct PlayerControlsBar: View {
     var subtitleStreams: [MediaStream] = []
     var selectedSubtitle: PreferredSubtitle? = nil
     var onSelectSubtitle: ((PreferredSubtitle?) -> Void)? = nil
+    /// Eingebettete Untertitel der Datei selbst (Offline-Download, Direct Play).
+    var avSubtitleOptions: [AVMediaSelectionOption] = []
+    var selectedAVSubtitle: AVMediaSelectionOption? = nil
+    var onSelectAVSubtitle: ((AVMediaSelectionOption?) -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -2203,6 +2233,20 @@ private struct PlayerControlsBar: View {
                         Button(action: onToggleSubtitles) {
                             Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")
                                 .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
+                        }
+                    } else if !avSubtitleOptions.isEmpty, let onSelectAVSubtitle {
+                        Menu {
+                            Button { onSelectAVSubtitle(nil) } label: {
+                                if selectedAVSubtitle == nil { Label("Aus", systemImage: "checkmark") } else { Text("Aus") }
+                            }
+                            ForEach(avSubtitleOptions, id: \.self) { o in
+                                Button { onSelectAVSubtitle(o) } label: {
+                                    if o == selectedAVSubtitle { Label(o.displayName, systemImage: "checkmark") } else { Text(o.displayName) }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: selectedAVSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(selectedAVSubtitle != nil ? Color.yellow : Color.white)
                         }
                     }
                     #endif
