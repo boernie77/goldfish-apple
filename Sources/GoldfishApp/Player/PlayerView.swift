@@ -221,6 +221,9 @@ struct PlayerView: View {
     /// hier ebenfalls absolut (virtualOffset schon eingerechnet) → kein Shift.
     @State private var subtitleCues: [SubtitleCue] = []
     @State private var subtitlesOn = false
+    /// Alle einblendbaren Untertitel (📝 OCR / 🎤 KI) des laufenden Videos – Auswahl im Player-Menü.
+    @State private var subtitleStreams: [MediaStream] = []
+    @State private var selectedSubtitle: PreferredSubtitle?
 
     @State private var controlsVisible = true
     @State private var hideControlsTask: Task<Void, Never>?
@@ -572,6 +575,9 @@ struct PlayerView: View {
                             hasSubtitles: !subtitleCues.isEmpty,
                             subtitlesOn: subtitlesOn,
                             onToggleSubtitles: { subtitlesOn.toggle(); resetAutoHide() },
+                            subtitleStreams: subtitleStreams,
+                            selectedSubtitle: subtitlesOn ? selectedSubtitle : nil,
+                            onSelectSubtitle: { selectSubtitle($0); resetAutoHide() },
                             tvFocusTarget: $tvFocusTarget
                         )
                         .padding(.bottom, 24)
@@ -1038,6 +1044,16 @@ struct PlayerView: View {
         return subtitleCues.first(where: { currentTime >= $0.start && currentTime <= $0.end })?.text
     }
 
+    /// Untertitel im laufenden Video wechseln (nil = aus).
+    private func selectSubtitle(_ ps: PreferredSubtitle?) {
+        selectedSubtitle = ps
+        guard let ps else {
+            subtitlesOn = false
+            return
+        }
+        Task { await loadSubtitleCues(ps) }
+    }
+
     /// Lädt die erzeugte WebVTT (📝 OCR / 🎤 KI), parst sie und aktiviert das Overlay.
     private func loadSubtitleCues(_ pref: PreferredSubtitle) async {
         let path = pref.vttPath(itemID: item.id)
@@ -1121,6 +1137,8 @@ struct PlayerView: View {
         trickplaySprite = nil
         subtitleCues = []
         subtitlesOn = false
+        subtitleStreams = []
+        selectedSubtitle = nil
         // Bei jedem Item-Wechsel (⏮/⏭) zurück auf Server-Default; sonst würde die
         // Audiospur-Wahl vom vorigen Video auf ein Item mit ganz anderer
         // Stream-Reihenfolge übertragen.
@@ -1197,6 +1215,9 @@ struct PlayerView: View {
                         ?? transcodeAudioTracks.first?.index
                 }
             }
+            // Alle einblendbaren Untertitel fürs Player-Menü (auch ohne Vorwahl).
+            subtitleStreams = (playback.streams ?? []).filter { $0.type == "subtitle" && $0.isDisplayableGeneratedSub }
+            selectedSubtitle = preferredSubtitle
             // Untertitel-Vorwahl aus dem Detail-Dialog laden (WebVTT-Overlay).
             if let ps = preferredSubtitle {
                 await loadSubtitleCues(ps)
@@ -1932,6 +1953,10 @@ private struct PlayerControlsBar: View {
     var hasSubtitles: Bool = false
     var subtitlesOn: Bool = false
     var onToggleSubtitles: (() -> Void)? = nil
+    /// Auswahl-Menü (macOS/iOS): alle verfügbaren Untertitel-Spuren + „Aus".
+    var subtitleStreams: [MediaStream] = []
+    var selectedSubtitle: PreferredSubtitle? = nil
+    var onSelectSubtitle: ((PreferredSubtitle?) -> Void)? = nil
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -2150,12 +2175,37 @@ private struct PlayerControlsBar: View {
                         }
                     }
                     #endif
+                    #if os(tvOS)
                     if hasSubtitles, let onToggleSubtitles {
                         Button(action: onToggleSubtitles) {
                             Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")
                                 .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
                         }
                     }
+                    #else
+                    if !subtitleStreams.isEmpty, let onSelectSubtitle {
+                        Menu {
+                            Button { onSelectSubtitle(nil) } label: {
+                                if selectedSubtitle == nil { Label("Aus", systemImage: "checkmark") } else { Text("Aus") }
+                            }
+                            ForEach(subtitleStreams, id: \.index) { s in
+                                if let ps = s.asPreferredSubtitle {
+                                    Button { onSelectSubtitle(ps) } label: {
+                                        if ps == selectedSubtitle { Label(s.detailLabel, systemImage: "checkmark") } else { Text(s.detailLabel) }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: selectedSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(selectedSubtitle != nil ? Color.yellow : Color.white)
+                        }
+                    } else if hasSubtitles, let onToggleSubtitles {
+                        Button(action: onToggleSubtitles) {
+                            Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
+                        }
+                    }
+                    #endif
                     // User-Anfrage 2026-09-14 ("sowas wie Airstream" — gemeint war
                     // AirPlay, im Browser-Player schon lange live): der native Player
                     // schaltet AVPlayerViewControllers eigene Steuerleiste bewusst

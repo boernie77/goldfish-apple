@@ -32,6 +32,21 @@ final class VLCBackend {
         player.media = media
     }
 
+    /// Externe Untertitel-Datei (.srt/.ass/…) zuschalten.
+    func addSubtitleFile(_ url: URL) {
+        _ = player.addPlaybackSlave(url, type: .subtitle, enforce: false)
+    }
+
+    /// Untertitel-Dateien neben dem Video: gleicher Basisname (`Film.srt`, `Film.de.srt`, …).
+    static func sidecarSubtitles(for videoURL: URL) -> [URL] {
+        let dir = videoURL.deletingLastPathComponent()
+        let base = videoURL.deletingPathExtension().lastPathComponent
+        let exts: Set<String> = ["srt", "ass", "ssa", "vtt", "sub"]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        return files.filter { exts.contains($0.pathExtension.lowercased()) && $0.deletingPathExtension().lastPathComponent.hasPrefix(base) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     func play() { player.play() }
     func pause() { player.pause() }
     func stop() { player.stop() }
@@ -54,7 +69,7 @@ final class VLCBackend {
     func setVolume(_ v: Float) { player.audio?.volume = Int32(max(0, min(1, v)) * 100) }
 
     var audioTracks: [Track] { Self.tracks(player.audioTrackIndexes, player.audioTrackNames) }
-    var subtitleTracks: [Track] { Self.tracks(player.videoSubTitlesIndexes, player.videoSubTitlesNames) }
+    var subtitleTracks: [Track] { Self.tracks(player.videoSubTitlesIndexes, player.videoSubTitlesNames).filter { $0.id >= 0 } }
     var currentAudioTrack: Int32 {
         get { player.currentAudioTrackIndex }
         set { player.currentAudioTrackIndex = newValue }

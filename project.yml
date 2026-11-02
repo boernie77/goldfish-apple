@@ -96,8 +96,8 @@ targets:
         # Zuordnung, Metadaten, Scan, Protokoll). 1.12 -> 1.13.
         # Build 271 (2026-11-02): ffmpeg-Sandbox-Fix, VLC-Engine als Fallback-Player,
         # Lizenzhinweise. 1.14 -> 1.15.
-        CFBundleShortVersionString: "1.15"
-        CFBundleVersion: "271"
+        CFBundleShortVersionString: "1.16"
+        CFBundleVersion: "272"
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen

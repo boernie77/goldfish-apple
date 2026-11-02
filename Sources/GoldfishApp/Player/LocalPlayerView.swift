@@ -47,6 +47,10 @@ struct LocalPlayerView: View {
     @State private var audioSelectionGroup: AVMediaSelectionGroup?
     @State private var audioOptions: [AVMediaSelectionOption] = []
     @State private var selectedAudioOption: AVMediaSelectionOption?
+    /// Untertitel-Spuren des AVPlayers (eingebettet, `.legible`).
+    @State private var subtitleGroup: AVMediaSelectionGroup?
+    @State private var subtitleOptions: [AVMediaSelectionOption] = []
+    @State private var selectedSubtitleOption: AVMediaSelectionOption?
     @State private var timeObserverToken: Any?
     @State private var didEndObserverToken: NSObjectProtocol?
 
@@ -249,25 +253,41 @@ struct LocalPlayerView: View {
             .animation(.easeInOut(duration: 0.25), value: controlsVisible)
 
             #if os(macOS)
-            if vlc != nil, vlcAudioTracks.count > 1 || vlcSubTracks.count > 1 {
+            if (vlc != nil && (vlcAudioTracks.count > 1 || !vlcSubTracks.isEmpty)) || !subtitleOptions.isEmpty {
                 VStack {
                     HStack {
                         Spacer()
                         Menu {
-                            if vlcAudioTracks.count > 1 {
-                                Section("Tonspur") {
-                                    ForEach(vlcAudioTracks) { t in
-                                        Button { vlc?.currentAudioTrack = t.id; vlcAudioSel = t.id } label: {
-                                            Text(t.name + (t.id == vlcAudioSel ? "  ✓" : ""))
+                            if vlc != nil {
+                                if vlcAudioTracks.count > 1 {
+                                    Section("Tonspur") {
+                                        ForEach(vlcAudioTracks) { t in
+                                            Button { vlc?.currentAudioTrack = t.id; vlcAudioSel = t.id } label: {
+                                                Text(t.name + (t.id == vlcAudioSel ? "  ✓" : ""))
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            if vlcSubTracks.count > 1 {
+                                if !vlcSubTracks.isEmpty {
+                                    Section("Untertitel") {
+                                        Button { vlc?.currentSubtitleTrack = -1; vlcSubSel = -1 } label: {
+                                            Text("Aus" + (vlcSubSel == -1 ? "  ✓" : ""))
+                                        }
+                                        ForEach(vlcSubTracks) { t in
+                                            Button { vlc?.currentSubtitleTrack = t.id; vlcSubSel = t.id } label: {
+                                                Text(t.name + (t.id == vlcSubSel ? "  ✓" : ""))
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
                                 Section("Untertitel") {
-                                    ForEach(vlcSubTracks) { t in
-                                        Button { vlc?.currentSubtitleTrack = t.id; vlcSubSel = t.id } label: {
-                                            Text(t.name + (t.id == vlcSubSel ? "  ✓" : ""))
+                                    Button { selectSubtitleOption(nil) } label: {
+                                        Text("Aus" + (selectedSubtitleOption == nil ? "  ✓" : ""))
+                                    }
+                                    ForEach(subtitleOptions, id: \.self) { o in
+                                        Button { selectSubtitleOption(o) } label: {
+                                            Text(o.displayName + (o == selectedSubtitleOption ? "  ✓" : ""))
                                         }
                                     }
                                 }
@@ -496,6 +516,12 @@ struct LocalPlayerView: View {
                 startVLC(sourceURL: sourceURL)
                 return
             }
+            // Liegt eine Untertitel-Datei (.srt …) neben dem Video, kann AVPlayer sie nicht
+            // anzeigen – dann übernimmt die VLC-Engine.
+            if playable, VLCBackend.isEnabled, !VLCBackend.sidecarSubtitles(for: sourceURL).isEmpty {
+                startVLC(sourceURL: sourceURL)
+                return
+            }
             if !playable {
                 isConverting = true
                 do {
@@ -538,6 +564,18 @@ struct LocalPlayerView: View {
             audioSelectionGroup = group
             audioOptions = group.options
             selectedAudioOption = playerItem.currentMediaSelection.selectedMediaOption(in: group) ?? group.defaultOption
+        }
+
+        subtitleGroup = nil
+        subtitleOptions = []
+        selectedSubtitleOption = nil
+        if let group = try? await playerItem.asset.loadMediaSelectionGroup(for: .legible) {
+            let opts = AVMediaSelectionGroup.mediaSelectionOptions(from: group.options, withoutMediaCharacteristics: [.containsOnlyForcedSubtitles])
+            if !opts.isEmpty {
+                subtitleGroup = group
+                subtitleOptions = opts
+                selectedSubtitleOption = playerItem.currentMediaSelection.selectedMediaOption(in: group)
+            }
         }
 
         // User-Wunsch 2026-08-28: im Zufallsmodus am Videoende automatisch das
@@ -593,7 +631,10 @@ struct LocalPlayerView: View {
         backend.setVolume(volume)
         vlc = backend
         isPlaying = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { backend.play() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            backend.play()
+            for sub in VLCBackend.sidecarSubtitles(for: sourceURL) { backend.addSubtitleFile(sub) }
+        }
 
         vlcTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
@@ -621,9 +662,10 @@ struct LocalPlayerView: View {
                         sizeWindowToVideo(size)
                     }
                 }
-                if vlcAudioTracks.isEmpty || vlcSubTracks.isEmpty {
-                    vlcAudioTracks = v.audioTracks
-                    vlcSubTracks = v.subtitleTracks
+                let a = v.audioTracks, st = v.subtitleTracks
+                if a.count != vlcAudioTracks.count || st.count != vlcSubTracks.count {
+                    vlcAudioTracks = a
+                    vlcSubTracks = st
                     vlcAudioSel = v.currentAudioTrack
                     vlcSubSel = v.currentSubtitleTrack
                 }
@@ -635,6 +677,12 @@ struct LocalPlayerView: View {
         }
     }
     #endif
+
+    private func selectSubtitleOption(_ option: AVMediaSelectionOption?) {
+        guard let group = subtitleGroup else { return }
+        player?.currentItem?.select(option, in: group)
+        selectedSubtitleOption = option
+    }
 
     private func selectAudioOption(_ option: AVMediaSelectionOption) {
         guard let group = audioSelectionGroup else { return }
