@@ -157,6 +157,8 @@ struct PlayerView: View {
     /// start) if a NEWER call has started by the time it's ready to act — only the
     /// most recent call ever wins.
     @State private var setupGeneration = 0
+    /// Anlauf-Wächter hat schon einmal neu aufgebaut (siehe `armStartWatchdog`).
+    @State private var didRetryStall = false
 
     // MARK: - „Nächste Folge automatisch starten" (User-Wunsch 2026-09-18)
 
@@ -695,7 +697,7 @@ struct PlayerView: View {
             resetAutoHide()
         }
         #endif
-        .task(id: item.id) { await setUp() }
+        .task(id: item.id) { didRetryStall = false; await setUp() }
         .onDisappear {
             hideControlsTask?.cancel()
             #if os(macOS)
@@ -1375,9 +1377,30 @@ struct PlayerView: View {
             }
             p.play()
             startResumeTimer(for: p)
+            armStartWatchdog(for: p, expectedStart: virtualOffset)
         } catch {
             errorMessage = error.localizedDescription
             reportPlaybackErrorToServer(error.localizedDescription)
+        }
+    }
+
+    /// Anlauf-Wächter (Zufallswiedergabe-Hänger, 2026-11-05): Der Server liefert die Playlist,
+    /// der Player fordert aber nie ein Segment an und bleibt bei „nicht abspielbar“ stehen.
+    /// Rückt die Position nach 8 s nicht vor (und der Nutzer hat nicht pausiert), wird EINMAL
+    /// komplett neu aufgebaut — dasselbe, was ein Sprung in der Zeitleiste bewirkt.
+    private func armStartWatchdog(for p: AVPlayer, expectedStart: Double) {
+        let startedAt = Date()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard player === p, errorMessage == nil, !didRetryStall, !isScrubbing else { return }
+            let pos = p.currentTime().seconds
+            let advanced = pos.isFinite && pos > 0.5
+            let status = p.currentItem?.status.rawValue ?? -1
+            if advanced { return }
+            didRetryStall = true
+            let msg = "Anlauf-Wächter: nach \(Int(Date().timeIntervalSince(startedAt))) s kein Fortschritt (pos=\(pos), item.status=\(status), timeControl=\(p.timeControlStatus.rawValue), start=\(expectedStart)) – Player wird neu aufgebaut"
+            reportPlaybackErrorToServer(msg)
+            await setUp()
         }
     }
 
