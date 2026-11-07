@@ -824,7 +824,7 @@ struct PlayerView: View {
     #endif
 
     private func closePlayer() {
-        Task { await reportStop(reason: "closed") }
+        reportStop(reason: "closed")
         #if os(macOS)
         // Real bug found 2026-08-19: this cleared the window (`hostWindow?.close()`) but
         // never reset `PlayerLaunchCoordinator.pendingPlayer` to nil — SwiftUI's
@@ -987,7 +987,7 @@ struct PlayerView: View {
         nextEpisodeItem = nil
         nextEpisodeTitle = ""
         if isServerPlayback {
-            Task { await reportStop(reason: "closed") }
+            reportStop(reason: "closed")
         }
         resumeTimer?.invalidate()
         resumeTimer = nil
@@ -1683,7 +1683,7 @@ struct PlayerView: View {
             // Sitzung schon beendet) sind Folgen des Endes, keine Abbrüche.
             didFinishPlayback = true
             Task {
-                await reportStop(reason: "ended")
+                reportStop(reason: "ended")
                 await markWatchedNow()
                 // User-Wunsch 2026-09-18 („Nächste Folge automatisch starten"):
                 // endet eine Serienfolge und ist die Option aktiv, zunächst die
@@ -1818,10 +1818,16 @@ struct PlayerView: View {
     /// `setUp()` zurückgesetzt), egal ob über `didPlayToEndTime` oder
     /// manuelles Schließen ausgelöst. Best-effort (`try?`) — offline/ohne
     /// Netz bleibt es einfach aus, kein Blocker fürs Schließen des Players.
-    private func reportStop(reason: String) async {
+    /// WICHTIG: Item-ID, Position und Dauer werden SYNCHRON erfasst, bevor der Task startet.
+    /// Früher las der Task `item.id` erst beim Ausführen — nach ⏭/Zufall war `item` dann schon
+    /// das NEUE Video, der Server sperrte dieses per `StopAllForItem` für 3 s (503) und der
+    /// frisch gestartete Stream scheiterte → grauer „nicht abspielbar“-Bildschirm (2026-11-07).
+    private func reportStop(reason: String) {
         guard !playbackStopReported else { return }
         playbackStopReported = true
-        try? await client.reportPlaybackStop(itemId: item.id, reason: reason, positionSec: currentTime, durationSec: duration)
+        let id = item.id, pos = currentTime, dur = duration
+        let client = self.client
+        Task { try? await client.reportPlaybackStop(itemId: id, reason: reason, positionSec: pos, durationSec: dur) }
     }
 
     /// Meldet einen Wiedergabe-Fehler ans Server-Protokoll (User-Wunsch
