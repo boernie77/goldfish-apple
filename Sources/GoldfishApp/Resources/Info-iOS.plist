@@ -20,6 +20,8 @@
 	<string>1.23</string>
 	<key>CFBundleVersion</key>
 	<string>235</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Goldfish liest deine Playlists der Musik-App, damit du sie in Goldfish übernehmen kannst.</string>
 	<key>UIBackgroundModes</key>

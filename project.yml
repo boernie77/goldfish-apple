@@ -98,6 +98,9 @@ targets:
         # Lizenzhinweise. 1.14 -> 1.15.
         CFBundleShortVersionString: "1.19"
         CFBundleVersion: "277"
+        # Keine Export-Compliance-Abfrage mehr in App Store Connect: nur Standard-Verschlüsselung
+        # (HTTPS/TLS des Systems), keine eigene/nicht-ausgenommene Kryptografie.
+        ITSAppUsesNonExemptEncryption: false
     # App Sandbox RE-enabled 2026-09-07 (Mac App Store-Einreichung, User-Vorgabe) — siehe
     # GoldfishMac.entitlements für die volle Geschichte (war 2026-08-19 wegen
     # unvorhersehbar fehlschlagender Security-Scoped Bookmarks unter dem damaligen
@@ -269,6 +272,9 @@ targets:
         # Standard-Streamingqualität in den Einstellungen. 1.15 -> 1.16, Build 220 -> 221.
         CFBundleShortVersionString: "1.23"
         CFBundleVersion: "235"
+        # Keine Export-Compliance-Abfrage mehr in App Store Connect: nur Standard-Verschlüsselung
+        # (HTTPS/TLS des Systems), keine eigene/nicht-ausgenommene Kryptografie.
+        ITSAppUsesNonExemptEncryption: false
         # User-Report 2026-09-11 (direkt nach dem iOS-Musik-Port): "Wenn das
         # Iphone den Bildschirm ausmacht, dann geht auch die Musik aus.
         # Sollte im Hintergrund weiterspielen" — ohne den `audio`-Background-
@@ -362,6 +368,9 @@ targets:
         # Build 20 (2026-10-16): Genre-Sektion in der Suche, Standard-Streamingqualität. 1.11 -> 1.12.
         CFBundleShortVersionString: "1.17"
         CFBundleVersion: "36"
+        # Keine Export-Compliance-Abfrage mehr in App Store Connect: nur Standard-Verschlüsselung
+        # (HTTPS/TLS des Systems), keine eigene/nicht-ausgenommene Kryptografie.
+        ITSAppUsesNonExemptEncryption: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goldfish.tvos
