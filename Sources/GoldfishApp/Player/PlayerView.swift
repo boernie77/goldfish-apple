@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import GoldfishCore
+import CoreMedia
 #if os(macOS)
 import AppKit
 #endif
@@ -238,6 +239,14 @@ struct PlayerView: View {
     /// hier ebenfalls absolut (virtualOffset schon eingerechnet) → kein Shift.
     @State private var subtitleCues: [SubtitleCue] = []
     @State private var subtitlesOn = false
+    /// Untertitelgröße als Faktor auf die Basisgröße (22 pt). Gilt für das Overlay
+    /// (📝/🎤-Spuren) und per `textStyleRules` auch für eingebettete Spuren. tvOS startet
+    /// größer (Sofa-Abstand), der Wert ist pro Gerät gespeichert.
+    #if os(tvOS)
+    @AppStorage("goldfish.subtitleScale") private var subtitleScale: Double = 2.0
+    #else
+    @AppStorage("goldfish.subtitleScale") private var subtitleScale: Double = 1.0
+    #endif
     /// Alle einblendbaren Untertitel (📝 OCR / 🎤 KI) des laufenden Videos – Auswahl im Player-Menü.
     @State private var subtitleStreams: [MediaStream] = []
     @State private var selectedSubtitle: PreferredSubtitle?
@@ -464,14 +473,14 @@ struct PlayerView: View {
                 VStack {
                     Spacer()
                     Text(cue)
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 22 * subtitleScale, weight: .semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black.opacity(0.9), radius: 3, x: 0, y: 1)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 4)
                         .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-                        .padding(.bottom, controlsVisible ? 96 : 44)
+                        .padding(.bottom, (controlsVisible ? 96 : 44) + (subtitleScale - 1) * 10)
                 }
                 .allowsHitTesting(false)
                 .transition(.opacity)
@@ -603,6 +612,8 @@ struct PlayerView: View {
                             avSubtitleOptions: avSubtitleOptions,
                             selectedAVSubtitle: selectedAVSubtitle,
                             onSelectAVSubtitle: { selectAVSubtitle($0); resetAutoHide() },
+                            subtitleScale: subtitleScale,
+                            onSelectSubtitleScale: { subtitleScale = $0; applySubtitleScale(); resetAutoHide() },
                             tvFocusTarget: $tvFocusTarget
                         )
                         .padding(.bottom, 24)
@@ -1092,6 +1103,7 @@ struct PlayerView: View {
                 avSubtitleGroup = sg
                 avSubtitleOptions = opts
                 selectedAVSubtitle = player.currentItem?.currentMediaSelection.selectedMediaOption(in: sg)
+                applySubtitleScale()
             }
         }
         guard let group = try? await asset.loadMediaSelectionGroup(for: .audible) else { return }
@@ -1104,6 +1116,16 @@ struct PlayerView: View {
         guard let group = avSubtitleGroup else { return }
         player?.currentItem?.select(option, in: group)
         selectedAVSubtitle = option
+        applySubtitleScale()
+    }
+
+    /// Größe der eingebetteten (AVFoundation-)Untertitel: relative Schriftgröße in Prozent.
+    private func applySubtitleScale() {
+        guard let item = player?.currentItem else { return }
+        let rule = AVTextStyleRule(textMarkupAttributes: [
+            kCMTextMarkupAttribute_RelativeFontSize as String: subtitleScale * 100
+        ])
+        item.textStyleRules = rule.map { [$0] }
     }
 
     private func selectAudioOption(_ option: AVMediaSelectionOption) {
@@ -2171,6 +2193,22 @@ private struct PlayerControlsBar: View {
     var avSubtitleOptions: [AVMediaSelectionOption] = []
     var selectedAVSubtitle: AVMediaSelectionOption? = nil
     var onSelectAVSubtitle: ((AVMediaSelectionOption?) -> Void)? = nil
+    var subtitleScale: Double = 1.0
+    var onSelectSubtitleScale: ((Double) -> Void)? = nil
+
+    private static let subtitleScales: [(String, Double)] = [
+        ("Klein", 0.75), ("Normal", 1.0), ("Groß", 1.5), ("Sehr groß", 2.0), ("Riesig", 3.0),
+    ]
+
+    /// Größen-Einträge – identisch in `Menu` (iOS/Mac) und `.confirmationDialog` (tvOS).
+    @ViewBuilder private var subtitleSizeItems: some View {
+        if let onSelectSubtitleScale {
+            ForEach(Self.subtitleScales, id: \.1) { name, value in
+                let on = abs(value - subtitleScale) < 0.01
+                Button("Größe: \(name)\(on ? " ✓" : "")") { onSelectSubtitleScale(value) }
+            }
+        }
+    }
 
     @State private var scrubValue: Double = 0
     @State private var volumeBeforeMute: Float = 1.0
@@ -2406,6 +2444,7 @@ private struct PlayerControlsBar: View {
                                     Button(ps == selectedSubtitle ? "✓ \(s.detailLabel)" : s.detailLabel) { onSelectSubtitle(ps) }
                                 }
                             }
+                            subtitleSizeItems
                         }
                     } else if hasSubtitles, let onToggleSubtitles {
                         Button(action: onToggleSubtitles) {
@@ -2422,6 +2461,7 @@ private struct PlayerControlsBar: View {
                             ForEach(avSubtitleOptions, id: \.self) { o in
                                 Button(o == selectedAVSubtitle ? "✓ \(o.displayName)" : o.displayName) { onSelectAVSubtitle(o) }
                             }
+                            subtitleSizeItems
                         }
                     }
                     #else
@@ -2437,6 +2477,8 @@ private struct PlayerControlsBar: View {
                                     }
                                 }
                             }
+                            Divider()
+                            subtitleSizeItems
                         } label: {
                             Image(systemName: selectedSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
                                 .foregroundStyle(selectedSubtitle != nil ? Color.yellow : Color.white)
@@ -2456,6 +2498,8 @@ private struct PlayerControlsBar: View {
                                     if o == selectedAVSubtitle { Label(o.displayName, systemImage: "checkmark") } else { Text(o.displayName) }
                                 }
                             }
+                            Divider()
+                            subtitleSizeItems
                         } label: {
                             Image(systemName: selectedAVSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
                                 .foregroundStyle(selectedAVSubtitle != nil ? Color.yellow : Color.white)
