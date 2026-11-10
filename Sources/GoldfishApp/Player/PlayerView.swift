@@ -2186,6 +2186,7 @@ private struct PlayerControlsBar: View {
     #if os(tvOS)
     @State private var showingAudioOptionDialog = false
     @State private var showingTranscodeAudioDialog = false
+    @State private var showingSubtitleDialog = false
     #endif
     // Geteiltes FocusState-Ziel, das `PlayerView` besitzt und hier nur durchreicht,
     // damit der Play/Pause-Button explizit zurückfokussiert werden kann (siehe
@@ -2390,10 +2391,37 @@ private struct PlayerControlsBar: View {
                     }
                     #endif
                     #if os(tvOS)
-                    if hasSubtitles, let onToggleSubtitles {
+                    // tvOS: `Menu` öffnet in der Leiste nichts – daher wie bei der Tonspur
+                    // ein `.confirmationDialog` (erzeugte 📝/🎤-Spuren ODER eingebettete
+                    // Text-Untertitel; reiner Ein/Aus-Knopf nur, wenn es keine Auswahl gibt).
+                    if !subtitleStreams.isEmpty, let onSelectSubtitle {
+                        Button { showingSubtitleDialog = true } label: {
+                            Image(systemName: selectedSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(selectedSubtitle != nil ? Color.yellow : Color.white)
+                        }
+                        .confirmationDialog("Untertitel", isPresented: $showingSubtitleDialog, titleVisibility: .visible) {
+                            Button(selectedSubtitle == nil ? "✓ Aus" : "Aus") { onSelectSubtitle(nil) }
+                            ForEach(subtitleStreams, id: \.index) { s in
+                                if let ps = s.asPreferredSubtitle {
+                                    Button(ps == selectedSubtitle ? "✓ \(s.detailLabel)" : s.detailLabel) { onSelectSubtitle(ps) }
+                                }
+                            }
+                        }
+                    } else if hasSubtitles, let onToggleSubtitles {
                         Button(action: onToggleSubtitles) {
                             Image(systemName: subtitlesOn ? "captions.bubble.fill" : "captions.bubble")
                                 .foregroundStyle(subtitlesOn ? Color.yellow : Color.white)
+                        }
+                    } else if !avSubtitleOptions.isEmpty, let onSelectAVSubtitle {
+                        Button { showingSubtitleDialog = true } label: {
+                            Image(systemName: selectedAVSubtitle != nil ? "captions.bubble.fill" : "captions.bubble")
+                                .foregroundStyle(selectedAVSubtitle != nil ? Color.yellow : Color.white)
+                        }
+                        .confirmationDialog("Untertitel", isPresented: $showingSubtitleDialog, titleVisibility: .visible) {
+                            Button(selectedAVSubtitle == nil ? "✓ Aus" : "Aus") { onSelectAVSubtitle(nil) }
+                            ForEach(avSubtitleOptions, id: \.self) { o in
+                                Button(o == selectedAVSubtitle ? "✓ \(o.displayName)" : o.displayName) { onSelectAVSubtitle(o) }
+                            }
                         }
                     }
                     #else
