@@ -66,14 +66,15 @@ struct LibrariesView: View {
     private let columns = [GridItem(.adaptive(minimum: 190, maximum: 220), spacing: 20, alignment: .top)]
 
     private var mergedLocalLibraries: [LocalLibrary] {
-        localLibrary.libraries.filter { localLibrary.mergedLibraryIds.contains($0.id) }
+        localLibrary.libraries.filter { localLibrary.mergedLibraryIds.contains($0.id) && !localLibrary.hiddenLibraryIds.contains($0.id) }
     }
     private var standaloneLocalLibraries: [LocalLibrary] {
         // A single leftover "merged" library (e.g. right after deleting a sibling) doesn't
         // meaningfully merge into anything — show it as a normal standalone tile instead.
-        mergedLocalLibraries.count >= 2
+        (mergedLocalLibraries.count >= 2
             ? localLibrary.libraries.filter { !localLibrary.mergedLibraryIds.contains($0.id) }
-            : localLibrary.libraries
+            : localLibrary.libraries)
+            .filter { !localLibrary.hiddenLibraryIds.contains($0.id) }
     }
 
     /// `libraries` gefiltert/sortiert nach den Pro-User-Overrides aus

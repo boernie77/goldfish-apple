@@ -14,6 +14,7 @@ import GoldfishCore
 /// zu müssen.
 struct HomeAndNavPreferencesView: View {
     @EnvironmentObject var client: GoldfishClient
+    @EnvironmentObject var localLibrary: LocalLibraryManager
 
     @State private var homeLibraries: [HomeLibraryPref] = []
     @State private var navLibraries: [NavLibraryPref] = []
@@ -124,10 +125,16 @@ struct HomeAndNavPreferencesView: View {
                         )
                     }
                 }
+                ForEach(localLibrary.libraries) { lib in
+                    Toggle("\(lib.name) (lokal)", isOn: Binding(
+                        get: { !localLibrary.hiddenLibraryIds.contains(lib.id) },
+                        set: { localLibrary.setLibraryHidden(lib.id, hidden: !$0) }
+                    ))
+                }
             } header: {
                 Text("Bibliotheken-Übersicht")
             } footer: {
-                Text("Welche Bibliotheken in der Bibliotheken-Übersicht erscheinen und in welcher Reihenfolge.")
+                Text("Welche Bibliotheken in der Bibliotheken-Übersicht erscheinen und in welcher Reihenfolge. Lokale Bibliotheken lassen sich nur ein- oder ausblenden, die Auswahl gilt für dieses Gerät.")
             }
         }
         .formStyle(.grouped)

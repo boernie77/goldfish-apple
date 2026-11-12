@@ -237,6 +237,10 @@ public final class LocalLibraryManager: ObservableObject {
     /// "Vergleichs-Filter"). Match-Kriterium ist NUR der Dateiname, keine Size/Hash —
     /// gleiche Konvention wie Android (`LocalAppDatabase.findDuplicateFileNames`).
     @Published public private(set) var compareLibraryIds: Set<UUID> = []
+    /// Lokale Bibliotheken, die in der Bibliotheken-Übersicht ausgeblendet sind (Schalter unter
+    /// „Startseite & Bibliotheken"). Nur Anzeige – Dateien und Scan bleiben unberührt. UUIDs sind
+    /// eindeutig, die Auswahl trennt sich damit von selbst pro Konto.
+    @Published public private(set) var hiddenLibraryIds: Set<UUID> = []
 
     private var activeRoots: [UUID: URL] = [:]
     private let indexURL: URL
@@ -562,6 +566,7 @@ public final class LocalLibraryManager: ObservableObject {
         items.removeAll { $0.libraryId == library.id }
         mergedLibraryIds.remove(library.id)
         compareLibraryIds.remove(library.id)
+        hiddenLibraryIds.remove(library.id)
         unavailableLibraryIds.remove(library.id)
         save()
         refreshVisibleLibraries()
@@ -741,6 +746,11 @@ public final class LocalLibraryManager: ObservableObject {
         save()
     }
 
+    public func setLibraryHidden(_ id: UUID, hidden: Bool) {
+        if hidden { hiddenLibraryIds.insert(id) } else { hiddenLibraryIds.remove(id) }
+        save()
+    }
+
     public func toggleCompareLibrary(_ id: UUID) {
         if compareLibraryIds.contains(id) { compareLibraryIds.remove(id) } else { compareLibraryIds.insert(id) }
         save()
@@ -774,6 +784,7 @@ public final class LocalLibraryManager: ObservableObject {
         var mergedLibraryIds: Set<UUID>?
         var compareLibraryIds: Set<UUID>?
         var mergedLibraryName: String?
+        var hiddenLibraryIds: Set<UUID>?
     }
 
     private func load() {
@@ -784,13 +795,14 @@ public final class LocalLibraryManager: ObservableObject {
         mergedLibraryIds = index.mergedLibraryIds ?? []
         compareLibraryIds = index.compareLibraryIds ?? []
         mergedLibraryName = index.mergedLibraryName ?? ""
+        hiddenLibraryIds = index.hiddenLibraryIds ?? []
     }
 
     /// Persists `allLibrariesOnDisk` (ALL users' libraries), not the filtered `libraries` —
     /// saving the filtered view here would silently delete every other account's local
     /// libraries the next time this user's manager writes to disk.
     private func save() {
-        let index = Index(libraries: allLibrariesOnDisk, items: items, mergedLibraryIds: mergedLibraryIds, compareLibraryIds: compareLibraryIds, mergedLibraryName: mergedLibraryName)
+        let index = Index(libraries: allLibrariesOnDisk, items: items, mergedLibraryIds: mergedLibraryIds, compareLibraryIds: compareLibraryIds, mergedLibraryName: mergedLibraryName, hiddenLibraryIds: hiddenLibraryIds)
         if let data = try? JSONEncoder().encode(index) {
             try? data.write(to: indexURL)
         }
