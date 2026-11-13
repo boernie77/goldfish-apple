@@ -74,7 +74,11 @@ struct DownloadsView: View {
     private var librarySections: [LibraryDownloadSection] {
         let byLibrary = Dictionary(grouping: doneItems, by: \.libraryId)
         return byLibrary.keys
-            .sorted { libraryName(for: $0).localizedStandardCompare(libraryName(for: $1)) == .orderedAscending }
+            .sorted {
+                let a = libraryName(for: $0), b = libraryName(for: $1)
+                let c = a.localizedStandardCompare(b)
+                return c == .orderedSame ? $0 < $1 : c == .orderedAscending
+            }
             .map { libID in
                 let items = byLibrary[libID] ?? []
                 let movies = items.filter { !$0.isEpisode && !$0.isPrivateStyle }
@@ -233,7 +237,15 @@ struct DownloadsView: View {
                 // Für die Bibliotheks-Überschriften (siehe `librarySections`) — offline/
                 // Fehlerfall bewusst stillschweigend ignoriert, `libraryName(for:)` fällt
                 // dann auf einen generischen Platzhalter zurück statt die Ansicht zu blockieren.
-                libraries = (try? await client.fetchLibraries()) ?? []
+                // Offline: zuletzt bekannte Bibliotheksliste aus dem Cache der Bibliotheken-
+                // Übersicht – sonst heißen alle Abschnitte „Bibliothek" und die Reihenfolge
+                // wechselt zwischen online und offline.
+                let cacheKey = "goldfish.cachedLibraries." + (client.currentUsername ?? "_")
+                if libraries.isEmpty, let data = UserDefaults.standard.data(forKey: cacheKey),
+                   let cached = try? JSONDecoder().decode([Library].self, from: data) {
+                    libraries = cached
+                }
+                if let live = try? await client.fetchLibraries() { libraries = live }
                 for record in plainDoneRecords {
                     if let item = try? await client.fetchItem(id: record.itemId) {
                         downloads.backfillItemData(itemId: record.itemId, item: item)

@@ -306,6 +306,9 @@ struct LibrariesView: View {
 
     private static let cacheKeyPrefix = "goldfish.cachedLibraries."
     private var cacheKey: String { Self.cacheKeyPrefix + (client.currentUsername ?? "_") }
+    /// Sichtbarkeit/Reihenfolge der Kacheln wird wie die Bibliotheksliste zwischengespeichert –
+    /// sonst fehlt sie offline und beim Neustart sind alle Bibliotheken wieder sichtbar.
+    private var navPrefsCacheKey: String { "goldfish.cachedNavPrefs." + (client.currentUsername ?? "_") }
 
     private func load() async {
         isLoading = libraries.isEmpty
@@ -315,6 +318,10 @@ struct LibrariesView: View {
         // überhaupt feststeht.
         if libraries.isEmpty, let cached = loadCachedLibraries() {
             libraries = cached
+        }
+        if navPrefsByLibraryId.isEmpty, let data = UserDefaults.standard.data(forKey: navPrefsCacheKey),
+           let cachedPrefs = try? JSONDecoder().decode([NavLibraryPref].self, from: data) {
+            navPrefsByLibraryId = Dictionary(uniqueKeysWithValues: cachedPrefs.map { ($0.libraryId, $0) })
         }
         // Vorschaubilder IMMER zuerst aus dem Platten-Cache vorbelegen — UNABHÄNGIG
         // davon, ob der fetchLibraries()-Call unten klappt. Der bisher einzige
@@ -368,6 +375,9 @@ struct LibrariesView: View {
     private func loadNavPrefs() async {
         guard let prefs = try? await client.fetchNavPreferences() else { return }
         navPrefsByLibraryId = Dictionary(uniqueKeysWithValues: prefs.libraries.map { ($0.libraryId, $0) })
+        if let data = try? JSONEncoder().encode(prefs.libraries) {
+            UserDefaults.standard.set(data, forKey: navPrefsCacheKey)
+        }
     }
 
     private func loadCachedLibraries() -> [Library]? {
