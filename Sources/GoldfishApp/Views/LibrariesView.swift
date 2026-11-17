@@ -308,7 +308,7 @@ struct LibrariesView: View {
     private var cacheKey: String { Self.cacheKeyPrefix + (client.currentUsername ?? "_") }
     /// Sichtbarkeit/Reihenfolge der Kacheln wird wie die Bibliotheksliste zwischengespeichert –
     /// sonst fehlt sie offline und beim Neustart sind alle Bibliotheken wieder sichtbar.
-    private var navPrefsCacheKey: String { "goldfish.cachedNavPrefs." + (client.currentUsername ?? "_") }
+    private var navPrefsCacheKey: String { NavPrefsCache.key(username: client.currentUsername) }
 
     private func load() async {
         isLoading = libraries.isEmpty
@@ -375,9 +375,7 @@ struct LibrariesView: View {
     private func loadNavPrefs() async {
         guard let prefs = try? await client.fetchNavPreferences() else { return }
         navPrefsByLibraryId = Dictionary(uniqueKeysWithValues: prefs.libraries.map { ($0.libraryId, $0) })
-        if let data = try? JSONEncoder().encode(prefs.libraries) {
-            UserDefaults.standard.set(data, forKey: navPrefsCacheKey)
-        }
+        NavPrefsCache.save(prefs.libraries, username: client.currentUsername)
     }
 
     private func loadCachedLibraries() -> [Library]? {
@@ -813,5 +811,23 @@ struct ContentUnavailableMessage: View {
         }
         .foregroundStyle(.secondary)
         .padding()
+    }
+}
+
+
+/// Offline-Cache für Sichtbarkeit/Reihenfolge der Bibliotheks-Kacheln (pro Benutzer).
+/// Wird von der Bibliotheken-Ansicht UND den Einstellungen geschrieben — sonst bleibt nach
+/// einer Änderung in den Einstellungen der alte Stand im Cache, und offline erscheinen
+/// ausgeblendete Bibliotheken wieder.
+enum NavPrefsCache {
+    static func key(username: String?) -> String { "goldfish.cachedNavPrefs." + (username ?? "_") }
+
+    static func save(_ prefs: [NavLibraryPref], username: String?, renumber: Bool = false) {
+        // `order` an die Listenposition angleichen (die Einstellungen sortieren nur das Array um).
+        var ordered = prefs
+        if renumber { for i in ordered.indices { ordered[i].order = i } }
+        if let data = try? JSONEncoder().encode(ordered) {
+            UserDefaults.standard.set(data, forKey: key(username: username))
+        }
     }
 }

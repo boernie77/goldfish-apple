@@ -115,6 +115,7 @@ struct HomeAndNavPreferencesView: View {
                                 get: { navLibraries[index].onNav },
                                 set: { newValue in
                                     navLibraries[index].onNav = newValue
+                                    NavPrefsCache.save(navLibraries, username: client.currentUsername)
                                     Task { try? await client.setNavPreference(libraryId: pref.libraryId, onNav: newValue) }
                                 }
                             ),
@@ -194,6 +195,7 @@ struct HomeAndNavPreferencesView: View {
         let target = index + delta
         guard navLibraries.indices.contains(target) else { return }
         navLibraries.swapAt(index, target)
+        NavPrefsCache.save(navLibraries, username: client.currentUsername, renumber: true)
         Task { try? await client.setNavOrder(ids: navLibraries.map(\.libraryId)) }
     }
 
@@ -211,6 +213,7 @@ struct HomeAndNavPreferencesView: View {
             continueMaxAgeDays = homeResult.continueMaxAgeDays
             nextUpMaxAgeDays = homeResult.nextUpMaxAgeDays
             navLibraries = navResult.libraries
+            NavPrefsCache.save(navLibraries, username: client.currentUsername)
         } catch {
             errorMessage = error.localizedDescription
         }
